@@ -250,6 +250,8 @@ export const profileSchema = z.object({
   timezone: z.string().trim().min(1).max(60),
   workdays: z.array(z.number().int().min(0).max(6)).max(7),
   capacity_minutes: z.number().int().min(0).max(960),
+  avail_start: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  avail_end: z.string().regex(/^\d{2}:\d{2}$/).optional(),
 });
 
 /* ---------------- WhatsApp report ---------------- */

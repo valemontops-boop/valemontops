@@ -3,7 +3,7 @@
 Derived from spec §8. References in `docs/design-inspiration/` are a vocabulary, not layouts to copy.
 
 ## Direction
-Calm, light workspace: quiet surfaces, large confident numbers, one warm accent. One theme ships; tokens are
+Calm, light workspace: quiet surfaces, large confident numbers, near-monochrome; primary actions in ink. One theme ships; tokens are
 semantic (`--canvas`, `--panel`, …) so a dark theme can be added later.
 
 ## Tokens (`src/app/globals.css`)
@@ -16,8 +16,8 @@ semantic (`--canvas`, `--panel`, …) so a dark theme can be added later.
 | text-3 | #6E6A72 | tertiary, never lighter (5.1:1) |
 | hairline | #E2E0DA | separators only |
 | control-border | #8E8A92 | input/control boundaries (3.2:1) |
-| accent | #E8920C | primary action fill, always ink text |
-| accent-text | #8F5400 | accent as text |
+| accent | #17161A | primary action fill with `on-accent` #FBFAF7 text (orange removed at the founders' request, D017) |
+| accent-text | #17161A | links (underlined) |
 | good / bad | #17704F / #B3261E | status only, with icon and sign |
 | brand-consulting / brand-local / brand-thirty | #2F5FBF / #C4730A / #7A4FD6 | data colors, fixed per entity |
 | market FR / ES | ink / #8E8A92 | direct-labelled |

@@ -1,7 +1,7 @@
 import { GoogleSheetsRepository } from "../src/data/sheets/repository";
 import { setupSpreadsheet } from "../src/data/sheets/setup";
 import { seedBaseline } from "../src/server/services/baseline";
-import { clientFromEnv, fail } from "./_client";
+import { clientFromEnv, clientFor, fail } from "./_client";
 
 async function main() {
   const { client, target, serviceEmail } = clientFromEnv();
@@ -25,6 +25,18 @@ async function main() {
     pablo: process.env.FOUNDER_PABLO_TIMEZONE || "Europe/Madrid",
   });
   console.log(`✓ Seed rows added: ${Object.keys(added).length ? Object.entries(added).map(([t, n]) => `${t} ${n}`).join(", ") : "none (already seeded, existing values untouched)"}`);
+  for (const [f, id] of [["Théo", process.env.PRIVATE_SHEET_ID_THEO], ["Pablo", process.env.PRIVATE_SHEET_ID_PABLO]] as const) {
+    if (!id) {
+      console.log(`- ${f}: PRIVATE_SHEET_ID not set (job search and private tasks disabled)`);
+      continue;
+    }
+    try {
+      const r = await setupSpreadsheet(clientFor(id), "private");
+      console.log(`✓ ${f} private sheet ready${r.created.length ? ` (created ${r.created.join(", ")})` : ""}`);
+    } catch (e) {
+      console.log(`✗ ${f} private sheet: ${(e as Error).message} (share it with the service account as Editor)`);
+    }
+  }
   console.log("Done. Next: npm run doctor:sheets");
 }
 main().catch((e) => fail((e as Error).message));

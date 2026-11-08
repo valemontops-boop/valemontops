@@ -1,5 +1,8 @@
 "use client";
-import { Command, LayoutList, Plus, RefreshCw, Settings, Sun, Users, AlertCircle, Check, Loader2 } from "lucide-react";
+import { Bell, CalendarDays, ChevronDown, Command, FileText, Gauge, Lightbulb, LayoutList, ListChecks, Megaphone, Plus, RefreshCw, Settings, Sun, Users, AlertCircle, Check, Loader2, BarChart3, X } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
+import { IdeaCapture } from "./idea-capture";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import * as React from "react";
@@ -13,9 +16,72 @@ import { QUICK_KINDS, QuickActionProvider, useQuickAction } from "./quick-action
 import { useCrm, useMyDay } from "./use-crm";
 
 const NAV = [
+  { href: "/command-center", label: "Command Center", icon: Gauge },
   { href: "/my-day", label: "My Day", icon: Sun },
   { href: "/crm", label: "Sales CRM", icon: Users },
+  { href: "/marketing", label: "Marketing", icon: Megaphone },
 ];
+const WORKSPACE = [
+  { href: "/tasks", label: "Tasks", icon: ListChecks },
+  { href: "/agenda", label: "Agenda", icon: CalendarDays },
+  { href: "/ideas", label: "Ideas", icon: Lightbulb },
+  { href: "/files", label: "Files", icon: FileText },
+  { href: "/reports", label: "Reports", icon: BarChart3 },
+];
+const MOBILE_NAV = [
+  { href: "/my-day", label: "My Day", icon: Sun },
+  { href: "/crm", label: "CRM", icon: Users },
+  { href: "/tasks", label: "Tasks", icon: ListChecks },
+  { href: "/command-center", label: "Team", icon: Gauge },
+  { href: "/settings", label: "More", icon: Settings },
+];
+
+type Notif = { key: string; kind: string; title: string; detail: string; href: string };
+function Notifications() {
+  const qc = useQueryClient();
+  const router = useRouter();
+  const [open, setOpen] = React.useState(false);
+  const q = useQuery({ queryKey: ["notifications"], queryFn: () => api<Notif[]>("/api/notifications") });
+  const dismiss = useMutation({ mutationFn: (key: string) => api("/api/notifications", { body: { key } }), onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications"] }) });
+  const n = q.data?.length ?? 0;
+  return (
+    <div className="relative">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-label={n ? `${n} notifications` : "Notifications"} className="relative flex size-10 items-center justify-center rounded-full text-text-2 hover:bg-subtle hover:text-ink">
+        <Bell className="size-5" />
+        {n ? <span className="num absolute right-1 top-1 min-w-4 rounded-full bg-ink px-1 text-center text-[11px] leading-4 text-panel">{n}</span> : null}
+      </button>
+      {open ? (
+        <div role="dialog" aria-label="Notifications" className="absolute right-0 top-12 z-30 w-[min(92vw,380px)] rounded-[20px] bg-panel p-3 shadow-[0_12px_40px_rgba(23,22,26,0.16)]">
+          {q.isError ? <p className="p-2 text-sm text-bad">Error: could not load notifications.</p> : n === 0 ? <p className="p-2 text-sm text-text-2">Nothing needs you right now.</p> : (
+            <ul className="flex max-h-96 flex-col overflow-y-auto">
+              {q.data!.map((x) => (
+                <li key={x.key} className="flex items-start gap-2 rounded-[12px] p-2 hover:bg-subtle">
+                  <button type="button" className="min-w-0 flex-1 text-left" onClick={() => { setOpen(false); router.push(x.href); }}>
+                    <p className="text-sm font-medium">{x.title}</p>
+                    <p className="text-[12px] text-text-2">{x.detail}</p>
+                  </button>
+                  <button type="button" aria-label="Dismiss" onClick={() => dismiss.mutate(x.key)} className="rounded-full p-1 text-text-3 hover:bg-panel hover:text-ink"><X className="size-4" /></button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function NavLink({ href, label, icon: Icon, path, badge }: { href: string; label: string; icon: React.ComponentType<{ className?: string }>; path: string; badge?: number }) {
+  const active = path.startsWith(href);
+  return (
+    <Link href={href} aria-current={active ? "page" : undefined}
+      className={cn("flex h-10 items-center gap-3 rounded-[12px] px-3 text-sm font-medium", active ? "bg-subtle text-ink" : "text-text-2 hover:bg-subtle hover:text-ink")}>
+      <Icon className="size-4" />
+      <span className="flex-1">{label}</span>
+      {badge ? <span className="num rounded-full bg-ink px-2 text-[12px] text-panel">{badge}</span> : null}
+    </Link>
+  );
+}
 
 export function AppShell({ me, children }: { me: Me; children: React.ReactNode }) {
   return (
@@ -75,6 +141,8 @@ function Frame({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const qa = useQuickAction();
   const [palette, setPalette] = React.useState(false);
+  const [idea, setIdea] = React.useState(false);
+  const [wsOpen, setWsOpen] = React.useState(true);
   const day = useMyDay();
   const followUps = day.data?.followUps.filter((f) => f.overdue).length ?? 0;
 
@@ -91,6 +159,11 @@ function Frame({ children }: { children: React.ReactNode }) {
       if (e.key === "/") {
         e.preventDefault();
         setPalette(true);
+        return;
+      }
+      if (e.key.toLowerCase() === "i") {
+        e.preventDefault();
+        setIdea(true);
         return;
       }
       const k = QUICK_KINDS.find((q) => q.key === e.key.toLowerCase());
@@ -110,17 +183,11 @@ function Frame({ children }: { children: React.ReactNode }) {
         <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r border-hairline bg-panel px-3 py-5 md:flex">
           <Link href="/my-day" className="mb-6 px-3 text-[17px] font-semibold tracking-tight">Valemont OS</Link>
           <nav aria-label="Main" className="flex flex-col gap-1">
-            {NAV.map((n) => {
-              const active = path.startsWith(n.href);
-              return (
-                <Link key={n.href} href={n.href} aria-current={active ? "page" : undefined}
-                  className={cn("flex h-10 items-center gap-3 rounded-[12px] px-3 text-sm font-medium", active ? "bg-subtle text-ink" : "text-text-2 hover:bg-subtle hover:text-ink")}>
-                  <n.icon className="size-4" />
-                  <span className="flex-1">{n.label}</span>
-                  {n.href === "/my-day" && followUps > 0 ? <span className="num rounded-full bg-ink px-2 text-[12px] text-panel" aria-label={`${followUps} overdue follow-ups`}>{followUps}</span> : null}
-                </Link>
-              );
-            })}
+            {NAV.map((n) => <NavLink key={n.href} {...n} path={path} badge={n.href === "/my-day" ? followUps : undefined} />)}
+            <button type="button" onClick={() => setWsOpen((o) => !o)} aria-expanded={wsOpen} className="mt-3 flex h-8 items-center justify-between rounded-[12px] px-3 text-[12px] font-semibold text-text-3 hover:text-ink">
+              Workspace <ChevronDown className={cn("size-4 transition-transform", !wsOpen && "-rotate-90")} />
+            </button>
+            {wsOpen ? WORKSPACE.map((n) => <NavLink key={n.href} {...n} path={path} />) : null}
           </nav>
           <div className="mt-auto flex flex-col gap-1">
             <Link href="/settings" aria-current={path.startsWith("/settings") ? "page" : undefined}
@@ -147,6 +214,8 @@ function Frame({ children }: { children: React.ReactNode }) {
             </button>
             <div className="ml-auto flex items-center gap-3">
               <div className="hidden sm:block"><SyncBadge /></div>
+              <Notifications />
+              <Button variant="ghost" size="icon" onClick={() => setIdea(true)} aria-label="New idea (I)" title="New idea (I)"><Lightbulb /></Button>
               <Button variant="primary" size="md" onClick={() => qa.open()} aria-keyshortcuts="c v d l n e f s m">
                 <Plus /> Log activity
               </Button>
@@ -157,15 +226,16 @@ function Frame({ children }: { children: React.ReactNode }) {
         </div>
       </div>
 
-      <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-3 border-t border-hairline bg-panel pb-[env(safe-area-inset-bottom)] md:hidden">
-        {[...NAV, { href: "/settings", label: "Settings", icon: Settings }].map((n) => (
+      <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-5 border-t border-hairline bg-panel pb-[env(safe-area-inset-bottom)] md:hidden">
+        {MOBILE_NAV.map((n) => (
           <Link key={n.href} href={n.href} aria-current={path.startsWith(n.href) ? "page" : undefined}
-            className={cn("flex h-14 flex-col items-center justify-center gap-0.5 text-[12px] font-medium", path.startsWith(n.href) ? "text-ink" : "text-text-3")}>
+            className={cn("flex h-14 flex-col items-center justify-center gap-0.5 text-[11px] font-medium", path.startsWith(n.href) ? "text-ink" : "text-text-3")}>
             <n.icon className="size-5" />{n.label}
           </Link>
         ))}
       </nav>
 
+      <IdeaCapture open={idea} onOpenChange={setIdea} />
       <CommandPalette open={palette} onOpenChange={setPalette} onNavigate={(href) => router.push(href)} />
     </div>
   );
@@ -189,8 +259,7 @@ function PaletteBody({ onClose, onNavigate }: { onClose: () => void; onNavigate:
     const s = q.trim().toLowerCase();
     const actions = [
       ...QUICK_KINDS.map((k) => ({ id: `qa-${k.kind}`, label: `Log ${k.label.toLowerCase()}`, hint: k.key.toUpperCase(), run: () => qa.open({ kind: k.kind }) })),
-      { id: "nav-myday", label: "Go to My Day", hint: "", run: () => onNavigate("/my-day") },
-      { id: "nav-crm", label: "Go to Sales CRM", hint: "", run: () => onNavigate("/crm") },
+      ...[...NAV, ...WORKSPACE].map((n) => ({ id: `nav-${n.href}`, label: `Go to ${n.label}`, hint: "", run: () => onNavigate(n.href) })),
       { id: "nav-import", label: "Import prospects from CSV", hint: "", run: () => onNavigate("/crm/import") },
       { id: "nav-settings", label: "Open Settings", hint: "", run: () => onNavigate("/settings") },
     ];

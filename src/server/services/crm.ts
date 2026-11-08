@@ -10,6 +10,7 @@ import { normalizeDomain, normalizeEmail, normalizePhone } from "@/domain/normal
 import { stageChangeErrors } from "@/domain/pipeline";
 import { outreachBlock } from "@/domain/suppression";
 import { RuleError } from "../errors";
+import { patchOf } from "@/lib/zod";
 import { stageProbabilities } from "./common";
 
 const t200 = z.string().trim().max(200).default("");
@@ -96,7 +97,7 @@ async function createOpportunityRow(repo: DataRepository, founder: FounderKey, i
   const { value_eur, ...rest } = o;
   const row: NewRow<"Opportunities"> = {
     id, account_id: accountId, ...rest, value_minor: value_eur === null ? null : Math.round(value_eur * 100), currency: "EUR",
-    expected_close: o.expected_close || null, next_action_due: o.next_action_due || null, lost_reason: "",
+    expected_close: o.expected_close || null, next_action_due: o.next_action_due || null, lost_reason: "", next_action_reason: "",
     anum_authority: "", anum_need: "", anum_urgency: "", anum_money: "",
   };
   const [opp] = await repo.insert("Opportunities", [row], { founder });
@@ -118,7 +119,7 @@ export async function createOpportunity(repo: DataRepository, founder: FounderKe
   return createOpportunityRow(repo, founder, input.id, input.account_id, { ...input.opportunity, market: input.opportunity.market ?? acc.country });
 }
 
-export const updateAccountSchema = z.object({ id: z.string().uuid(), expected_version: z.number().int(), patch: accountInput.partial() });
+export const updateAccountSchema = z.object({ id: z.string().uuid(), expected_version: z.number().int(), patch: patchOf(accountInput) });
 
 export async function updateAccount(repo: DataRepository, founder: FounderKey, input: z.infer<typeof updateAccountSchema>) {
   const patch: Partial<Row<"Accounts">> = { ...input.patch };
@@ -132,14 +133,14 @@ export async function updateAccount(repo: DataRepository, founder: FounderKey, i
 export const updateOpportunitySchema = z.object({
   id: z.string().uuid(),
   expected_version: z.number().int(),
-  patch: opportunityInput
-    .partial()
+  patch: patchOf(opportunityInput)
     .extend({
       lost_reason: z.string().trim().max(500).optional(),
       anum_authority: z.string().trim().max(500).optional(),
       anum_need: z.string().trim().max(500).optional(),
       anum_urgency: z.string().trim().max(500).optional(),
       anum_money: z.string().trim().max(500).optional(),
+      next_action_reason: z.string().trim().max(300).optional(),
       is_archived: z.boolean().optional(),
     }),
   stage_reason: z.string().trim().max(500).default(""),
@@ -154,6 +155,10 @@ export async function updateOpportunity(repo: DataRepository, founder: FounderKe
   if (expected_close !== undefined) patch.expected_close = expected_close || null;
   if (next_action_due !== undefined) patch.next_action_due = next_action_due || null;
   const merged = { ...cur, ...patch };
+  // Rescheduling a high-priority follow-up later needs a reason (it counts as handled for the day only then).
+  if (cur.next_action_priority === "high" && cur.next_action_due && patch.next_action_due && patch.next_action_due > cur.next_action_due && !(input.patch.next_action_reason ?? "").trim()) {
+    throw new RuleError("Moving a high-priority follow-up later needs a reason.");
+  }
   const stageChanged = input.patch.stage !== undefined && input.patch.stage !== cur.stage;
   if (stageChanged) {
     const errs = stageChangeErrors(merged, input.patch.stage!, merged.lost_reason);
@@ -179,7 +184,7 @@ export async function createContact(repo: DataRepository, founder: FounderKey, i
   return c;
 }
 
-export const updateContactSchema = z.object({ id: z.string().uuid(), expected_version: z.number().int(), patch: contactInput.partial() });
+export const updateContactSchema = z.object({ id: z.string().uuid(), expected_version: z.number().int(), patch: patchOf(contactInput) });
 export async function updateContact(repo: DataRepository, founder: FounderKey, input: z.infer<typeof updateContactSchema>) {
   return repo.update("Contacts", input.id, input.expected_version, input.patch, { founder });
 }

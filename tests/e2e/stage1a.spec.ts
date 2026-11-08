@@ -43,7 +43,8 @@ test("scenario 2: a cold call logged once appears once and survives reload; visi
   const pablo = await pabloCtx.newPage();
   await signIn(pablo, "pablo");
   await pablo.goto("/crm");
-  await pablo.getByRole("radio", { name: "Businesses" }).click();
+  await pablo.getByRole("radio", { name: "List" }).click();
+  await pablo.getByRole("radio", { name: "All businesses" }).click();
   await pablo.getByRole("button", { name: "Garage du Parc (demo)" }).click();
   const panel = pablo.getByRole("complementary", { name: "Details" });
   await expect(panel.getByText("Call, no answer")).toHaveCount(1);
@@ -59,26 +60,27 @@ test("scenario 3: concurrent edits on the same opportunity show a conflict, neve
   await signIn(b, "pablo");
   for (const p of [a, b]) {
     await p.goto("/crm");
-    await p.getByRole("button", { name: "Chauffage Morel · Local Essential" }).click();
+    await p.getByRole("button", { name: /^Chauffage Morel \(demo\)/ }).click();
   }
   const pa = a.getByRole("complementary", { name: "Details" });
   const pb = b.getByRole("complementary", { name: "Details" });
-  await pb.getByLabel("Next action").fill("Pablo: send the demo video");
-  await pb.getByRole("button", { name: "Save opportunity" }).click();
+  await pb.getByLabel("Next step").fill("Pablo: send the demo video");
+  await pb.getByRole("button", { name: "Save next step" }).click();
   await expect(b.getByText("Saved", { exact: true })).toBeVisible();
-  await pa.getByLabel("Next action").fill("Théo: visit on Thursday");
-  await pa.getByRole("button", { name: "Save opportunity" }).click();
+  await pa.getByLabel("Next step").fill("Théo: visit on Thursday");
+  await pa.getByRole("button", { name: "Save next step" }).click();
   await expect(pa.getByRole("alert")).toContainText("Someone else saved this record");
   await expect(pa.getByRole("alert")).toContainText("Pablo: send the demo video");
   await a.reload();
-  await a.getByRole("button", { name: "Chauffage Morel · Local Essential" }).click();
-  await expect(a.getByRole("complementary", { name: "Details" }).getByLabel("Next action")).toHaveValue("Pablo: send the demo video");
+  await a.getByRole("button", { name: /^Chauffage Morel \(demo\)/ }).click();
+  await expect(a.getByRole("complementary", { name: "Details" }).getByLabel("Next step")).toHaveValue("Pablo: send the demo video");
 });
 
 test("scenario 14: an opted-out contact is blocked in the UI and by the server for both founders", async ({ page }) => {
   await signIn(page, "pablo");
   await page.goto("/crm");
-  await page.getByRole("radio", { name: "Businesses" }).click();
+  await page.getByRole("radio", { name: "List" }).click();
+  await page.getByRole("radio", { name: "All businesses" }).click();
   await page.getByRole("button", { name: "Climatización Ortega (demo)" }).click();
   const panel = page.getByRole("complementary", { name: "Details" });
   await expect(panel.getByText("This contact opted out.")).toBeVisible();

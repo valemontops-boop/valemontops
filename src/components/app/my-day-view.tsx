@@ -1,6 +1,6 @@
 "use client";
 import { useMutation, useMutationState } from "@tanstack/react-query";
-import { Circle, Clock, Copy, Phone } from "lucide-react";
+import { Clock, Copy, Phone } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import { ActionMeter } from "./action-meter";
 import { QUICK_KINDS, useQuickAction, type QuickKind } from "./quick-action";
 import { TargetsEditor } from "./targets-editor";
 import { useMyDay, type MyDayData } from "./use-crm";
+import { CloseDayButton, JobSearch, LateCorrections, NextBestActions, NextMeetings, StreakLine, TodaysTasks } from "./my-day-extras";
 import { useQueryClient } from "@tanstack/react-query";
 
 const METRIC_KIND: Partial<Record<Metric, QuickKind>> = {
@@ -28,7 +29,6 @@ export function MyDayView() {
   });
   const [editor, setEditor] = React.useState(false);
   const [report, setReport] = React.useState(false);
-  const [allFollowUps, setAllFollowUps] = React.useState(false);
   const [allLog, setAllLog] = React.useState(false);
   const toggleFocus = () => setFocus((f) => { try { localStorage.setItem("vos-focus", f ? "0" : "1"); } catch { /* ignore */ } return !f; });
 
@@ -52,13 +52,15 @@ export function MyDayView() {
               {d.today} · {d.mode ? WORK_MODE_LABELS[d.mode] : "No mode set"} · day closes at {timeOfDay(d.cutoffAt, d.timezone)} ({d.timezone})
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button variant="ghost" size="sm" onClick={() => setReport(true)} className={focus ? "hidden" : ""}><Copy /> WhatsApp report</Button>
             <Button variant="ghost" size="sm" onClick={() => setEditor(true)} className={focus ? "hidden" : ""}>Mode & targets</Button>
+            {!focus ? <CloseDayButton /> : null}
             <Button variant="outline" size="sm" aria-pressed={focus} onClick={toggleFocus}>{focus ? "Exit focus" : "Focus"}</Button>
           </div>
         </div>
 
+        {!focus ? <NextMeetings /> : null}
         <NextActionCard d={d} onOnboard={() => setEditor(true)} />
 
         {d.mode ? (
@@ -71,12 +73,13 @@ export function MyDayView() {
             ) : null}>
               <span id="meters-title">Today&apos;s targets</span>
             </PanelTitle>
+            {!focus ? <div className="-mt-2 mb-2"><StreakLine /></div> : null}
             {!d.isWorkday ? (
               <EmptyState title="Not a scheduled workday">Nothing is expected today and nothing counts against you. Logged activity still updates the CRM.</EmptyState>
             ) : active.length === 0 ? (
               <EmptyState title="No targets in this mode" action={<Button size="sm" onClick={() => setEditor(true)}>Set targets</Button>}>Targets are optional. Without targets no day is marked missed.</EmptyState>
             ) : (
-              <div className="divide-y divide-hairline">
+              <div className="grid grid-cols-1 gap-x-10 lg:grid-cols-2 [&>*]:border-b [&>*]:border-hairline">
                 {active.map((m) => (
                   <ActionMeter key={m} label={METRIC_LABELS[m]} actual={d.tally[m]} target={d.targets![m].target} pending={pendingByMetric[m] ?? 0}
                     onLog={METRIC_KIND[m] ? () => qa.open({ kind: METRIC_KIND[m] }) : m === "new_businesses" ? () => qa.open({ kind: "visit" }) : undefined} />
@@ -84,8 +87,8 @@ export function MyDayView() {
               </div>
             )}
             {d.feasibility && !focus ? (
-              <p className={cn("mt-3 flex items-center gap-2 text-[13px]", d.feasibility.feasible ? "text-text-2" : "text-bad")}>
-                <Clock className="size-3.5" />
+              <p className={cn("mt-3 text-[13px]", d.feasibility.feasible ? "text-text-2" : "text-bad")}>
+                <Clock className="mr-1.5 inline size-3.5 align-[-2px]" />
                 Planned <span className="num">{d.feasibility.plannedMinutes}</span> min of outreach against <span className="num">{d.feasibility.capacityMinutes}</span> min capacity
                 {d.feasibility.feasible ? "" : ` (${d.feasibility.overBy} min over: lower a target for tomorrow)`}
               </p>
@@ -93,34 +96,11 @@ export function MyDayView() {
           </Panel>
         ) : null}
 
+        {!focus ? <LateCorrections /> : null}
         {!focus ? (
           <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-            <Panel aria-labelledby="fu-title">
-              <PanelTitle action={d.followUps.length > 5 ? <Button variant="ghost" size="sm" onClick={() => setAllFollowUps((v) => !v)}>{allFollowUps ? "Show fewer" : `See all ${d.followUps.length}`}</Button> : null}>
-                <span id="fu-title">Due follow-ups <span className="num text-text-3">{d.followUps.length}</span></span>
-              </PanelTitle>
-              {d.followUps.length === 0 ? (
-                <p className="text-sm text-text-2">No follow-ups due. That counts as fulfilled.</p>
-              ) : (
-                <ul className="flex flex-col">
-                  {(allFollowUps ? d.followUps : d.followUps.slice(0, 5)).map((f) => (
-                    <li key={f.key} className="flex items-center gap-3 border-t border-hairline py-2.5 first:border-t-0">
-                      <button type="button" aria-label={`Log follow-up for ${f.accountName}`} onClick={() => qa.open({ kind: "follow_up", accountId: f.accountId, opportunityId: f.opportunityId ?? undefined })}
-                        className="flex size-11 shrink-0 items-center justify-center rounded-full text-control hover:text-ink">
-                        <Circle className="size-6" strokeWidth={1.5} />
-                      </button>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate font-medium">{f.action}</p>
-                        <p className={cn("truncate text-[13px]", f.overdue ? "text-bad" : "text-text-2")}>{f.accountName} · {f.why}</p>
-                      </div>
-                      {f.phone ? <a href={`tel:${f.phone}`} className="flex size-11 items-center justify-center rounded-full text-text-2 hover:bg-subtle" aria-label={`Call ${f.accountName}`}><Phone className="size-4" /></a> : null}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <p className="mt-3 text-[12px] text-text-3">Opening a phone or LinkedIn link never counts as done. Log the outcome.</p>
-            </Panel>
-
+            <NextBestActions />
+            <TodaysTasks />
             <Panel aria-labelledby="log-title">
               <PanelTitle action={d.todayEvents.length > 5 ? <Button variant="ghost" size="sm" onClick={() => setAllLog((v) => !v)}>{allLog ? "Show fewer" : `See all ${d.todayEvents.length}`}</Button> : null}>
                 <span id="log-title">Logged today <span className="num text-text-3">{d.todayEvents.length}</span></span>
@@ -138,6 +118,7 @@ export function MyDayView() {
                 </ul>
               )}
             </Panel>
+            <JobSearch />
           </div>
         ) : null}
       </div>

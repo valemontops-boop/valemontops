@@ -189,3 +189,12 @@ describe("Scenario 11: LIVE without credentials never falls back", () => {
     expect(readConfig({ APP_MODE: "demo", SESSION_SECRET: "x".repeat(40), NODE_ENV: "production" }).ok).toBe(false);
   });
 });
+
+describe("Partial updates never reset fields that were not sent (zod v4 defaults regression)", () => {
+  it("saving only the next step keeps stage, owner, brand and value", async () => {
+    const { opp } = await newBusiness();
+    const moved = await updateOpportunity(repo, "theo", updateOpportunitySchema.parse({ id: opp.id, expected_version: opp.version, patch: { stage: "contacted", owner_founder: "pablo", value_eur: 490 } }));
+    const after = await updateOpportunity(repo, "theo", updateOpportunitySchema.parse({ id: opp.id, expected_version: moved.version, patch: { next_action: "Call back", next_action_due: "2026-11-12" } }));
+    expect(after).toMatchObject({ stage: "contacted", owner_founder: "pablo", brand: "local", value_minor: 49000, next_action: "Call back", next_action_due: "2026-11-12" });
+  });
+});

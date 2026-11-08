@@ -9,7 +9,7 @@ const subs = new Set<() => void>();
 
 function routeFromHash() {
   const h = (typeof location !== "undefined" ? location.hash : "").replace(/^#/, "");
-  return ["my-day", "crm", "crm-import", "settings"].includes(h) ? "/" + h.replace("crm-import", "crm/import") : "/my-day";
+  return ["my-day", "crm", "crm-import", "settings", "command-center", "tasks", "agenda", "ideas", "files", "marketing", "reports"].includes(h) ? "/" + h.replace("crm-import", "crm/import") : "/my-day";
 }
 if (typeof window !== "undefined") {
   window.addEventListener("hashchange", () => {

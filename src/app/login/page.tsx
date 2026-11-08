@@ -34,7 +34,7 @@ async function LoginCard({ searchParams }: { searchParams: Promise<{ error?: str
       <p className="mt-1 text-sm text-text-2">Founders only.</p>
       {error ? <p role="alert" className="mt-4 rounded-[12px] bg-[#fbeceb] p-3 text-sm text-bad">{ERRORS[error] ?? "Sign-in failed."}</p> : null}
       {cfg.mode === "live" ? (
-        <a href="/api/auth/google" className="mt-6 flex h-12 items-center justify-center rounded-full bg-accent font-medium text-ink hover:bg-[#d98507]">
+        <a href="/api/auth/google" className="mt-6 flex h-12 items-center justify-center rounded-full bg-accent font-medium text-on-accent hover:bg-accent-hover">
           Sign in with Google
         </a>
       ) : (
@@ -46,7 +46,7 @@ async function LoginCard({ searchParams }: { searchParams: Promise<{ error?: str
               <input name="code" type="password" required className="h-10 rounded-[12px] border border-control bg-panel px-3 text-ink" />
             </label>
           ) : null}
-          <button name="founder" value="theo" className="h-12 rounded-full bg-accent font-medium text-ink hover:bg-[#d98507]">Continue as Théo (demo)</button>
+          <button name="founder" value="theo" className="h-12 rounded-full bg-accent font-medium text-on-accent hover:bg-accent-hover">Continue as Théo (demo)</button>
           <button name="founder" value="pablo" className="h-12 rounded-full border border-control font-medium hover:bg-subtle">Continue as Pablo (demo)</button>
         </form>
       )}

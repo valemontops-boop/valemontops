@@ -1,13 +1,17 @@
-# Integrations — honest status (Stage 1A)
+# Integrations — honest status (Stage 1B)
 
 | Integration | Status | Notes |
 |---|---|---|
-| Google Sheets | Needs setup | Service account + shared Sheet. Verified against the fake server only. |
+| Google Sheets | Needs setup | Service account + shared Sheet (+ one private Sheet per founder). Verified against the fake server only. |
 | Google Sign-In | Needs setup | OAuth client, two allowlisted founders, basic scopes only. |
-| Google Calendar, Drive, Gmail | Not started | Stage 1B (Calendar/Drive via shared calendar/folder), Gmail optional Stage 4. |
-| LinkedIn / Sales Navigator | Manual logging | Manual logger and click-to-open only. No scraping, no automated messaging. Statistics: Import-only (Stage 1B). |
-| Instagram, websites, payments, banking, GA4 | Not started | Stages 3–4. |
+| Google Calendar | Needs setup | Shared "Valemont" calendar + personal calendars shared with the service account; ids in Settings › Calendars. Other founder's calendar read as free/busy only. |
+| Google Drive | Needs setup | Read: folder shared with the service account (Viewer). Write: each founder's own `drive.file` grant, asked at first upload. Picker not wired yet. |
+| LinkedIn statistics | Import-only | Page export (.xls) and creator export (.xlsx) through Marketing › Import. API adapter only after Community Management API approval. |
+| LinkedIn / Sales Navigator outreach | Manual logging | Logger + click-to-open. No scraping, no automated messaging. |
+| Instagram statistics | Manual logging | Manual entry now; API adapter + 6-hourly snapshot job in Stage 3. |
+| Websites, payments, banking, GA4, Gmail | Not started | Stages 3–4. |
 | ECB FX | Not started | Stage 3. |
 
-No connector of the Claude account that builds this app is used at runtime. Every identity is supplied by the founders
-through environment variables.
+## Expiring credentials
+`drive.file` access tokens last about an hour and live only in an encrypted cookie; expiry means one more consent click.
+No token is ever stored in Sheets. The builder's Claude account is never used at runtime.

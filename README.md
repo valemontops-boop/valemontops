@@ -1,8 +1,10 @@
 # Valemont OS
 
 Internal operating system for Valemont Partners' two founders. Google Sheets is the only durable database.
-Stage 1A (this version): sign-in, LIVE/DEMO modes, Sales CRM, CSV import/export, one-tap activity logging,
-My Day with modes, targets and live counters, opt-out hard block, WhatsApp daily report.
+Stages 1A + 1B: sign-in, LIVE/DEMO modes, simple CRM board, CSV import/export, one-tap activity logging, My Day
+(modes, targets, meters, Next Best Action, tasks, streaks, end-of-day review), Command Center, tasks, sprints, weekly review
+and reports, notifications, Agenda and Founder Points (shared calendars), Idea Box, Files (Drive), Audience with LinkedIn
+import, private job search, opt-out hard block, WhatsApp daily report.
 
 ## Try it now (DEMO, no credentials)
 
@@ -82,6 +84,16 @@ Use Valemont's Google accounts for all of this, never a personal or builder acco
    ```bash
    npm run dev
    ```
+
+10. **Stage 1B (optional but recommended):**
+   - *Private sheets:* each founder creates their own private Sheet, shares it with the service account (Editor), and you set
+     `PRIVATE_SHEET_ID_THEO` / `PRIVATE_SHEET_ID_PABLO`. Run `npm run setup:sheets` again; it prepares those too.
+   - *Calendar:* enable the **Google Calendar API**. Create a shared “Valemont” calendar, share it with the other founder and with
+     the service account (“Make changes to events”). Each founder shares their own calendar with the service account
+     (“See only free/busy”). Paste the calendar ids in **Settings › Calendars**.
+   - *Drive:* enable the **Google Drive API**. Create a “Valemont OS” folder, share it with the service account as Viewer, paste
+     its id in **Settings › Workspace**. Add `https://www.googleapis.com/auth/drive.file` to the OAuth consent screen scopes
+     and `<APP_BASE_URL>/api/auth/google/drive/callback` to the OAuth client redirect URIs. Uploads ask each founder once.
 
 If anything is missing, LIVE mode shows a **Setup required** page listing exactly what, and refuses every write. It never falls back to DEMO.
 

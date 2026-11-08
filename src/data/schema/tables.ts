@@ -22,7 +22,7 @@ import {
 import { bool, day, int, iso, json, oneOf, optDay, optInt, optIso, optOneOf, reqText, text } from "./codecs";
 
 /** Revision domains: a mutation in a table bumps its domain token (spec 4.1). */
-export const DOMAINS = ["settings", "activity", "crm", "audit"] as const;
+export const DOMAINS = ["settings", "activity", "crm", "audit", "work", "audience", "private"] as const;
 export type Domain = (typeof DOMAINS)[number];
 
 const base = {
@@ -37,6 +37,34 @@ const base = {
 
 const founder = () => oneOf(FOUNDERS);
 const optFounder = () => optOneOf(FOUNDERS);
+
+function taskShape() {
+  return {
+    ...base,
+    title: reqText(300),
+    description: text(4_000),
+    owner: optFounder(),
+    created_by_founder: founder(),
+    account_id: text(40),
+    opportunity_id: text(40),
+    project_id: text(40),
+    client_id: text(40),
+    priority: oneOf(["P0", "P1", "P2", "P3"] as const),
+    status: oneOf(["todo", "in_progress", "done", "cancelled"] as const),
+    estimated_minutes: optInt(),
+    due_at: optDay(),
+    recurrence: oneOf(["none", "daily", "weekdays", "weekly", "monthly"] as const),
+    recurrence_parent_id: text(40),
+    dependency_ids: json(z.array(z.string()), []),
+    completion_evidence: text(1_000),
+    completed_at: optIso(),
+    visibility: oneOf(["team", "private"] as const),
+    snoozed_until: optDay(),
+    snooze_reason: text(300),
+    source: oneOf(["manual", "founder_point", "idea", "system"] as const),
+    source_id: text(40),
+  };
+}
 
 const targetSnapshot = z.record(
   z.string(),
@@ -59,6 +87,8 @@ export const TABLES = {
       workdays: json(z.array(z.number().int().min(0).max(6)), [1, 2, 3, 4, 5]),
       capacity_minutes: int(),
       onboarded_at: optIso(),
+      avail_start: text(5),
+      avail_end: text(5),
     },
   },
   WorkModes: {
@@ -184,6 +214,7 @@ export const TABLES = {
       next_action: text(300),
       next_action_due: optDay(),
       next_action_priority: optOneOf(["high", "normal"] as const),
+      next_action_reason: text(300),
       lost_reason: text(500),
       anum_authority: text(500),
       anum_need: text(500),
@@ -244,10 +275,182 @@ export const TABLES = {
     domain: "settings",
     shape: { ...base, schema_version: int(), schema_hash: reqText(80), applied_at: iso(), notes: text(500) },
   },
+  Tasks: { domain: "work", shape: taskShape() },
+  TaskComments: {
+    domain: "work",
+    shape: { ...base, task_id: reqText(40), author: founder(), body: reqText(2_000) },
+  },
+  DailyReviews: {
+    domain: "work",
+    shape: { ...base, founder_key: founder(), local_date: day(), went_well: text(1_000), blockers: text(1_000), tomorrow_priority: text(300) },
+  },
+  DailyResults: {
+    domain: "work",
+    shape: {
+      ...base,
+      founder_key: founder(),
+      local_date: day(),
+      status: oneOf(["passed", "perfect", "missed", "off"] as const),
+      attainment_pct: optInt(),
+      followups_ok: bool(),
+      review_done: bool(),
+      computed_at: iso(),
+      correction_count: int(),
+    },
+  },
+  DailyResultCorrections: {
+    domain: "work",
+    shape: { ...base, founder_key: founder(), local_date: day(), reason: reqText(500), event_ids: json(z.array(z.string()), []) },
+  },
+  Sprints: {
+    domain: "work",
+    shape: {
+      ...base,
+      name: reqText(120),
+      start_date: day(),
+      end_date: day(),
+      status: oneOf(["planned", "active", "done", "cancelled"] as const),
+      niche: text(200),
+      targets: json(z.record(z.string(), z.object({ contacted: z.number().int(), replies: z.number().int(), demos: z.number().int(), pilots: z.number().int() })), {}),
+      brand_split: json(z.record(z.string(), z.number()), {}),
+    },
+  },
+  WeeklyReviews: {
+    domain: "work",
+    shape: { ...base, week_start: day(), decisions: text(4_000), notes: text(4_000), priority_theo: text(300), priority_pablo: text(300) },
+  },
+  Ideas: {
+    domain: "work",
+    shape: {
+      ...base,
+      text: reqText(300),
+      note: text(2_000),
+      brand: optOneOf(BRANDS),
+      category: oneOf(["offer", "content", "product", "process", "partner", "other"] as const),
+      status: oneOf(["new", "discuss", "testing", "parked", "done", "rejected"] as const),
+      votes: json(z.record(z.string(), z.enum(["yes", "maybe", "no"])), {}),
+      reason: text(500),
+      created_by_founder: founder(),
+      converted_type: optOneOf(["task", "opportunity"] as const),
+      converted_id: text(40),
+    },
+  },
+  FounderPoints: {
+    domain: "work",
+    shape: {
+      ...base,
+      title: reqText(160),
+      type: oneOf(["daily", "weekly_review", "decision", "ad_hoc"] as const),
+      duration_min: int(),
+      status: oneOf(["scheduled", "done", "cancelled", "moved_in_calendar", "deleted_in_calendar"] as const),
+      start_at: optIso(),
+      calendar_event_id: text(1_100),
+      recurrence: optOneOf(["daily", "weekly"] as const),
+      notes: text(4_000),
+    },
+  },
+  FounderPointItems: {
+    domain: "work",
+    shape: {
+      ...base,
+      point_id: reqText(40),
+      kind: oneOf(["agenda", "decision", "action"] as const),
+      text: reqText(500),
+      done: bool(),
+      owner: optFounder(),
+      task_id: text(40),
+      idea_id: text(40),
+    },
+  },
+  CalendarSources: {
+    domain: "settings",
+    shape: {
+      ...base,
+      calendar_id: reqText(300),
+      label: reqText(80),
+      kind: oneOf(["shared", "personal"] as const),
+      owner_founder: optFounder(),
+      access: oneOf(["free_busy", "details"] as const),
+    },
+  },
+  CalendarLinks: {
+    domain: "work",
+    shape: { ...base, calendar_id: reqText(300), event_id: reqText(1_100), record_type: reqText(40), record_id: reqText(40) },
+  },
+  NotificationStates: {
+    domain: "work",
+    shape: { ...base, founder_key: founder(), dedupe_key: reqText(200), dismissed_at: iso() },
+  },
+  FilesIndex: {
+    domain: "crm",
+    shape: {
+      ...base,
+      file_id: reqText(200),
+      name: reqText(300),
+      mime_type: text(120),
+      url: text(500),
+      record_type: oneOf(["account", "opportunity", "task", "idea"] as const),
+      record_id: reqText(40),
+      linked_by: founder(),
+    },
+  },
+  SocialAccounts: {
+    domain: "audience",
+    shape: {
+      ...base,
+      platform: oneOf(["instagram", "linkedin_page", "linkedin_personal"] as const),
+      handle: reqText(120),
+      brand: optOneOf(BRANDS),
+      market: optOneOf(MARKETS),
+      owner_founder: optFounder(),
+      connection_mode: oneOf(["manual", "import", "api"] as const),
+      visibility: oneOf(["team", "owner"] as const),
+    },
+  },
+  SocialAccountDaily: {
+    domain: "audience",
+    shape: {
+      ...base,
+      account_id: reqText(40),
+      date: day(),
+      followers: optInt(),
+      views: optInt(),
+      impressions: optInt(),
+      reach: optInt(),
+      profile_visits: optInt(),
+      interactions: optInt(),
+      link_clicks: optInt(),
+      source: oneOf(["api", "import", "manual"] as const),
+      captured_at: iso(),
+      import_file: text(200),
+    },
+  },
+  IntegrationStatuses: {
+    domain: "settings",
+    shape: { ...base, integration: reqText(60), status: reqText(40), last_success_at: optIso(), last_error: text(500) },
+  },
+  /* ----- private founder spreadsheets only (spec 4.7) ----- */
+  JobApplications: {
+    domain: "private",
+    shape: {
+      ...base,
+      company: reqText(200),
+      role: text(200),
+      status: oneOf(["to_apply", "applied", "interview", "offer", "rejected", "withdrawn"] as const),
+      applied_on: optDay(),
+      next_step: text(300),
+      next_step_due: optDay(),
+      url: text(500),
+      notes: text(2_000),
+    },
+  },
+  PrivateTasks: { domain: "private", shape: taskShape() },
 } as const;
 
 export type TableName = keyof typeof TABLES;
-export const TABLE_NAMES = Object.keys(TABLES) as TableName[];
+export const PRIVATE_TABLES: TableName[] = ["JobApplications", "PrivateTasks"];
+/** Tabs of the shared production Sheet. Private tables live only in each founder's own spreadsheet. */
+export const TABLE_NAMES = (Object.keys(TABLES) as TableName[]).filter((t) => !PRIVATE_TABLES.includes(t));
 
 type Shape<T extends TableName> = (typeof TABLES)[T]["shape"];
 type RowMap = { [K in TableName]: z.infer<z.ZodObject<Shape<K>>> };
@@ -285,4 +488,4 @@ export function domainOf(name: TableName): Domain {
 /** Revision tokens live in a small dedicated tab read by polling (spec 4.1). */
 export const REVISIONS_TAB = "_Revisions";
 export const DOCTOR_TAB = "_Doctor";
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;

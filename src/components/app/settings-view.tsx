@@ -11,22 +11,30 @@ import { useMe } from "./providers";
 import { TargetsEditor } from "./targets-editor";
 import { useMyDay } from "./use-crm";
 import { ConflictNotice } from "./conflict";
+import Link from "next/link";
+import { FOUNDERS, FOUNDER_NAMES } from "@/domain/constants";
+import { addDays } from "@/domain/time";
 
-type Tab = "profile" | "targets" | "rules" | "suppression" | "diagnostics" | "roadmap";
+type Tab = "profile" | "targets" | "calendars" | "sprint" | "workspace" | "rules" | "suppression" | "diagnostics" | "roadmap";
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export function SettingsView() {
   const [tab, setTab] = React.useState<Tab>("profile");
   return (
     <div className="flex max-w-5xl flex-col gap-5">
+      <nav aria-label="More" className="grid grid-cols-3 gap-2 md:hidden">
+        {[["/marketing", "Marketing"], ["/agenda", "Agenda"], ["/ideas", "Ideas"], ["/files", "Files"], ["/reports", "Reports"], ["/tasks", "Tasks"]].map(([h, l]) => (
+          <Link key={h} href={h} className="flex h-12 items-center justify-center rounded-[12px] bg-panel text-sm font-medium">{l}</Link>
+        ))}
+      </nav>
       <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
       <div className="overflow-x-auto">
         <SegmentedSwitch label="Settings section" value={tab} onChange={setTab} options={[
-          { value: "profile", label: "Profile" }, { value: "targets", label: "Mode & targets" }, { value: "rules", label: "Channel rules" },
+          { value: "profile", label: "Profile" }, { value: "targets", label: "Mode & targets" }, { value: "calendars", label: "Calendars" }, { value: "sprint", label: "Sprint" }, { value: "workspace", label: "Workspace" }, { value: "rules", label: "Channel rules" },
           { value: "suppression", label: "Suppression" }, { value: "diagnostics", label: "Diagnostics" }, { value: "roadmap", label: "Roadmap" },
         ]} />
       </div>
-      {tab === "profile" ? <Profile /> : tab === "targets" ? <TargetsTab /> : tab === "rules" ? <Rules /> : tab === "suppression" ? <Suppression /> : tab === "diagnostics" ? <Diagnostics /> : <Roadmap />}
+      {tab === "profile" ? <Profile /> : tab === "targets" ? <TargetsTab /> : tab === "calendars" ? <Calendars /> : tab === "sprint" ? <SprintTab /> : tab === "workspace" ? <Workspace /> : tab === "rules" ? <Rules /> : tab === "suppression" ? <Suppression /> : tab === "diagnostics" ? <Diagnostics /> : <Roadmap />}
     </div>
   );
 }
@@ -36,7 +44,7 @@ function TargetsTab() {
   return <Panel>{d.isPending ? <Skeleton className="h-40" /> : <TargetsEditor initialMode={d.data?.mode ?? null} />}</Panel>;
 }
 
-type UserRow = { id: string; version: number; timezone: string; workdays: number[]; capacity_minutes: number; display_name: string };
+type UserRow = { id: string; version: number; timezone: string; workdays: number[]; capacity_minutes: number; display_name: string; avail_start: string; avail_end: string };
 function Profile() {
   const q = useQuery({ queryKey: ["profile"], queryFn: () => api<UserRow>("/api/settings/profile") });
   if (q.isPending) return <Skeleton className="h-48" />;
@@ -48,7 +56,7 @@ function ProfileForm({ initial, onReload }: { initial: UserRow; onReload: () => 
   const qc = useQueryClient();
   const [v, setV] = React.useState<UserRow>(initial);
   const m = useMutation({
-    mutationFn: (expected: number) => api("/api/settings/profile", { body: { expected_version: expected, timezone: v!.timezone, workdays: v!.workdays, capacity_minutes: v!.capacity_minutes } }),
+    mutationFn: (expected: number) => api("/api/settings/profile", { body: { expected_version: expected, timezone: v!.timezone, workdays: v!.workdays, capacity_minutes: v!.capacity_minutes, avail_start: v!.avail_start || "09:00", avail_end: v!.avail_end || "18:00" } }),
     onSuccess: () => { qc.invalidateQueries(); toast("Saved"); },
   });
   const err = m.error instanceof ApiError ? m.error : null;
@@ -68,6 +76,10 @@ function ProfileForm({ initial, onReload }: { initial: UserRow; onReload: () => 
           </div>
           <p className="mt-1.5 text-[13px] text-text-3">Days off are never penalised.</p>
         </fieldset>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Available for founder points from" htmlFor="av-s"><Input id="av-s" type="time" value={v.avail_start || "09:00"} onChange={(e) => setV({ ...v, avail_start: e.target.value })} /></Field>
+          <Field label="until" htmlFor="av-e"><Input id="av-e" type="time" value={v.avail_end || "18:00"} onChange={(e) => setV({ ...v, avail_end: e.target.value })} /></Field>
+        </div>
         <Field label="Outreach capacity per workday (minutes)" htmlFor="cap" hint="Excludes meetings and delivery time. Used for the feasibility check."><Input id="cap" type="number" min={0} max={960} className="num w-32" value={v.capacity_minutes} onChange={(e) => setV({ ...v, capacity_minutes: Number(e.target.value) || 0 })} /></Field>
         {err?.isConflict ? <ConflictNotice mine={v as never} current={err.body.current} fields={["timezone", "capacity_minutes"]} onKeepTheirs={onReload} onApplyMine={() => m.mutate(Number(err.body.current?.version))} /> : m.isError ? <ErrorState error={m.error} onRetry={() => m.mutate(v.version)} /> : null}
         <Button type="submit" variant="dark" className="self-start" disabled={m.isPending}>{m.isPending ? "Saving…" : "Save"}</Button>
@@ -186,5 +198,114 @@ function Roadmap() {
       <p className="mb-4 text-sm text-text-2">Modules appear in the navigation only once they work.</p>
       <ol className="flex flex-col gap-3">{ROADMAP.map(([s, t]) => <li key={s} className="text-sm"><span className="font-semibold">{s}.</span> <span className="text-text-2">{t}</span></li>)}</ol>
     </Panel>
+  );
+}
+
+type Source = { id: string; version: number; calendar_id: string; label: string; kind: "shared" | "personal"; owner_founder: string | null; access: string };
+function Calendars() {
+  const qc = useQueryClient();
+  const me = useMe();
+  const q = useQuery({ queryKey: ["calendar-sources"], queryFn: () => api<Source[]>("/api/calendar-sources") });
+  const [v, setV] = React.useState({ calendar_id: "", label: "", kind: "shared" as "shared" | "personal", access: "free_busy" });
+  const add = useMutation({ mutationFn: () => api("/api/calendar-sources", { body: { ...v, owner_founder: v.kind === "personal" ? me.founder : null } }), onSuccess: () => { qc.invalidateQueries(); toast("Calendar added"); setV({ calendar_id: "", label: "", kind: "shared", access: "free_busy" }); } });
+  const remove = useMutation({ mutationFn: (s: Source) => api("/api/calendar-sources", { method: "PATCH", body: { id: s.id, expected_version: s.version } }), onSuccess: () => qc.invalidateQueries() });
+  return (
+    <Panel>
+      <PanelTitle>Calendars</PanelTitle>
+      <ol className="mb-4 flex list-decimal flex-col gap-1 pl-5 text-sm text-text-2">
+        <li>Create a shared “Valemont” Google calendar; share it with your co-founder and with the service account (“Make changes to events”).</li>
+        <li>Each founder shares their own calendar with the service account (“See only free/busy” is recommended).</li>
+        <li>Paste each calendar id below (Google Calendar › Settings › Integrate calendar). Ids are never guessed from your sign-in address.</li>
+      </ol>
+      {q.isPending ? <Skeleton className="h-20" /> : q.isError ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : (
+        <ul className="mb-4 flex flex-col divide-y divide-hairline text-sm">
+          {q.data.map((s) => (
+            <li key={s.id} className="flex items-center justify-between gap-3 py-2">
+              <span className="min-w-0"><span className="font-medium">{s.label}</span> <span className="text-text-3">{s.kind === "shared" ? "shared" : `${FOUNDER_NAMES[s.owner_founder as "theo"]} personal · ${s.access === "details" ? "details" : "free/busy"}`}</span><span className="block truncate text-[12px] text-text-3">{s.calendar_id}</span></span>
+              {s.kind === "shared" || s.owner_founder === me.founder ? <Button size="sm" variant="ghost" onClick={() => remove.mutate(s)}>Remove</Button> : null}
+            </li>
+          ))}
+          {q.data.length === 0 ? <li className="py-2 text-text-2">No calendar yet.</li> : null}
+        </ul>
+      )}
+      <form className="grid grid-cols-1 gap-3 sm:grid-cols-2" onSubmit={(e) => { e.preventDefault(); if (v.calendar_id && v.label) add.mutate(); }}>
+        <Field label="Calendar id" htmlFor="cs-id"><Input id="cs-id" value={v.calendar_id} onChange={(e) => setV({ ...v, calendar_id: e.target.value })} placeholder="…@group.calendar.google.com" /></Field>
+        <Field label="Label" htmlFor="cs-l"><Input id="cs-l" value={v.label} onChange={(e) => setV({ ...v, label: e.target.value })} /></Field>
+        <Field label="Type" htmlFor="cs-k"><Select id="cs-k" value={v.kind} onChange={(e) => setV({ ...v, kind: e.target.value as "shared" })}><option value="shared">Shared Valemont calendar</option><option value="personal">My personal calendar</option></Select></Field>
+        {v.kind === "personal" ? <Field label="Shared with the service account as" htmlFor="cs-a" hint="Your co-founder always sees only Busy, whatever you choose."><Select id="cs-a" value={v.access} onChange={(e) => setV({ ...v, access: e.target.value })}><option value="free_busy">Free/busy only</option><option value="details">All event details (so you see titles)</option></Select></Field> : null}
+        {add.isError ? <div className="sm:col-span-2"><ErrorState error={add.error} onRetry={() => add.mutate()} /></div> : null}
+        <Button type="submit" variant="primary" className="self-start" disabled={add.isPending || !v.calendar_id || !v.label}>Add calendar</Button>
+      </form>
+    </Panel>
+  );
+}
+
+function SprintTab() {
+  const qc = useQueryClient();
+  const today = new Date().toLocaleDateString("en-CA");
+  const cur = useQuery({ queryKey: ["sprint"], queryFn: () => api<{ progress: { sprint: { name: string; start_date: string; end_date: string } } | null }>("/api/sprints") });
+  const blank = { contacted: 50, replies: 10, demos: 3, pilots: 1 };
+  const [v, setV] = React.useState({ name: "14-day sprint", start_date: today, end_date: addDays(today, 13), niche: "", theo: blank, pablo: blank, local: 70, consulting: 20, thirty: 10 });
+  const m = useMutation({
+    mutationFn: () => api("/api/sprints", { body: { name: v.name, start_date: v.start_date, end_date: v.end_date, niche: v.niche, targets: { theo: v.theo, pablo: v.pablo }, brand_split: { local: v.local / 100, consulting: v.consulting / 100, thirty: v.thirty / 100 } } }),
+    onSuccess: () => { qc.invalidateQueries(); toast("Sprint started"); },
+  });
+  return (
+    <Panel>
+      <PanelTitle>Sprint</PanelTitle>
+      <p className="mb-4 text-sm text-text-2">{cur.data?.progress ? `Active: ${cur.data.progress.sprint.name} (${cur.data.progress.sprint.start_date} → ${cur.data.progress.sprint.end_date}). Starting a new sprint closes it.` : "No active sprint."} Targets are working targets, not forecasts.</p>
+      <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); m.mutate(); }}>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+          <Field label="Name" htmlFor="sp-n" className="sm:col-span-2"><Input id="sp-n" value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} /></Field>
+          <Field label="Start" htmlFor="sp-s"><Input id="sp-s" type="date" value={v.start_date} onChange={(e) => setV({ ...v, start_date: e.target.value })} /></Field>
+          <Field label="End" htmlFor="sp-e"><Input id="sp-e" type="date" value={v.end_date} onChange={(e) => setV({ ...v, end_date: e.target.value })} /></Field>
+          <Field label="Niche for new targets" htmlFor="sp-ni" className="sm:col-span-2" hint="Feeds the Next Best Action queue, e.g. garage"><Input id="sp-ni" value={v.niche} onChange={(e) => setV({ ...v, niche: e.target.value })} /></Field>
+        </div>
+        <table className="w-full max-w-lg text-sm">
+          <thead><tr className="text-left text-[12px] text-text-3"><th className="font-medium">Per founder</th>{FOUNDERS.map((f) => <th key={f} className="font-medium">{FOUNDER_NAMES[f]}</th>)}</tr></thead>
+          <tbody>{(["contacted", "replies", "demos", "pilots"] as const).map((k) => <tr key={k} className="border-t border-hairline"><td className="py-1.5">{{ contacted: "Businesses contacted", replies: "Qualified replies", demos: "Demos", pilots: "Pilot clients" }[k]}</td>{FOUNDERS.map((f) => <td key={f} className="py-1.5 pr-2"><Input aria-label={`${FOUNDER_NAMES[f]} ${k}`} type="number" min={0} className="num h-9 w-20" value={v[f][k]} onChange={(e) => setV({ ...v, [f]: { ...v[f], [k]: Math.max(0, Number(e.target.value) || 0) } })} /></td>)}</tr>)}</tbody>
+        </table>
+        <div className="grid max-w-lg grid-cols-3 gap-3">
+          {(["local", "consulting", "thirty"] as const).map((b) => <Field key={b} label={`${{ local: "Local", consulting: "Consulting", thirty: "30/30" }[b]} effort %`} htmlFor={`sp-${b}`}><Input id={`sp-${b}`} type="number" min={0} max={100} className="num" value={v[b]} onChange={(e) => setV({ ...v, [b]: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} /></Field>)}
+        </div>
+        {v.local + v.consulting + v.thirty !== 100 ? <p className="text-sm text-bad">The effort split adds up to {v.local + v.consulting + v.thirty}%, not 100%.</p> : null}
+        {m.isError ? <ErrorState error={m.error} onRetry={() => m.mutate()} /> : null}
+        <Button type="submit" variant="primary" className="self-start" disabled={m.isPending || v.local + v.consulting + v.thirty !== 100}>{m.isPending ? "Saving…" : "Start sprint"}</Button>
+      </form>
+    </Panel>
+  );
+}
+
+function Workspace() {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["system-settings"], queryFn: () => api<Record<string, string>>("/api/settings/system") });
+  const save = useMutation({ mutationFn: (b: { key: string; value: string }) => api("/api/settings/system", { body: b }), onSuccess: () => { qc.invalidateQueries(); toast("Saved"); } });
+  const LABELS: Record<string, [string, string]> = {
+    company_name: ["Company legal name", "Entered by a founder; never invented."],
+    drive_folder_id: ["Drive folder id", "The “Valemont OS” folder shared with the service account as Viewer (the id in its URL)."],
+    founder_point_video_link: ["Standing video link", "Inserted in every founder point event."],
+    ideas_testing_limit: ["Ideas in Testing during a sprint", "Seed 2."],
+    hot_lead_stale_days: ["Hot lead goes cold after (days)", "Seed 5."],
+    conversion_min_sample: ["Show conversion rates from (attempts)", "Below this, reports say “not enough data”."],
+  };
+  if (q.isPending) return <Skeleton className="h-64" />;
+  if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
+  return (
+    <Panel>
+      <PanelTitle>Workspace</PanelTitle>
+      <div className="flex max-w-xl flex-col gap-4">
+        {Object.entries(LABELS).map(([k, [label, hint]]) => <SettingField key={k + q.data[k]} k={k} label={label} hint={hint} initial={q.data[k] ?? ""} onSave={(value) => save.mutate({ key: k, value })} />)}
+        {save.isError ? <ErrorState error={save.error} onRetry={() => save.reset()} /> : null}
+      </div>
+    </Panel>
+  );
+}
+function SettingField({ k, label, hint, initial, onSave }: { k: string; label: string; hint: string; initial: string; onSave: (v: string) => void }) {
+  const [v, setV] = React.useState(initial);
+  return (
+    <form className="flex items-end gap-2" onSubmit={(e) => { e.preventDefault(); onSave(v); }}>
+      <Field label={label} htmlFor={`ws-${k}`} hint={hint} className="flex-1"><Input id={`ws-${k}`} value={v} onChange={(e) => setV(e.target.value)} /></Field>
+      <Button type="submit" variant="outline" disabled={v === initial} className="mb-6">Save</Button>
+    </form>
   );
 }

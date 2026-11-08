@@ -4,7 +4,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import { ZodError, type z } from "zod";
 import { ConflictError, NotFoundError, StorageError, ValidationError, type DataRepository } from "@/data/repository";
 import { getConfig } from "./config";
-import { getRepo, SetupRequiredError } from "./repo";
+import { getContext, SetupRequiredError } from "./repo";
+import type { AppContext } from "./context";
+import { ConsentRequiredError } from "@/data/google/ports";
 import { SESSION_COOKIE, readSessionToken, type Session } from "./session";
 
 import { BlockedError, ForbiddenError, RuleError } from "./errors";
@@ -15,6 +17,7 @@ const MAX_BODY = 1_200_000;
 export interface Ctx<I> {
   session: Session;
   repo: DataRepository;
+  app: AppContext;
   input: I;
   req: NextRequest;
   correlationId: string;
@@ -60,8 +63,8 @@ export function route<S extends z.ZodTypeAny | undefined>(
         }
         input = schema.parse(raw);
       }
-      const repo = await getRepo();
-      const result = await handler({ session, repo, input: input as never, req, correlationId });
+      const app = await getContext();
+      const result = await handler({ session, repo: app.repo, app, input: input as never, req, correlationId });
       if (result instanceof Response) {
         status = result.status;
         return result;
@@ -79,6 +82,7 @@ export function route<S extends z.ZodTypeAny | undefined>(
 }
 
 function mapError(e: unknown): [number, Record<string, unknown>] {
+  if (e instanceof ConsentRequiredError) return [409, { error: "consent_required", message: "Allow Valemont OS to create files in your Google Drive first.", url: e.url, scope: e.scope }];
   if (e instanceof SetupRequiredError) return [503, { error: "setup_required", message: "Setup required", details: e.errors }];
   if (e instanceof ZodError) return [400, { error: "validation_error", message: "Invalid input", issues: e.issues.map((i) => ({ path: i.path, message: i.message })) }];
   if (e instanceof SyntaxError) return [400, { error: "validation_error", message: "Malformed JSON" }];

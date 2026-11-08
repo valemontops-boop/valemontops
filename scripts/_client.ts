@@ -20,3 +20,11 @@ export function fail(msg: string): never {
   console.error(`✗ ${msg}`);
   process.exit(1);
 }
+
+/** Same credentials, another spreadsheet (private founder sheets). */
+export function clientFor(spreadsheetId: string): SheetsClient {
+  const base = (process.env.SHEETS_API_BASE_URL || "https://sheets.googleapis.com").replace(/\/$/, "");
+  if (base !== "https://sheets.googleapis.com") return new SheetsClient({ baseUrl: base, spreadsheetId, getToken: async () => "fake-token" });
+  const key = decodeServiceAccountKey(process.env.GOOGLE_SERVICE_ACCOUNT_KEY_BASE64 ?? "");
+  return new SheetsClient({ baseUrl: base, spreadsheetId, getToken: serviceAccountTokenProvider(key) });
+}

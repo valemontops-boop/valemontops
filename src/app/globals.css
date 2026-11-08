@@ -8,8 +8,11 @@
   --text-3: #6e6a72;
   --hairline: #e2e0da;
   --control-border: #8e8a92;
-  --accent: #e8920c;
-  --accent-text: #8f5400;
+  /* Primary action color. Orange was removed at the founders' request (D017); change these three to rebrand. */
+  --accent: #17161a;
+  --accent-hover: #2f2d35;
+  --on-accent: #fbfaf7;
+  --accent-text: #17161a;
   --good: #17704f;
   --bad: #b3261e;
   --brand-consulting: #2f5fbf;
@@ -31,6 +34,8 @@
   --color-control: var(--control-border);
   --color-accent: var(--accent);
   --color-accent-text: var(--accent-text);
+  --color-accent-hover: var(--accent-hover);
+  --color-on-accent: var(--on-accent);
   --color-good: var(--good);
   --color-bad: var(--bad);
   --color-subtle: var(--subtle);
@@ -56,7 +61,7 @@ body {
   caret-color: var(--accent-text);
 }
 ::selection {
-  background: #f6d7a6;
+  background: #dcd9d1;
   color: var(--ink);
 }
 :focus-visible {

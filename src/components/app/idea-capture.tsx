@@ -1,0 +1,33 @@
+"use client";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import * as React from "react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/form";
+import { Modal } from "@/components/ui/overlay";
+import { api } from "@/lib/api";
+
+/** Capture in under 5 seconds: one line, Enter, done. It never touches today's targets. */
+export function IdeaCapture({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  return (
+    <Modal open={open} onOpenChange={onOpenChange} title="New idea" description="One line is enough. It is parked in the Idea Box and adds nothing to today.">
+      <IdeaForm onDone={() => onOpenChange(false)} />
+    </Modal>
+  );
+}
+
+function IdeaForm({ onDone }: { onDone: () => void }) {
+  const qc = useQueryClient();
+  const [id] = React.useState(() => crypto.randomUUID());
+  const [text, setText] = React.useState("");
+  const m = useMutation({
+    mutationFn: () => api("/api/ideas", { body: { id, text } }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["ideas"] }); toast("Idea saved"); onDone(); },
+  });
+  return (
+    <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (text.trim()) m.mutate(); }}>
+      <Input aria-label="Idea" autoFocus value={text} onChange={(e) => setText(e.target.value)} maxLength={300} placeholder="e.g. Offer garages a 14-day pilot" />
+      <Button type="submit" variant="primary" disabled={!text.trim() || m.isPending}>{m.isPending ? "Saving…" : m.isError ? "Retry" : "Save"}</Button>
+    </form>
+  );
+}

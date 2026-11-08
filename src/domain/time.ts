@@ -80,3 +80,17 @@ export function cutoffOf(date: string, tz: string): Date {
 export function isLateLogged(occurredAt: string, loggedAt: string, tz: string): boolean {
   return new Date(loggedAt).getTime() >= cutoffOf(localDate(occurredAt, tz), tz).getTime();
 }
+
+/** Minutes since local midnight of an instant in `tz`. */
+export function localMinutes(instant: Date, tz: string): number {
+  const { h, mi } = parts(instant, tz);
+  return h * 60 + mi;
+}
+
+/** "HH:MM" -> minutes; invalid -> null. */
+export function hhmm(v: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(v.trim());
+  if (!m) return null;
+  const n = Number(m[1]) * 60 + Number(m[2]);
+  return n >= 0 && n <= 24 * 60 ? n : null;
+}

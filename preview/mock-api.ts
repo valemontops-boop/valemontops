@@ -20,8 +20,38 @@ import {
 import { commit, commitSchema, exportAccountsCsv, preview, previewSchema } from "@/server/services/imports";
 import { diagnostics } from "@/server/services/diagnostics";
 import { userRow } from "@/server/services/common";
+import type { AppContext } from "@/server/context";
+import { ConsentRequiredError } from "@/data/google/ports";
+import { MemoryCalendar, MemoryDrive, MemoryDriveUploader } from "@/fake-google/store";
+import { demoGoogleStore } from "@/server/services/demo-google";
+import { seedDemoWork } from "@/server/services/demo-seed";
+import { createTask, createTaskSchema, listTasks, updateTask, updateTaskSchema, addComment, commentSchema, listComments } from "@/server/services/tasks";
+import { applyLateCorrection, correctionSchema, getReview, reviewSchema, saveReview, streakSummary } from "@/server/services/results";
+import { createSprint, sprintProgress, sprintSchema } from "@/server/services/sprints";
+import { commandCenter, dismissNotification, dismissSchema, nba, notifications, saveWeekly, scorecard, scorecardCsv, weeklyReview, weeklySchema } from "@/server/services/insights";
+import { addCalendarSource, addPointItem, itemToggleSchema, listCalendarSources, listPoints, pointItemSchema, pointSchema, pointUpdateSchema, proposeSlots, removeCalendarSource, schedulePoint, slotsSchema, sourceSchema, toggleItem, updatePoint, upcomingEvents } from "@/server/services/agenda";
+import { addIdea, convertIdea, convertSchema, ideaSchema, ideaUpdateSchema, listIdeas, updateIdea } from "@/server/services/ideas";
+import { filesFor, linkFile, linkSchema, listFolder, uploadFile, uploadSchema } from "@/server/services/files";
+import { addManualEntry, addSocialAccount, audienceSeries, importLinkedIn, importSchema, listAccounts, manualEntrySchema, seriesSchema, socialAccountSchema } from "@/server/services/audience";
+import { jobSchema, listJobs, saveJob } from "@/server/services/jobs";
+import { childId } from "@/lib/ids";
 
 export const repo = new InMemoryRepository();
+const store = demoGoogleStore();
+const privates: Record<string, InMemoryRepository> = { theo: new InMemoryRepository(), pablo: new InMemoryRepository() };
+export let driveGrant = false;
+export function grantDrive() {
+  driveGrant = true;
+}
+export const ctx: AppContext = {
+  repo,
+  privateRepo: (f) => privates[f] ?? null,
+  calendar: new MemoryCalendar(store),
+  drive: new MemoryDrive(store),
+  uploaderFor: (f, grant) => (grant ? new MemoryDriveUploader(store, f) : null),
+  baseUrl: "https://preview.example.com",
+  mode: "demo",
+};
 export let founder: FounderKey = "theo";
 export function setFounder(f: FounderKey) {
   founder = f;
@@ -30,6 +60,7 @@ export function setFounder(f: FounderKey) {
 export async function seed() {
   await seedBaseline(repo, { theo: "Europe/Paris", pablo: "Europe/Madrid" });
   await seedDemo(repo);
+  await seedDemoWork(repo, (f) => privates[f] ?? null);
   // Preview only: every day is a workday so the meters are visible whenever someone opens it.
   for (const f of ["theo", "pablo"] as const) {
     const u = await userRow(repo, f);
@@ -39,7 +70,60 @@ export async function seed() {
 
 type Handler = (input: unknown, f: FounderKey) => Promise<unknown>;
 const routes: Record<string, [z.ZodTypeAny | null, Handler]> = {
-  "GET /api/sync": [null, async () => ({ revisions: await repo.revisions(), at: new Date().toISOString() })],
+  "GET /api/sync": [null, async (_, f) => ({ revisions: { ...(await repo.revisions()), mine: (await privates[f].revisions()).private }, at: new Date().toISOString() })],
+  "GET /api/tasks": [z.object({ view: z.enum(["mine", "theo", "pablo", "unassigned", "overdue", "all"]).default("all") }), async (i, f) => listTasks(ctx, f, (i as { view: never }).view)],
+  "POST /api/tasks": [createTaskSchema, async (i, f) => createTask(ctx, f, i as never)],
+  "PATCH /api/tasks": [updateTaskSchema, async (i, f) => updateTask(ctx, f, i as never)],
+  "GET /api/tasks/comments": [z.object({ task_id: z.string().uuid() }), async (i) => listComments(ctx, (i as { task_id: string }).task_id)],
+  "POST /api/tasks/comments": [commentSchema, async (i, f) => addComment(ctx, f, i as never)],
+  "GET /api/streaks": [null, async (_, f) => streakSummary(ctx, f)],
+  "POST /api/streaks/correction": [correctionSchema, async (i, f) => applyLateCorrection(ctx, f, i as never)],
+  "GET /api/review": [null, async (_, f) => ({ review: await getReview(ctx, f) })],
+  "POST /api/review": [reviewSchema, async (i, f) => saveReview(ctx, f, i as never)],
+  "GET /api/sprints": [null, async () => ({ progress: await sprintProgress(ctx) })],
+  "POST /api/sprints": [sprintSchema, async (i, f) => createSprint(ctx, f, i as never)],
+  "GET /api/nba": [null, async (_, f) => nba(ctx, f)],
+  "GET /api/notifications": [null, async (_, f) => notifications(ctx, f)],
+  "POST /api/notifications": [dismissSchema, async (i, f) => dismissNotification(ctx, f, (i as { key: string }).key)],
+  "GET /api/command-center": [null, async (_, f) => commandCenter(ctx, f)],
+  "GET /api/weekly": [z.object({ week: z.string().optional() }), async (i, f) => weeklyReview(ctx, f, (i as { week?: string }).week)],
+  "POST /api/weekly": [weeklySchema, async (i, f) => saveWeekly(ctx, f, i as never)],
+  "GET /api/reports/scorecard": [z.object({ week: z.string().optional(), format: z.enum(["json", "csv"]).default("json") }), async (i, f) => scorecard(ctx, f, (i as { week?: string }).week)],
+  "GET /api/agenda": [null, async (_, f) => upcomingEvents(ctx, f)],
+  "GET /api/calendar-sources": [null, async () => listCalendarSources(ctx)],
+  "POST /api/calendar-sources": [sourceSchema, async (i, f) => addCalendarSource(ctx, f, i as never)],
+  "PATCH /api/calendar-sources": [z.object({ id: z.string().uuid(), expected_version: z.number().int() }), async (i, f) => removeCalendarSource(ctx, f, (i as { id: string }).id, (i as { expected_version: number }).expected_version)],
+  "GET /api/points": [null, async () => listPoints(ctx)],
+  "POST /api/points": [pointSchema, async (i, f) => schedulePoint(ctx, f, i as never)],
+  "PATCH /api/points": [pointUpdateSchema, async (i, f) => updatePoint(ctx, f, i as never)],
+  "GET /api/points/slots": [slotsSchema, async (i) => proposeSlots(ctx, (i as { duration_min: number }).duration_min)],
+  "POST /api/points/items": [pointItemSchema, async (i, f) => addPointItem(ctx, f, i as never)],
+  "PATCH /api/points/items": [itemToggleSchema, async (i, f) => toggleItem(ctx, f, i as never)],
+  "GET /api/ideas": [null, async () => listIdeas(ctx)],
+  "POST /api/ideas": [ideaSchema, async (i, f) => addIdea(ctx, f, i as never)],
+  "PATCH /api/ideas": [ideaUpdateSchema, async (i, f) => updateIdea(ctx, f, i as never)],
+  "POST /api/ideas/convert": [convertSchema, async (i, f) => convertIdea(ctx, f, i as never)],
+  "GET /api/files": [z.object({ folder: z.string().optional(), q: z.string().default("") }), async (i) => listFolder(ctx, (i as { folder?: string }).folder ?? null, (i as { q: string }).q)],
+  "GET /api/files/link": [z.object({ record_type: z.string(), record_id: z.string().uuid() }), async (i) => filesFor(ctx, (i as { record_type: string }).record_type, (i as { record_id: string }).record_id)],
+  "POST /api/files/link": [linkSchema, async (i, f) => linkFile(ctx, f, i as never)],
+  "POST /api/files/upload": [uploadSchema, async (i, f) => uploadFile(ctx, f, driveGrant ? `preview-grant-${f}` : null, i as never)],
+  "GET /api/audience/accounts": [null, async (_, f) => listAccounts(ctx, f)],
+  "POST /api/audience/accounts": [socialAccountSchema, async (i, f) => addSocialAccount(ctx, f, i as never)],
+  "POST /api/audience/manual": [manualEntrySchema, async (i, f) => addManualEntry(ctx, f, i as never)],
+  "POST /api/audience/import": [importSchema, async (i, f) => importLinkedIn(ctx, f, i as never)],
+  "GET /api/audience/series": [seriesSchema, async (i, f) => audienceSeries(ctx, f, i as never)],
+  "GET /api/jobs": [null, async (_, f) => listJobs(ctx, f)],
+  "POST /api/jobs": [jobSchema.extend({ expected_version: z.number().int().optional() }), async (i, f) => saveJob(ctx, f, i as never)],
+  "GET /api/settings/system": [null, async () => {
+    const rows = (await repo.list("SystemSettings")).rows;
+    return Object.fromEntries(["drive_folder_id", "founder_point_video_link", "ideas_testing_limit", "hot_lead_stale_days", "conversion_min_sample", "company_name"].map((k) => [k, rows.find((r) => r.key === k)?.value ?? ""]));
+  }],
+  "POST /api/settings/system": [z.object({ key: z.string(), value: z.string().max(500) }), async (i, f) => {
+    const { key, value } = i as { key: string; value: string };
+    const id = childId("setting", key);
+    const cur = await repo.get("SystemSettings", id);
+    return cur ? repo.update("SystemSettings", id, cur.version, { value }, { founder: f }) : repo.insert("SystemSettings", [{ id, key, value, description: "" }], { founder: f });
+  }],
   "GET /api/my-day": [null, async (_, f) => getMyDay(repo, f)],
   "POST /api/activities": [logActivitySchema, async (i, f) => logActivity(repo, f, i as never)],
   "POST /api/report": [z.object({ next_day_priority: z.string().trim().max(300).default("") }), async (i, f) => ({ text: await whatsappReport(repo, f, (i as { next_day_priority: string }).next_day_priority) })],
@@ -77,11 +161,13 @@ const routes: Record<string, [z.ZodTypeAny | null, Handler]> = {
   "GET /api/diagnostics": [null, async () => diagnostics(repo)],
 };
 
-export function exportCsv() {
+export function exportCsv(href = "/api/crm/export") {
+  if (href.startsWith("/api/reports/scorecard")) return scorecardCsv(ctx, founder);
   return exportAccountsCsv(repo);
 }
 
 function mapError(e: unknown): [number, Record<string, unknown>] {
+  if (e instanceof ConsentRequiredError) return [409, { error: "consent_required", message: "Allow Valemont OS to create files in your Google Drive first.", url: e.url }];
   if (e instanceof ZodError) return [400, { error: "validation_error", message: "Invalid input", issues: e.issues.map((i) => ({ path: i.path, message: i.message })) }];
   if (e instanceof ValidationError) return [400, { error: "validation_error", message: e.message }];
   if (e instanceof RuleError) return [422, { error: "rule", message: e.message, details: e.details }];

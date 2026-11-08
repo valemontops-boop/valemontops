@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { DOCTOR_TAB, DOMAINS, REVISIONS_TAB, SCHEMA_VERSION, TABLE_NAMES, columnsOf } from "../schema/tables";
+import { DOCTOR_TAB, DOMAINS, PRIVATE_TABLES, REVISIONS_TAB, SCHEMA_VERSION, TABLE_NAMES, columnsOf, type TableName } from "../schema/tables";
 import { colLetters, quoteSheet } from "./a1";
 import type { SheetsClient } from "./client";
 
@@ -26,10 +26,11 @@ export interface SetupReport {
  * freezes header rows, adds warning-only protection. NEVER creates the spreadsheet (spec 4.8)
  * and never overwrites data.
  */
-export async function setupSpreadsheet(client: SheetsClient): Promise<SetupReport> {
+export async function setupSpreadsheet(client: SheetsClient, kind: "shared" | "private" = "shared"): Promise<SetupReport> {
   const report: SetupReport = { created: [], headersWritten: [], columnsAdded: [], protectedTabs: [], revisionsSeeded: [] };
   const wanted: Record<string, string[]> = { ...SYSTEM_TABS };
-  for (const t of TABLE_NAMES) wanted[t] = columnsOf(t);
+  const tables: TableName[] = kind === "shared" ? TABLE_NAMES : PRIVATE_TABLES;
+  for (const t of tables) wanted[t] = columnsOf(t);
 
   let meta = await client.getMeta();
   const existing = new Set(meta.sheets.map((s) => s.properties.title));

@@ -27,6 +27,8 @@ export async function seedBaseline(repo: DataRepository, timezones: Record<Found
     workdays: [1, 2, 3, 4, 5],
     capacity_minutes: CAPACITY_SEED_MINUTES.JOB_SEARCHING,
     onboarded_at: null,
+    avail_start: "09:00",
+    avail_end: "18:30",
   })).filter((u) => !has(t.Users.rows, u.id));
   if (users.length) added.Users = (await repo.insert("Users", users, SYSTEM)).length;
 

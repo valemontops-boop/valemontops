@@ -43,3 +43,31 @@ export function stageChangeErrors(o: OppLike, to: Stage, lostReason: string): st
 export function weightedValueMinor(opps: (OppLike & { probability: number })[]): number {
   return Math.round(opps.filter(isOpen).reduce((s, o) => s + (o.value_minor ?? 0) * o.probability, 0));
 }
+
+/**
+ * Simple board (D018): five columns over the ten stored stages. Founders move cards between
+ * columns; the exact stage stays editable under "More details".
+ */
+export const PIPELINE_GROUPS: { key: string; label: string; stages: Stage[]; entry: Stage }[] = [
+  { key: "to_contact", label: "To contact", stages: ["targeted"], entry: "targeted" },
+  { key: "contacted", label: "Contacted", stages: ["contacted"], entry: "contacted" },
+  { key: "talking", label: "In talks", stages: ["replied", "discovery_scheduled", "qualified"], entry: "replied" },
+  { key: "demo", label: "Demo & proposal", stages: ["demo_shown", "proposal_sent", "negotiation"], entry: "demo_shown" },
+  { key: "won", label: "Won", stages: ["won"], entry: "won" },
+];
+
+export function groupOf(stage: Stage): string | null {
+  return PIPELINE_GROUPS.find((g) => g.stages.includes(stage))?.key ?? null;
+}
+
+/** The stage a card lands on when moved to a column: unchanged if already inside it. */
+export function stageForGroup(current: Stage, groupKey: string): Stage {
+  const g = PIPELINE_GROUPS.find((x) => x.key === groupKey);
+  if (!g) return current;
+  return g.stages.includes(current) ? current : g.entry;
+}
+
+export function nextGroup(stage: Stage): string | null {
+  const i = PIPELINE_GROUPS.findIndex((g) => g.stages.includes(stage));
+  return i >= 0 && i < PIPELINE_GROUPS.length - 1 ? PIPELINE_GROUPS[i + 1].key : null;
+}

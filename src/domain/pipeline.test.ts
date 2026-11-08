@@ -21,3 +21,21 @@ describe("pipeline hygiene", () => {
     expect(weightedValueMinor([{ ...o(), probability: 0.5 }, { ...o({ stage: "won" }), probability: 1 }])).toBe(50_00);
   });
 });
+
+import { groupOf, nextGroup, stageForGroup, PIPELINE_GROUPS } from "./pipeline";
+import { STAGES } from "./constants";
+
+describe("simple board groups", () => {
+  it("covers every open stage plus won exactly once; lost stays off the board", () => {
+    const all = PIPELINE_GROUPS.flatMap((g) => g.stages);
+    expect(new Set(all).size).toBe(all.length);
+    expect(STAGES.filter((s) => !all.includes(s))).toEqual(["lost"]);
+  });
+  it("moves to the column entry stage, keeps a stage already in the column", () => {
+    expect(stageForGroup("contacted", "talking")).toBe("replied");
+    expect(stageForGroup("qualified", "talking")).toBe("qualified");
+    expect(groupOf("negotiation")).toBe("demo");
+    expect(nextGroup("targeted")).toBe("contacted");
+    expect(nextGroup("won")).toBeNull();
+  });
+});

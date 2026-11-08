@@ -23,6 +23,8 @@ const js = await build({
     "next/navigation": shim("navigation.ts"),
     "node:crypto": shim("crypto.ts"),
     "server-only": shim("empty.ts"),
+    exceljs: shim("no-excel.ts"),
+    xlsx: shim("no-excel.ts"),
   },
   tsconfig: path.join(root, "tsconfig.json"),
   logLevel: "warning",
