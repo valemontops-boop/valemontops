@@ -1,7 +1,7 @@
 // Browser-only stand-in for next/navigation inside the static feedback preview.
 // The artifact frame only passes a plain "#name" hash, so the route is the hash name and
 // any query (e.g. ?account=) is kept in memory.
-import { useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 
 let path = routeFromHash();
 let query = new URLSearchParams();
@@ -34,15 +34,9 @@ const subscribe = (cb: () => void) => (subs.add(cb), () => subs.delete(cb));
 export function usePathname() {
   return useSyncExternalStore(subscribe, () => path, () => path);
 }
-let lastQ = "";
-let lastParams = new URLSearchParams();
 export function useSearchParams() {
   const q = useSyncExternalStore(subscribe, () => query.toString(), () => "");
-  if (q !== lastQ) {
-    lastQ = q;
-    lastParams = new URLSearchParams(q);
-  }
-  return lastParams;
+  return useMemo(() => new URLSearchParams(q), [q]);
 }
 export function useRouter() {
   return { push: navigate, replace: (h: string) => navigate(h), refresh: () => undefined, back: () => history.back() };

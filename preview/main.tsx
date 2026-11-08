@@ -44,6 +44,10 @@ function CsvSheet({ csv, onClose }: { csv: string; onClose: () => void }) {
 function Preview() {
   const [who, setWho] = React.useState<FounderKey>(initialFounder);
   const [csv, setCsv] = React.useState<string | null>(null);
+  const switchTo = (f: FounderKey) => {
+    setFounder(f);
+    setWho(f);
+  };
   React.useEffect(() => {
     // Intercept links and forms that would leave the page (CSV download, sign out).
     const onClick = (e: MouseEvent) => {
@@ -67,10 +71,6 @@ function Preview() {
       document.removeEventListener("submit", onSubmit, true);
     };
   });
-  const switchTo = (f: FounderKey) => {
-    setFounder(f);
-    setWho(f);
-  };
   const other: FounderKey = who === "theo" ? "pablo" : "theo";
   return (
     <>

@@ -18,4 +18,3 @@ export function createHash() {
   };
   return api;
 }
-export default { randomUUID, createHash };
