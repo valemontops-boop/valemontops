@@ -1,0 +1,229 @@
+"use client";
+import { Command, LayoutList, Plus, RefreshCw, Settings, Sun, Users, AlertCircle, Check, Loader2 } from "lucide-react";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import * as React from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/form";
+import { Modal } from "@/components/ui/overlay";
+import { WORK_MODE_LABELS } from "@/domain/constants";
+import { cn, relTime } from "@/lib/utils";
+import { Providers, useMe, useSyncStatus, type Me } from "./providers";
+import { QUICK_KINDS, QuickActionProvider, useQuickAction } from "./quick-action";
+import { useCrm, useMyDay } from "./use-crm";
+
+const NAV = [
+  { href: "/my-day", label: "My Day", icon: Sun },
+  { href: "/crm", label: "Sales CRM", icon: Users },
+];
+
+export function AppShell({ me, children }: { me: Me; children: React.ReactNode }) {
+  return (
+    <Providers me={me}>
+      <QuickActionProvider>
+        <Frame>{children}</Frame>
+      </QuickActionProvider>
+    </Providers>
+  );
+}
+
+function ModeBanner() {
+  const me = useMe();
+  if (me.config.mode === "live" && me.config.backend === "google-sheets") return null;
+  const text =
+    me.config.mode === "demo"
+      ? me.config.backend === "fake-sheets"
+        ? "DEMO mode · synthetic data on a local fake Google Sheets server. Nothing here is real or touches your Sheet."
+        : "DEMO mode · synthetic data held in server memory. Nothing here is real or touches your Sheet."
+      : "LIVE mode pointed at a local fake Sheets server (development only).";
+  return (
+    <div role="status" className="sticky top-0 z-20 bg-ink px-4 py-1.5 text-center text-[13px] font-medium text-panel">
+      {text}
+    </div>
+  );
+}
+
+function SyncBadge() {
+  const s = useSyncStatus();
+  const [, force] = React.useReducer((x: number) => x + 1, 0);
+  React.useEffect(() => {
+    const t = setInterval(force, 15_000);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div className="flex items-center gap-2 text-[13px]" aria-live="polite">
+      {s.status === "syncing" ? (
+        <span className="flex items-center gap-1.5 text-text-2"><Loader2 className="size-3.5 animate-spin" />Syncing</span>
+      ) : s.status === "error" ? (
+        <button type="button" onClick={() => s.refresh()} className="flex items-center gap-1.5 font-medium text-bad" title={s.error ?? undefined}>
+          <AlertCircle className="size-3.5" />Error: retry
+        </button>
+      ) : (
+        <span className="flex items-center gap-1.5 text-text-2"><Check className="size-3.5 text-good" />Saved · synced {relTime(s.lastSyncAt)}</span>
+      )}
+      <button type="button" onClick={() => s.refresh()} className="rounded-full p-1.5 text-text-3 hover:bg-subtle hover:text-ink" aria-label="Refresh now">
+        <RefreshCw className="size-3.5" />
+      </button>
+    </div>
+  );
+}
+
+function Frame({ children }: { children: React.ReactNode }) {
+  const me = useMe();
+  const path = usePathname();
+  const router = useRouter();
+  const qa = useQuickAction();
+  const [palette, setPalette] = React.useState(false);
+  const day = useMyDay();
+  const followUps = day.data?.followUps.filter((f) => f.overdue).length ?? 0;
+
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement;
+      const typing = el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName);
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPalette(true);
+        return;
+      }
+      if (typing || e.metaKey || e.ctrlKey || e.altKey || document.querySelector("[role=dialog]")) return;
+      if (e.key === "/") {
+        e.preventDefault();
+        setPalette(true);
+        return;
+      }
+      const k = QUICK_KINDS.find((q) => q.key === e.key.toLowerCase());
+      if (k) {
+        e.preventDefault();
+        qa.open({ kind: k.kind });
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [qa]);
+
+  return (
+    <div className="min-h-dvh">
+      <ModeBanner />
+      <div className="flex">
+        <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r border-hairline bg-panel px-3 py-5 md:flex">
+          <Link href="/my-day" className="mb-6 px-3 text-[17px] font-semibold tracking-tight">Valemont OS</Link>
+          <nav aria-label="Main" className="flex flex-col gap-1">
+            {NAV.map((n) => {
+              const active = path.startsWith(n.href);
+              return (
+                <Link key={n.href} href={n.href} aria-current={active ? "page" : undefined}
+                  className={cn("flex h-10 items-center gap-3 rounded-[12px] px-3 text-sm font-medium", active ? "bg-subtle text-ink" : "text-text-2 hover:bg-subtle hover:text-ink")}>
+                  <n.icon className="size-4" />
+                  <span className="flex-1">{n.label}</span>
+                  {n.href === "/my-day" && followUps > 0 ? <span className="num rounded-full bg-ink px-2 text-[12px] text-panel" aria-label={`${followUps} overdue follow-ups`}>{followUps}</span> : null}
+                </Link>
+              );
+            })}
+          </nav>
+          <div className="mt-auto flex flex-col gap-1">
+            <Link href="/settings" aria-current={path.startsWith("/settings") ? "page" : undefined}
+              className={cn("flex h-10 items-center gap-3 rounded-[12px] px-3 text-sm font-medium", path.startsWith("/settings") ? "bg-subtle text-ink" : "text-text-2 hover:bg-subtle hover:text-ink")}>
+              <Settings className="size-4" /> Settings
+            </Link>
+            <div className="mt-2 flex items-center justify-between rounded-[12px] border border-hairline px-3 py-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold">{me.name}</p>
+                <p className="truncate text-[12px] text-text-3">{day.data?.mode ? WORK_MODE_LABELS[day.data.mode] : "No mode set"}</p>
+              </div>
+              <form action="/api/auth/logout" method="post">
+                <button className="rounded-full px-2 py-1 text-[12px] text-text-2 hover:bg-subtle" type="submit">Sign out</button>
+              </form>
+            </div>
+          </div>
+        </aside>
+
+        <div className="min-w-0 flex-1">
+          <header className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b border-hairline bg-canvas/95 px-4 backdrop-blur sm:px-6">
+            <span className="text-[15px] font-semibold md:hidden">Valemont OS</span>
+            <button type="button" onClick={() => setPalette(true)} className="hidden h-9 w-72 items-center gap-2 rounded-full border border-hairline bg-panel px-3 text-sm text-text-3 hover:border-control sm:flex">
+              <Command className="size-4" /> Search or run a command <kbd className="ml-auto text-[12px]">⌘K</kbd>
+            </button>
+            <div className="ml-auto flex items-center gap-3">
+              <div className="hidden sm:block"><SyncBadge /></div>
+              <Button variant="primary" size="md" onClick={() => qa.open()} aria-keyshortcuts="c v d l n e f s m">
+                <Plus /> Log activity
+              </Button>
+            </div>
+          </header>
+          <div className="border-b border-hairline px-4 py-1.5 sm:hidden"><SyncBadge /></div>
+          <main id="main" className="mx-auto w-full max-w-[1400px] px-4 pb-28 pt-5 sm:px-6 md:pb-10">{children}</main>
+        </div>
+      </div>
+
+      <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-3 border-t border-hairline bg-panel pb-[env(safe-area-inset-bottom)] md:hidden">
+        {[...NAV, { href: "/settings", label: "Settings", icon: Settings }].map((n) => (
+          <Link key={n.href} href={n.href} aria-current={path.startsWith(n.href) ? "page" : undefined}
+            className={cn("flex h-14 flex-col items-center justify-center gap-0.5 text-[12px] font-medium", path.startsWith(n.href) ? "text-ink" : "text-text-3")}>
+            <n.icon className="size-5" />{n.label}
+          </Link>
+        ))}
+      </nav>
+
+      <CommandPalette open={palette} onOpenChange={setPalette} onNavigate={(href) => router.push(href)} />
+    </div>
+  );
+}
+
+function CommandPalette({ open, onOpenChange, onNavigate }: { open: boolean; onOpenChange: (o: boolean) => void; onNavigate: (href: string) => void }) {
+  return (
+    <Modal open={open} onOpenChange={onOpenChange} title="Command">
+      {/* Content unmounts when closed, so search state resets on every open. */}
+      <PaletteBody onClose={() => onOpenChange(false)} onNavigate={onNavigate} />
+    </Modal>
+  );
+}
+
+function PaletteBody({ onClose, onNavigate }: { onClose: () => void; onNavigate: (href: string) => void }) {
+  const qa = useQuickAction();
+  const crm = useCrm();
+  const [q, setQ] = React.useState("");
+  const [sel, setSel] = React.useState(0);
+  const items = React.useMemo(() => {
+    const s = q.trim().toLowerCase();
+    const actions = [
+      ...QUICK_KINDS.map((k) => ({ id: `qa-${k.kind}`, label: `Log ${k.label.toLowerCase()}`, hint: k.key.toUpperCase(), run: () => qa.open({ kind: k.kind }) })),
+      { id: "nav-myday", label: "Go to My Day", hint: "", run: () => onNavigate("/my-day") },
+      { id: "nav-crm", label: "Go to Sales CRM", hint: "", run: () => onNavigate("/crm") },
+      { id: "nav-import", label: "Import prospects from CSV", hint: "", run: () => onNavigate("/crm/import") },
+      { id: "nav-settings", label: "Open Settings", hint: "", run: () => onNavigate("/settings") },
+    ];
+    const accounts = (crm.data?.accounts ?? []).map((a) => ({ id: a.id, label: a.name, hint: a.country ?? "", run: () => onNavigate(`/crm?account=${a.id}`) }));
+    const all = [...actions, ...accounts];
+    return (s ? all.filter((i) => i.label.toLowerCase().includes(s)) : actions).slice(0, 10);
+  }, [q, crm.data, qa, onNavigate]);
+  const run = (i: number) => {
+    const it = items[i];
+    if (!it) return;
+    onClose();
+    setTimeout(it.run, 0);
+  };
+  return (
+    <>
+      <Input autoFocus aria-label="Search" placeholder="Type a command or a business name" value={q}
+        onChange={(e) => { setQ(e.target.value); setSel(0); }}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown") { e.preventDefault(); setSel((s) => Math.min(s + 1, items.length - 1)); }
+          if (e.key === "ArrowUp") { e.preventDefault(); setSel((s) => Math.max(s - 1, 0)); }
+          if (e.key === "Enter") { e.preventDefault(); run(sel); }
+        }} />
+      <ul role="listbox" className="mt-3 flex flex-col">
+        {items.map((it, i) => (
+          <li key={it.id} role="option" aria-selected={i === sel}>
+            <button type="button" onClick={() => run(i)} onMouseEnter={() => setSel(i)}
+              className={cn("flex h-11 w-full items-center justify-between rounded-[12px] px-3 text-left text-sm", i === sel ? "bg-subtle" : "")}>
+              <span className="flex items-center gap-2"><LayoutList className="size-4 text-text-3" />{it.label}</span>
+              {it.hint ? <kbd className="text-[12px] text-text-3">{it.hint}</kbd> : null}
+            </button>
+          </li>
+        ))}
+        {items.length === 0 ? <li className="px-3 py-2 text-sm text-text-2">No match.</li> : null}
+      </ul>
+    </>
+  );
+}

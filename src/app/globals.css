@@ -1,0 +1,99 @@
+@import "tailwindcss";
+
+:root {
+  --canvas: #f1f0ec;
+  --panel: #fbfaf7;
+  --ink: #17161a;
+  --text-2: #57545c;
+  --text-3: #6e6a72;
+  --hairline: #e2e0da;
+  --control-border: #8e8a92;
+  --accent: #e8920c;
+  --accent-text: #8f5400;
+  --good: #17704f;
+  --bad: #b3261e;
+  --brand-consulting: #2f5fbf;
+  --brand-local: #c4730a;
+  --brand-thirty: #7a4fd6;
+  --market-fr: #17161a;
+  --market-es: #8e8a92;
+  --subtle: #ebe9e3;
+  color-scheme: light;
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-panel: var(--panel);
+  --color-ink: var(--ink);
+  --color-text-2: var(--text-2);
+  --color-text-3: var(--text-3);
+  --color-hairline: var(--hairline);
+  --color-control: var(--control-border);
+  --color-accent: var(--accent);
+  --color-accent-text: var(--accent-text);
+  --color-good: var(--good);
+  --color-bad: var(--bad);
+  --color-subtle: var(--subtle);
+  --color-brand-consulting: var(--brand-consulting);
+  --color-brand-local: var(--brand-local);
+  --color-brand-thirty: var(--brand-thirty);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --radius-panel: 20px;
+  --radius-row: 12px;
+}
+
+html,
+body {
+  background: var(--canvas);
+  color: var(--ink);
+}
+body {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  caret-color: var(--accent-text);
+}
+::selection {
+  background: #f6d7a6;
+  color: var(--ink);
+}
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #c9c6be transparent;
+}
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+.hatch {
+  background-image: repeating-linear-gradient(135deg, var(--control-border) 0 1px, transparent 1px 5px);
+  opacity: 0.55;
+}
+@keyframes fill-in {
+  from {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.tick-fill {
+  animation: fill-in 160ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
