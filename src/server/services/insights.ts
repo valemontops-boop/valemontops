@@ -1,3 +1,4 @@
+import { objectionsOf } from "@/domain/calls";
 import { z } from "zod";
 import { childId } from "@/lib/ids";
 import { ACTIVITY_LABELS, FOUNDERS, MARKETS, METRICS, OBJECTION_LABELS, STAGES, STAGE_LABELS, type ActivityType, type FounderKey, type Metric } from "@/domain/constants";
@@ -161,9 +162,11 @@ export async function weeklyReview(ctx: AppContext, founder: FounderKey, weekSta
     return [f, { target, actual, funnel: funnelCounts(events, f, week, end), passed: days.filter((d) => d.status === "passed" || d.status === "perfect").length, scheduled: days.filter((d) => d.status !== "off").length }];
   }));
   const objections = new Map<string, number>();
-  for (const e of events.filter((e) => e.local_date >= week && e.local_date <= end && e.objection)) {
-    const key = `${OBJECTION_LABELS[e.objection!]}${e.market ? ` (${e.market})` : ""}`;
-    objections.set(key, (objections.get(key) ?? 0) + 1);
+  for (const e of events.filter((e) => e.local_date >= week && e.local_date <= end)) {
+    for (const o of objectionsOf(e)) {
+      const key = `${OBJECTION_LABELS[o as keyof typeof OBJECTION_LABELS] ?? o}${e.market ? ` (${e.market})` : ""}`;
+      objections.set(key, (objections.get(key) ?? 0) + 1);
+    }
   }
   const pointsThisWeek = new Set(t.FounderPoints.rows.filter((p) => p.start_at && p.start_at.slice(0, 10) >= week && p.start_at.slice(0, 10) <= end).map((p) => p.id));
   const decisions = t.FounderPointItems.rows.filter((i) => i.kind === "decision" && (pointsThisWeek.has(i.point_id) || (i.created_at.slice(0, 10) >= week && i.created_at.slice(0, 10) <= end)));

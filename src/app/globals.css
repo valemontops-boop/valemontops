@@ -21,6 +21,12 @@
   --market-fr: #17161a;
   --market-es: #8e8a92;
   --subtle: #ebe9e3;
+  /* Report series colors (D041): volume = activity counts, yes = conversions. Validated with the dataviz
+     palette checker on --panel: CVD ΔE 19.6, normal-vision ΔE 20.6, both ≥ 3:1. No orange, never a status. */
+  --viz-volume: #2a78d6;
+  --viz-yes: #16946a;
+  --viz-volume-soft: #e7eff9;
+  --viz-yes-soft: #e4f2ec;
   color-scheme: light;
 }
 
@@ -39,6 +45,10 @@
   --color-good: var(--good);
   --color-bad: var(--bad);
   --color-subtle: var(--subtle);
+  --color-viz-volume: var(--viz-volume);
+  --color-viz-yes: var(--viz-yes);
+  --color-viz-volume-soft: var(--viz-volume-soft);
+  --color-viz-yes-soft: var(--viz-yes-soft);
   --color-brand-consulting: var(--brand-consulting);
   --color-brand-local: var(--brand-local);
   --color-brand-thirty: var(--brand-thirty);

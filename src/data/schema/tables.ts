@@ -155,6 +155,8 @@ export const TABLES = {
       /** Keyed hash of the normalised phone for calls to numbers not in the CRM (no number stored for a refusal). */
       target_key: text(80),
       duration_sec: optInt(),
+      /** Every objection heard during the call, whatever the outcome (objection keeps the first one). */
+      objections: json(z.array(z.enum(OBJECTIONS)), []),
     },
   },
   Accounts: {
@@ -506,6 +508,48 @@ export const TABLES = {
       import_file: text(200),
     },
   },
+  /** Founder-edited scripts and templates; built-in defaults apply when no row overrides them. */
+  Playbook: {
+    domain: "settings",
+    shape: {
+      ...base,
+      kind: oneOf(["opener", "objection", "email", "whatsapp"] as const),
+      key: reqText(60),
+      language: oneOf(["FR", "ES"] as const),
+      subject: text(300),
+      body: text(5_000),
+    },
+  },
+  /** One row per follow-up sent to a prospect (email or WhatsApp). Replies are marked by a founder (gmail.send only, no inbox access). */
+  EmailSends: {
+    domain: "activity",
+    shape: {
+      ...base,
+      idempotency_key: reqText(80),
+      founder_key: founder(),
+      account_id: text(40),
+      contact_id: text(40),
+      activity_event_id: text(40),
+      call_session_id: text(40),
+      channel: oneOf(["email", "whatsapp"] as const),
+      via: oneOf(["gmail", "mail_app", "whatsapp"] as const),
+      context: oneOf(["after_call", "cold"] as const),
+      template_key: text(60),
+      language: optOneOf(["FR", "ES"] as const),
+      brand: optOneOf(BRANDS),
+      market: optOneOf(MARKETS),
+      niche: text(120),
+      to_address: text(200),
+      subject: text(300),
+      status: oneOf(["pending", "sent", "failed"] as const),
+      sent_at: optIso(),
+      local_date: optDay(),
+      gmail_message_id: text(80),
+      gmail_thread_id: text(80),
+      replied_at: optIso(),
+      reply_kind: optOneOf(["positive", "neutral", "negative", "bounce"] as const),
+    },
+  },
   /* ----- private founder spreadsheets only (spec 4.7) ----- */
   PrivateTasks: { domain: "private", shape: taskShape() },
 } as const;
@@ -529,8 +573,8 @@ export interface BaseRow {
 export type Row<T extends TableName> = RowMap[T] & BaseRow;
 export type BaseFields = keyof typeof base;
 /** Columns added after a table was first created: optional on create, filled by CREATE_DEFAULTS. */
-export const CREATE_DEFAULTS: Record<string, unknown> = { list_id: "", call_session_id: "", target_key: "", duration_sec: null, area: "sales" };
-type LateKeys = "list_id" | "call_session_id" | "target_key" | "duration_sec" | "area";
+export const CREATE_DEFAULTS: Record<string, unknown> = { list_id: "", call_session_id: "", target_key: "", duration_sec: null, area: "sales", objections: [] };
+type LateKeys = "list_id" | "call_session_id" | "target_key" | "duration_sec" | "area" | "objections";
 export type NewRow<T extends TableName> = Omit<Row<T>, Exclude<BaseFields, "id"> | LateKeys> &
   Partial<Pick<Row<T>, Extract<keyof Row<T>, LateKeys>>> & { id: string };
 

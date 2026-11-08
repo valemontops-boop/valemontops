@@ -10,7 +10,12 @@ const KEYS = {
   hot_lead_stale_days: "Hot leads with no touch for N days enter the Next Best Action queue.",
   conversion_min_sample: "Minimum attempts before conversion rates are shown.",
   company_name: "Legal company name (entered by a founder; never invented).",
+  calendly_url_theo: "Théo's booking link inserted in call follow-ups.",
+  calendly_url_pablo: "Pablo's booking link inserted in call follow-ups.",
+  deck_url_fr: "Commercial deck link (French).",
+  deck_url_es: "Commercial deck link (Spanish).",
 } as const;
+const URL_KEYS = ["calendly_url_theo", "calendly_url_pablo", "deck_url_fr", "deck_url_es"];
 
 export const GET = route(undefined, async ({ repo }) => {
   const rows = (await repo.list("SystemSettings")).rows;
@@ -20,6 +25,9 @@ export const GET = route(undefined, async ({ repo }) => {
 export const POST = route(z.object({ key: z.enum(Object.keys(KEYS) as [keyof typeof KEYS, ...(keyof typeof KEYS)[]]), value: z.string().trim().max(500) }), async ({ repo, session, input }) => {
   if (["ideas_testing_limit", "hot_lead_stale_days", "conversion_min_sample"].includes(input.key) && input.value && !/^\d{1,3}$/.test(input.value)) {
     return Response.json({ error: "validation_error", message: "Enter a whole number" }, { status: 400 });
+  }
+  if (URL_KEYS.includes(input.key) && input.value && !/^https:\/\/[^\s"'<>]+$/.test(input.value)) {
+    return Response.json({ error: "validation_error", message: "Enter a full https:// link" }, { status: 400 });
   }
   const id = childId("setting", input.key);
   const cur = await repo.get("SystemSettings", id, { fresh: true });

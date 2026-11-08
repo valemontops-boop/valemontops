@@ -162,6 +162,8 @@ function Frame({ children }: { children: React.ReactNode }) {
         setPalette(true);
         return;
       }
+      // Live calling owns the single-letter keys (outcomes, objections, follow-ups).
+      if (document.querySelector("[data-call-live]")) return;
       if (e.key.toLowerCase() === "i") {
         e.preventDefault();
         setIdea(true);

@@ -88,6 +88,17 @@ export class FakeGoogleServer {
         s.writes.push({ kind: "drive.upload", by: token });
         return send(200, s.addFile({ id: `upl-${s.files.length + 1}`, name: meta.name ?? "file", mimeType: meta.mimeType, parents: meta.parents ?? [] }, token));
       }
+      if (url.pathname === "/gmail/v1/users/me/messages/send" && method === "POST") {
+        // A service account cannot send as a founder: only the founder's own gmail.send token can.
+        if (token === "sa-token") return send(403, { error: { code: 403, message: "Insufficient Permission" } });
+        const b = JSON.parse(raw.toString("utf8")) as { raw?: string };
+        const mime = Buffer.from(b.raw ?? "", "base64url").toString("utf8");
+        const to = /^To: (.*)$/m.exec(mime)?.[1]?.trim() ?? "";
+        const subjB64 = /^Subject: =\?UTF-8\?B\?([^?]*)\?=/m.exec(mime)?.[1] ?? "";
+        const bodyB64 = mime.split("\r\n\r\n").slice(1).join("").replace(/\r\n/g, "");
+        if (!to) return send(400, { error: { code: 400, message: "Invalid To header" } });
+        return send(200, s.sendMail({ to, subject: Buffer.from(subjB64, "base64").toString("utf8"), body: Buffer.from(bodyB64, "base64").toString("utf8") }, token));
+      }
       return send(404, { error: { code: 404, message: `Unsupported ${method} ${url.pathname}` } });
     } catch (e) {
       return send((e as { status?: number }).status ?? 500, { error: { message: (e as Error).message } });

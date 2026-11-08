@@ -153,5 +153,77 @@ export async function seedDemoWork(repo: DataRepository, privateRepo: (f: string
     { id: childId("demo-content", "1"), idempotency_key: childId("demo-content-key", "1"), founder_key: "theo", deliverable: "reel", brand: "thirty", language: "FR", title: "30/30: 3 AI tools for plumbers (FR)", url: "", local_date: today },
     { id: childId("demo-content", "2"), idempotency_key: childId("demo-content-key", "2"), founder_key: "pablo", deliverable: "brand_post", brand: "consulting", language: "ES", title: "Caso: respuesta en 5 minutos", url: "", local_date: today },
   ], sys);
+  await seedDemoCallsAndEmails(repo, today);
   return true;
+}
+
+/** A past free-dialling session with objections on every kind of outcome, and follow-up emails with replies. */
+async function seedDemoCallsAndEmails(repo: DataRepository, today: string) {
+  const sys = { founder: "system" };
+  await repo.insert("SystemSettings", [
+    { id: childId("setting", "calendly_url_theo"), key: "calendly_url_theo", value: "https://calendly.example.com/theo-demo/15min", description: "Théo's booking link inserted in call follow-ups." },
+    { id: childId("setting", "calendly_url_pablo"), key: "calendly_url_pablo", value: "https://calendly.example.com/pablo-demo/15min", description: "Pablo's booking link inserted in call follow-ups." },
+    { id: childId("setting", "deck_url_fr"), key: "deck_url_fr", value: "https://drive.example.com/file/demo-deck-fr", description: "Commercial deck link (French)." },
+    { id: childId("setting", "deck_url_es"), key: "deck_url_es", value: "https://drive.example.com/file/demo-deck-es", description: "Commercial deck link (Spanish)." },
+  ], sys);
+  // A small call list so call mode can be tried end to end (3 FR for Théo, 3 ES for Pablo).
+  const listId = childId("demo-call-list", "1");
+  await repo.insert("CallLists", [{ id: listId, name: "Trades & garages (demo)", source: "Demo", market: null, niche: "Building trades", brand: "local", owner_founder: null, notes: "" }], sys);
+  const callAcc = ([
+    ["Plomberie Martin (demo)", "FR", "Plumbers", "theo", "Julien"], ["Garage Bernard (demo)", "FR", "Independent garages", "theo", "Nadia"], ["Électricité Roux (demo)", "FR", "Electricians", "theo", ""],
+    ["Fontanería Gil (demo)", "ES", "Plumbers", "pablo", "Carmen"], ["Taller Navarro (demo)", "ES", "Independent garages", "pablo", "Javier"], ["Reformas Díaz (demo)", "ES", "Renovation", "pablo", ""],
+  ] as const).map(([name, country, niche, owner, contact], i) => {
+    const domain = `call-demo-${i + 1}.example.com`;
+    return { name, contact, a: {
+      id: childId("demo-call-account", String(i)), name, sector: "Building trades", niche, country, city: "", website: `https://${domain}`, domain_normalized: domain,
+      phone: country === "FR" ? `+3310000020${i}` : `+3490000020${i}`, email: `contact@${domain}`, linkedin_url: "", lead_source: "Demo list", lead_type: "outbound" as const,
+      brand: "local" as const, owner_founder: owner, lead_status: "new" as const, observed_problem: "", problem_evidence: "", language: country === "FR" ? "fr" : "es", notes: "", import_batch_id: "", list_id: listId,
+    } };
+  });
+  await repo.insert("Accounts", callAcc.map((x) => x.a), sys);
+  await repo.insert("Contacts", callAcc.filter((x) => x.contact).map((x, i) => ({
+    id: childId("demo-call-contact", String(i)), account_id: x.a.id, full_name: x.contact, role: "Owner", is_decision_maker: true, phone: x.a.phone, email: x.a.email, linkedin_url: "",
+    contact_type: "professional_named" as const, language: x.a.language, consent_status: "unknown" as const, lawful_basis: "Legitimate interest (B2B) — to be confirmed", source: "Demo list", retention_review_at: null, import_batch_id: "",
+  })), sys);
+  const day = addDays(today, -2);
+  const sid = childId("demo-call-session", "1");
+  await repo.insert("CallSessions", [{ id: sid, founder_key: "theo", list_id: "", started_at: `${day}T08:00:00.000Z`, ended_at: `${day}T09:10:00.000Z`, notes: "" }], sys);
+  type O = "no_answer" | "gatekeeper" | "not_interested" | "callback_requested" | "interested" | "meeting_booked";
+  const plan: [O, string[]][] = [
+    ["no_answer", []], ["no_answer", []], ["not_interested", ["no_need"]], ["no_answer", []], ["gatekeeper", ["not_decision_maker"]],
+    ["not_interested", ["too_expensive"]], ["interested", ["too_expensive"]], ["no_answer", []], ["not_interested", ["already_has_solution"]],
+    ["callback_requested", ["no_time"]], ["meeting_booked", ["send_info"]], ["not_interested", ["no_time"]], ["no_answer", []],
+    ["interested", ["send_info", "too_expensive"]], ["not_interested", ["bad_experience"]], ["no_answer", []], ["not_interested", ["send_info"]],
+    ["meeting_booked", ["no_time"]], ["not_interested", ["no_need", "too_expensive"]], ["no_answer", []],
+  ];
+  await repo.insert("ActivityEvents", plan.map(([outcome, objections], i) => {
+    const at = new Date(Date.parse(`${day}T08:02:00.000Z`) + i * 3.4 * 60_000).toISOString();
+    return {
+      id: childId("demo-call-ev", String(i)), idempotency_key: childId("demo-call-key", String(i)), founder_key: "theo" as const,
+      activity_type: outcome === "no_answer" ? ("cold_call" as const) : ("connected_call" as const), channel: null, account_id: "", contact_id: "", opportunity_id: "", campaign_id: "",
+      brand: "local" as const, market: "FR" as const, outcome, objection: (objections[0] ?? null) as never, objections: objections as never, objection_note: "", met_person: "", notes: "",
+      next_action: "", next_action_due: null, occurred_at: at, logged_at: at, timezone: "Europe/Paris", local_date: day, late_logged: false, source: "manual" as const,
+      corrects_event_id: "", call_session_id: sid, list_id: "", target_key: `demo-target-${i}`, duration_sec: outcome === "no_answer" ? null : 60 + ((i * 37) % 200),
+    };
+  }), sys);
+  // 64 follow-ups over four weeks: warm (after a call) and cold, FR and ES, some replies marked.
+  const niches = ["Plumbers", "Independent garages", "Heating", "Electricians"];
+  const rows = Array.from({ length: 64 }, (_, i) => {
+    const d = addDays(today, -1 - (i % 27));
+    const cold = i % 3 === 0;
+    const es = i % 4 === 1 || i % 4 === 2;
+    const tpl = cold ? "calendly" : (["calendly", "deck", "confirm"] as const)[i % 3];
+    // Realistic shape: cold ≈ 4–5% replies, warm (after a call) ≈ 30%, one bounce.
+    const reply = cold ? (i === 21 ? "positive" : null) : i === 22 ? "bounce" : i % 7 === 1 ? "positive" : i % 7 === 4 ? "neutral" : i % 13 === 5 ? "negative" : null;
+    const at = `${d}T${String(9 + (i % 8)).padStart(2, "0")}:15:00.000Z`;
+    return {
+      id: childId("demo-send", String(i)), idempotency_key: childId("demo-send-key", String(i)), founder_key: (es ? "pablo" : "theo") as "pablo" | "theo",
+      account_id: childId("demo-account", String(es ? 4 + (i % 4) : i % 4)), contact_id: "", activity_event_id: "", call_session_id: "",
+      channel: (i % 9 === 4 ? "whatsapp" : "email") as "email" | "whatsapp", via: (i % 9 === 4 ? "whatsapp" : i % 2 ? "gmail" : "mail_app") as "gmail" | "mail_app" | "whatsapp",
+      context: (cold ? "cold" : "after_call") as "cold" | "after_call", template_key: tpl, language: (es ? "ES" : "FR") as "ES" | "FR", brand: "local" as const, market: (es ? "ES" : "FR") as "ES" | "FR",
+      niche: niches[i % 4], to_address: `contact${i}@business-demo.example.com`, subject: "Demo follow-up", status: "sent" as const, sent_at: at, local_date: d,
+      gmail_message_id: "", gmail_thread_id: "", replied_at: reply ? at : null, reply_kind: reply as "positive" | "neutral" | "negative" | "bounce" | null,
+    };
+  });
+  await repo.insert("EmailSends", rows, sys);
 }

@@ -1,5 +1,5 @@
 import { GoogleHttp } from "./http";
-import type { CalEvent, CalendarPort, DriveFile, DrivePort, DriveUploader, NewCalEvent } from "./ports";
+import type { CalEvent, CalendarPort, DriveFile, DrivePort, DriveUploader, MailSender, NewCalEvent } from "./ports";
 
 type GEvent = { id: string; summary?: string; description?: string; status?: string; htmlLink?: string; start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string } };
 const toEvent = (calendarId: string, e: GEvent): CalEvent => ({
@@ -88,5 +88,23 @@ export class GoogleDriveUploader implements DriveUploader {
   async createFolder(name: string, parentId: string | null) {
     const r = await this.http.request<DriveFile>("POST", "/drive/v3/files", { idempotent: false, query: { fields: FIELDS }, body: { name, mimeType: "application/vnd.google-apps.folder", ...(parentId ? { parents: [parentId] } : {}) } });
     return r.data!;
+  }
+}
+
+/** RFC 2822 message, UTF-8 subject (RFC 2047) and base64 body. CR/LF are stripped from headers (no header injection). */
+export function buildRawEmail(to: string, subject: string, body: string): string {
+  const clean = (s: string) => s.replace(/[\r\n]+/g, " ").trim();
+  const subj = `=?UTF-8?B?${Buffer.from(clean(subject), "utf8").toString("base64")}?=`;
+  const b64 = Buffer.from(body.replace(/\r?\n/g, "\r\n"), "utf8").toString("base64").replace(/.{76}/g, "$&\r\n");
+  const msg = [`To: ${clean(to)}`, `Subject: ${subj}`, "MIME-Version: 1.0", 'Content-Type: text/plain; charset="UTF-8"', "Content-Transfer-Encoding: base64", "", b64].join("\r\n");
+  return Buffer.from(msg, "utf8").toString("base64url");
+}
+
+/** Gmail send with the founder's own short-lived gmail.send token. Never retried: a send is not idempotent. */
+export class GmailSender implements MailSender {
+  constructor(private readonly http: GoogleHttp) {}
+  async send(msg: { to: string; subject: string; body: string }) {
+    const r = await this.http.request<{ id: string; threadId: string }>("POST", "/gmail/v1/users/me/messages/send", { idempotent: false, body: { raw: buildRawEmail(msg.to, msg.subject, msg.body) } });
+    return { id: r.data?.id ?? "", threadId: r.data?.threadId ?? "" };
   }
 }

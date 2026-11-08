@@ -7,7 +7,7 @@ import { ImportView } from "@/components/app/import-view";
 import { SettingsView } from "@/components/app/settings-view";
 import { FOUNDER_NAMES, type FounderKey } from "@/domain/constants";
 import { usePathname } from "./shims/navigation";
-import { exportCsv, founder as initialFounder, grantDrive, installMockFetch, seed, setFounder } from "./mock-api";
+import { exportCsv, founder as initialFounder, grantDrive, grantGmail, installMockFetch, seed, setFounder } from "./mock-api";
 import { CommandCenterView } from "@/components/app/command-center-view";
 import { TasksView } from "@/components/app/tasks-view";
 import { AgendaView } from "@/components/app/agenda-view";
@@ -57,9 +57,9 @@ function CsvSheet({ csv, onClose }: { csv: string; onClose: () => void }) {
   );
 }
 
-function alertGrant() {
+function alertGrant(text = "Preview: Drive access granted. In the real app, Google asks you here. Upload again.") {
   const el = document.createElement("div");
-  el.textContent = "Preview: Drive access granted. In the real app, Google asks you here. Upload again.";
+  el.textContent = text;
   el.setAttribute("role", "status");
   el.className = "fixed bottom-20 left-1/2 z-50 -translate-x-1/2 rounded-full bg-ink px-4 py-2 text-[13px] text-panel";
   document.body.appendChild(el);
@@ -86,6 +86,12 @@ function Preview() {
         e.preventDefault();
         grantDrive(); // preview stand-in for Google's consent screen
         alertGrant();
+      }
+      if (href.startsWith("/api/auth/google/gmail")) {
+        e.preventDefault();
+        grantGmail(); // preview stand-in for Google's consent screen (gmail.send)
+        alertGrant("Preview: Gmail connected (send only). Emails stay inside the preview, nothing is really sent.");
+        window.dispatchEvent(new Event("vos-refetch"));
       }
     };
     const onSubmit = (e: SubmitEvent) => {

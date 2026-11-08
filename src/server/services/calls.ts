@@ -41,7 +41,8 @@ export async function callQueue(ctx: AppContext, founder: FounderKey, listId: st
   };
   const dueBack = accounts.filter((a) => {
     const o = t.Opportunities.rows.find((x) => x.account_id === a.id && isOpen(x));
-    return o && o.next_action_due && o.next_action_due <= today && ["contacted", "replied"].includes(o.stage);
+    // Not twice the same day: someone just called is not "due" again until tomorrow.
+    return o && o.next_action_due && o.next_action_due <= today && ["contacted", "replied"].includes(o.stage) && (lastCall.get(a.id)?.local_date ?? "") < today;
   });
   const fresh = accounts.filter((a) => !lastCall.has(a.id) || (lastCall.get(a.id)!.outcome === "no_answer" && lastCall.get(a.id)!.local_date < today));
   const seen = new Set<string>();
@@ -51,7 +52,7 @@ export async function callQueue(ctx: AppContext, founder: FounderKey, listId: st
       if (seen.has(a.id) || blocked(a)) continue;
       seen.add(a.id);
       const last = lastCall.get(a.id);
-      out.push({ accountId: a.id, name: a.name, phone: a.phone, city: a.city, niche: a.niche, country: a.country, why: why === "New" && last ? `No answer on ${last.local_date}` : why, contactName: t.Contacts.rows.find((c) => c.account_id === a.id)?.full_name ?? "" });
+      out.push({ accountId: a.id, name: a.name, phone: a.phone, city: a.city, niche: a.niche, country: a.country, why: why === "New" && last ? `No answer on ${last.local_date}` : why, contactName: t.Contacts.rows.find((c) => c.account_id === a.id)?.full_name ?? "", email: t.Contacts.rows.find((c) => c.account_id === a.id && c.email)?.email || a.email, brand: a.brand });
     }
   }
   return { remaining: out.length, queue: out.slice(0, limit) };
@@ -65,6 +66,10 @@ export const callSchema = z.object({
   phone: z.string().trim().max(40).default(""),
   market: z.enum(MARKETS).nullable().default(null),
   objection: z.enum(OBJECTIONS).nullable().default(null),
+  /** Objections ticked live during the call, whatever the outcome. */
+  objections: z.array(z.enum(OBJECTIONS)).max(12).default([]),
+  /** Seconds from "Dial" to the outcome tap, when the timer ran. */
+  duration_sec: z.number().int().min(0).max(4 * 3600).nullable().default(null),
   follow_up_date: z.union([z.literal(""), z.string().regex(/^\d{4}-\d{2}-\d{2}$/)]).default(""),
   note: z.string().trim().max(500).default(""),
   /** Only for a "yes" from free dialling: who said yes. Refusals need nothing. */
@@ -95,6 +100,8 @@ export async function logCall(ctx: AppContext, founder: FounderKey, input: z.inf
     outcome: ev.outcome,
     account_id: input.account_id,
     objection: input.objection,
+    objections: input.objections,
+    duration_sec: input.duration_sec,
     notes: input.note,
     next_action: nextAction,
     next_action_due: due,
@@ -165,4 +172,15 @@ export async function callLists(ctx: AppContext) {
     const meetings = new Set(calls.filter((e) => e.outcome === "meeting_booked").map((e) => e.account_id));
     return { list: l, total: accs.length, called: called.size, reached: reached.size, positive: positive.size, meetings: meetings.size, remaining: accs.length - called.size };
   });
+}
+
+/** Objections heard in the last N days (team-wide) and how often each one was turned into a yes. */
+export async function objectionReport(ctx: AppContext, founder: FounderKey, days = 30) {
+  const t = await ctx.repo.listMany(["ActivityEvents"]);
+  const u = await userRow(ctx.repo, founder);
+  const from = addDays(localDate(new Date(), u.timezone), -days + 1);
+  const events = dedupeEvents(t.ActivityEvents.rows).filter((e) => e.local_date >= from);
+  const all = callStats(events, u.timezone);
+  const mine = callStats(events.filter((e) => e.founder_key === founder), u.timezone);
+  return { days, team: all.objections, mine: mine.objections, pickedUp: all.pickedUp, avgTalkSec: all.avgTalkSec };
 }

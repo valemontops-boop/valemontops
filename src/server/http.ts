@@ -82,7 +82,7 @@ export function route<S extends z.ZodTypeAny | undefined>(
 }
 
 function mapError(e: unknown): [number, Record<string, unknown>] {
-  if (e instanceof ConsentRequiredError) return [409, { error: "consent_required", message: "Allow Valemont OS to create files in your Google Drive first.", url: e.url, scope: e.scope }];
+  if (e instanceof ConsentRequiredError) return [409, { error: "consent_required", message: e.scope.includes("gmail") ? "Connect your Gmail first (send only, no inbox access)." : "Allow Valemont OS to create files in your Google Drive first.", url: e.url, scope: e.scope }];
   if (e instanceof SetupRequiredError) return [503, { error: "setup_required", message: "Setup required", details: e.errors }];
   if (e instanceof ZodError) return [400, { error: "validation_error", message: "Invalid input", issues: e.issues.map((i) => ({ path: i.path, message: i.message })) }];
   if (e instanceof SyntaxError) return [400, { error: "validation_error", message: "Malformed JSON" }];

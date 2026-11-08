@@ -24,6 +24,7 @@ their own trail), GDPR export/delete tooling, dependency audit (`npm audit` repo
 ## Stage 1B additions
 - Private founder data lives in separate spreadsheets; the other founder's calendar is read with free/busy only (no titles).
 - Drive writes use the founder's own `drive.file` token in an encrypted httpOnly cookie, never the service account.
+- Gmail uses `gmail.send` only, with the founder's own short-lived token in an encrypted httpOnly cookie (`vos_gmail`); the token is never written to Sheets or logs, the app cannot read any mailbox, and every send passes the suppression hard block (typed address included) and the Spanish cold-email consent rule. Headers are stripped of CR/LF (no header injection). Mail-app and WhatsApp links count only after the founder confirms.
 - `npm audit --omit=dev` (2026-11-08): `xlsx` 0.18.5 (high: prototype pollution / ReDoS on crafted files), used only to read
   legacy `.xls` LinkedIn exports uploaded by a signed-in founder, capped at 2 MB and 5,000 rows (D020); `uuid` nested in
   `exceljs` (moderate: buffer bounds in v3/v5/v6 with a caller-supplied buffer, a path exceljs does not take with our input).

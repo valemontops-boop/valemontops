@@ -83,23 +83,35 @@ test("scenario 23: Command Center Now shows exactly five primary numbers", async
   await expect(page.getByText("Audience, latest figures")).toBeVisible();
 });
 
-test("call mode: free dialling counts refusals by tap and puts the yes in the pipeline", async ({ page }) => {
+test("call mode: objections on any outcome, one-key outcomes, yes goes to the pipeline with a follow-up", async ({ page }) => {
   await signIn(page, "theo");
   await page.goto("/call");
   await page.getByRole("button", { name: "Start free session" }).click();
   await page.getByRole("button", { name: /^No answer/ }).click();
   await expect(page.getByText("No answer", { exact: true }).last()).toBeVisible();
-  await page.getByRole("button", { name: /^Not interested/ }).click();
-  await page.getByRole("button", { name: "Too expensive" }).click();
-  await expect(page.getByText("Why? (one tap)")).toHaveCount(0); // saved
-  await expect(page.getByRole("button", { name: /^Meeting booked/ })).toBeEnabled();
-  await page.keyboard.press("7"); // Meeting booked
+  // A refusal with its objection, by keyboard: D = too expensive, 4 = not interested (physical key, works on AZERTY).
+  await expect(page.getByRole("button", { name: /^Too expensive/ })).toBeVisible();
+  await page.keyboard.press("d");
+  await expect(page.getByRole("button", { name: /^Too expensive/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByText(/99 € par mois/)).toBeVisible(); // live reply from the playbook
+  await page.keyboard.press("Digit4");
+  await expect(page.getByRole("button", { name: /^Too expensive/ })).toHaveAttribute("aria-pressed", "false");
+  // A yes can carry objections too: G = send me info, then 7 = meeting.
+  await page.keyboard.press("g");
+  await page.keyboard.press("Digit7");
   await page.getByLabel("Business name").fill("Carrosserie Rapide (e2e)");
   await page.getByRole("button", { name: /^Save · Meeting booked/ }).click();
   await expect(page.getByText("Meeting booked: added to your pipeline")).toBeVisible();
+  // The follow-up targets the person just called; E opens the confirmation email in their language.
+  await expect(page.getByText(/For Carrosserie Rapide \(e2e\)/)).toBeVisible();
+  await page.keyboard.press("e");
+  await expect(page.getByRole("region", { name: "Follow-up composer" }).or(page.getByLabel("Follow-up composer"))).toBeVisible();
+  await expect(page.getByLabel("Subject")).toHaveValue(/Carrosserie Rapide/);
+  await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "End session" }).click();
   await expect(page.getByRole("heading", { name: "Session summary" })).toBeVisible();
   await expect(page.getByText("Too expensive")).toBeVisible();
+  await expect(page.getByText(/1 heard · 1 won over/)).toBeVisible(); // send me info, still a yes
   await page.goto("/crm");
   await expect(page.getByRole("region", { name: "Meeting booked" })).toContainText("Carrosserie Rapide (e2e)");
 });

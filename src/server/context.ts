@@ -1,5 +1,5 @@
 import type { DataRepository } from "@/data/repository";
-import type { CalendarPort, DrivePort, DriveUploader } from "@/data/google/ports";
+import type { CalendarPort, DrivePort, DriveUploader, MailSender } from "@/data/google/ports";
 
 /** Everything a service needs, independent of mode (LIVE, DEMO memory, DEMO fake Sheets, browser preview). */
 export interface AppContext {
@@ -10,6 +10,8 @@ export interface AppContext {
   drive: DrivePort | null;
   /** Uploader acting as the founder (drive.file grant), or null when the founder has not granted it. */
   uploaderFor: (founder: string, grantToken: string | null) => DriveUploader | null;
+  /** Gmail sender acting as the founder (gmail.send grant), or null when not connected. */
+  mailerFor: (founder: string, grantToken: string | null) => MailSender | null;
   baseUrl: string;
   mode: "live" | "demo";
 }

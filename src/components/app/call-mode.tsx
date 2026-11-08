@@ -1,20 +1,18 @@
 "use client";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Phone, SkipForward } from "lucide-react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { Phone } from "lucide-react";
 import Link from "next/link";
 import * as React from "react";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { EmptyState, ErrorState, Field, Input, Panel, PanelTitle, SegmentedSwitch, Skeleton } from "@/components/ui/form";
-import { CALL_OUTCOMES, CALL_OUTCOME_LABELS, type CallOutcome, type CallStats } from "@/domain/calls";
-import { OBJECTIONS, OBJECTION_LABELS } from "@/domain/constants";
-import { addDays } from "@/domain/time";
-import { ApiError, api } from "@/lib/api";
+import { EmptyState, ErrorState, Panel, PanelTitle, Skeleton } from "@/components/ui/form";
+import { type CallStats } from "@/domain/calls";
+import { ActiveSession } from "./call-live";
+import { OBJECTION_LABELS } from "@/domain/constants";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Bars } from "./charts";
 
 type ListRow = { list: { id: string; name: string; niche: string; market: string | null }; total: number; called: number; reached: number; positive: number; meetings: number; remaining: number };
-type QueueItem = { accountId: string; name: string; phone: string; city: string; niche: string; country: "FR" | "ES" | null; why: string; contactName: string };
 type Summary = { session: { id: string; started_at: string; ended_at: string | null; list_id: string }; stats: CallStats; previous: { sessions: number; pickupRate: number | null; positiveRate: number | null; dials: number | null } };
 const SESSION_KEY = "vos-call-session";
 const pct = (n: number | null) => (n === null ? "—" : `${Math.round(n * 100)}%`);
@@ -72,6 +70,7 @@ function StartScreen({ onStart }: { onStart: (s: { id: string; listId: string })
         <Button variant="outline" disabled={start.isPending} onClick={() => start.mutate("")}><Phone /> Start free session</Button>
       </Panel>
       {start.isError ? <ErrorState error={start.error} onRetry={() => start.reset()} /> : null}
+      <ObjectionsPanel />
       {sessions.data?.length ? (
         <Panel>
           <PanelTitle>Recent sessions</PanelTitle>
@@ -82,150 +81,6 @@ function StartScreen({ onStart }: { onStart: (s: { id: string; listId: string })
         </Panel>
       ) : null}
     </div>
-  );
-}
-
-function useElapsed(since: string | undefined) {
-  const [now, setNow] = React.useState(() => Date.now());
-  React.useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
-  if (!since) return "0:00";
-  const s = Math.max(0, Math.floor((now - Date.parse(since)) / 1000));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-}
-
-function ActiveSession({ id, listId, onEnd }: { id: string; listId: string; onEnd: () => void }) {
-  const qc = useQueryClient();
-  const summary = useQuery({ queryKey: ["call-summary", id], queryFn: () => api<Summary>(`/api/calls/summary?id=${id}`) });
-  const queue = useQuery({ queryKey: ["call-queue", listId], queryFn: () => api<{ remaining: number; queue: QueueItem[] }>(`/api/calls/queue?list_id=${listId}`), enabled: Boolean(listId) });
-  const [skipped, setSkipped] = React.useState<string[]>([]);
-  const current = queue.data?.queue.find((q) => !skipped.includes(q.accountId)) ?? null;
-  const [phone, setPhone] = React.useState("");
-  const [market, setMarket] = React.useState<"FR" | "ES">("FR");
-  const [pending, setPending] = React.useState<CallOutcome | null>(null); // outcome waiting for objection or details
-  const [key, setKey] = React.useState(() => crypto.randomUUID()); // one idempotency key per call, reused on retry
-  const elapsed = useElapsed(summary.data?.session.started_at);
-  const end = useMutation({ mutationFn: () => api("/api/calls/sessions", { method: "PATCH", body: { id } }), onSuccess: () => { qc.invalidateQueries(); onEnd(); } });
-  const log = useMutation({
-    mutationKey: ["log-activity"],
-    mutationFn: (b: Record<string, unknown>) => api<{ duplicate: boolean; opportunityId: string | null }>("/api/calls", { body: { idempotency_key: key, session_id: id, account_id: current?.accountId ?? "", phone: listId ? "" : phone, market: listId ? current?.country ?? null : market, ...b } }),
-    onSuccess: (r, b) => {
-      const o = b.outcome as CallOutcome;
-      toast(r.opportunityId ? `${CALL_OUTCOME_LABELS[o]}: added to your pipeline` : CALL_OUTCOME_LABELS[o]);
-      setPending(null); setPhone(""); setKey(crypto.randomUUID());
-      qc.invalidateQueries({ queryKey: ["call-summary", id] });
-      qc.invalidateQueries({ queryKey: ["call-queue", listId] });
-      qc.invalidateQueries({ queryKey: ["my-day"] });
-    },
-    onError: (e) => toast(e instanceof ApiError && e.isBlocked ? e.message : `Error: ${(e as Error).message}. Tap again to retry (it won't count twice).`),
-  });
-  const tap = (o: CallOutcome) => {
-    if (log.isPending) return;
-    if (o === "not_interested" || o === "call_back" || o === "interested" || o === "meeting") return setPending(o);
-    log.mutate({ outcome: o });
-  };
-  React.useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement;
-      if (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || pending) return;
-      const n = Number(e.key);
-      if (n >= 1 && n <= CALL_OUTCOMES.length) { e.preventDefault(); tap(CALL_OUTCOMES[n - 1]); }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
-  const s = summary.data?.stats;
-  const done = listId && queue.isSuccess && !current;
-  return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-4">
-      <div className="flex items-center justify-between gap-3">
-        <div><h1 className="text-xl font-semibold tracking-tight">Calling</h1><p className="num text-sm text-text-2">{elapsed} · {listId ? `${queue.data?.remaining ?? "…"} left in list` : "free dialling"}</p></div>
-        <Button variant="outline" onClick={() => end.mutate()} disabled={end.isPending}>End session</Button>
-      </div>
-      <div className="grid grid-cols-4 gap-2" aria-live="polite">
-        {[["Dials", s?.dials], ["Picked up", s?.pickedUp], ["Yes", s ? s.interested + s.callBacks : undefined], ["Meetings", s?.meetings]].map(([l, v], i) => (
-          <div key={String(l)} className={cn("rounded-[12px] p-3 text-center", i === 3 ? "bg-ink text-panel" : "bg-panel")}>
-            <p className="num text-[28px] font-semibold leading-none">{v ?? 0}</p>
-            <p className={cn("mt-1 text-[12px]", i === 3 ? "text-panel/80" : "text-text-2")}>{l}</p>
-          </div>
-        ))}
-      </div>
-
-      <Panel className="flex flex-col gap-4">
-        {listId ? (
-          queue.isPending ? <Skeleton className="h-20" /> : done ? (
-            <EmptyState title="List finished" action={<Button variant="primary" size="sm" onClick={() => end.mutate()}>See the session summary</Button>}>Everyone in this list has been called today.</EmptyState>
-          ) : current ? (
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-[12px] font-medium text-text-2">{current.why}{current.niche ? ` · ${current.niche}` : ""}{current.city ? ` · ${current.city}` : ""}</p>
-                <p className="truncate text-2xl font-semibold tracking-tight">{current.name}</p>
-                {current.contactName ? <p className="text-sm text-text-2">Ask for {current.contactName}</p> : null}
-              </div>
-              <div className="flex gap-2">
-                <Button asChild variant="primary" size="lg"><a href={`tel:${current.phone}`}><Phone /> <span className="num">{current.phone}</span></a></Button>
-                <Button variant="ghost" size="lg" aria-label="Skip this number" onClick={() => setSkipped((x) => [...x, current.accountId])}><SkipForward /></Button>
-              </div>
-            </div>
-          ) : null
-        ) : (
-          <div className="flex flex-wrap items-end gap-3">
-            <Field label="Number (optional, never stored for a refusal)" htmlFor="cm-phone" className="min-w-56 flex-1"><Input id="cm-phone" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+33…" className="num h-12 text-lg" /></Field>
-            <SegmentedSwitch label="Country" value={market} onChange={setMarket} options={[{ value: "FR", label: "FR" }, { value: "ES", label: "ES" }]} />
-          </div>
-        )}
-
-        {!done ? (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {CALL_OUTCOMES.map((o, i) => (
-              <button key={o} type="button" onClick={() => tap(o)} disabled={log.isPending || (Boolean(listId) && !current)}
-                className={cn("flex min-h-16 flex-col items-center justify-center rounded-[12px] border px-2 text-center text-[15px] font-medium transition-colors disabled:opacity-50",
-                  o === "meeting" ? "border-ink bg-ink text-panel hover:bg-accent-hover" : o === "interested" || o === "call_back" ? "border-ink hover:bg-subtle" : "border-hairline bg-panel hover:bg-subtle",
-                  pending === o && "ring-2 ring-ink ring-offset-2 ring-offset-panel", o === "meeting" && "col-span-2 sm:col-span-1")}>
-                {CALL_OUTCOME_LABELS[o]}
-                <span className={cn("text-[11px] font-normal", o === "meeting" ? "text-panel/70" : "text-text-3")}>key {i + 1}</span>
-              </button>
-            ))}
-          </div>
-        ) : null}
-
-        {pending === "not_interested" ? (
-          <div className="rounded-[12px] bg-subtle p-3">
-            <p className="mb-2 text-sm font-medium">Why? (one tap)</p>
-            <div className="flex flex-wrap gap-2">
-              {OBJECTIONS.map((ob) => <button key={ob} type="button" onClick={() => log.mutate({ outcome: "not_interested", objection: ob })} className="min-h-11 rounded-full border border-control bg-panel px-4 text-sm hover:bg-subtle">{OBJECTION_LABELS[ob]}</button>)}
-              <button type="button" onClick={() => log.mutate({ outcome: "not_interested" })} className="min-h-11 rounded-full px-4 text-sm text-text-2 underline">No reason</button>
-            </div>
-          </div>
-        ) : pending ? <YesDetails key={pending} outcome={pending} needsName={!listId} busy={log.isPending} onCancel={() => setPending(null)} onSave={(b) => log.mutate({ outcome: pending, ...b })} /> : null}
-      </Panel>
-      <p className="text-[12px] text-text-3">Every tap counts in your day (calls, new businesses). Opening the phone link does not count; only the outcome you tap does.</p>
-    </div>
-  );
-}
-
-function YesDetails({ outcome, needsName, busy, onCancel, onSave }: { outcome: CallOutcome; needsName: boolean; busy: boolean; onCancel: () => void; onSave: (b: Record<string, string>) => void }) {
-  const today = new Date().toLocaleDateString("en-CA");
-  const [date, setDate] = React.useState(outcome === "meeting" ? addDays(today, 3) : outcome === "interested" ? addDays(today, 1) : addDays(today, 2));
-  const [business, setBusiness] = React.useState("");
-  const [contact, setContact] = React.useState("");
-  return (
-    <form className="flex flex-col gap-3 rounded-[12px] bg-subtle p-3" onSubmit={(e) => { e.preventDefault(); onSave({ follow_up_date: date, business_name: business, contact_name: contact }); }}>
-      <p className="text-sm font-medium">{outcome === "meeting" ? "Meeting date" : "When to call back"}</p>
-      <div className="flex flex-wrap gap-2">
-        {[["Today", 0], ["Tomorrow", 1], ["In 2 days", 2], ["Next week", 7]].map(([l, d]) => { const v = addDays(today, d as number); return <button key={String(l)} type="button" aria-pressed={date === v} onClick={() => setDate(v)} className={cn("min-h-10 rounded-full border px-3 text-sm", date === v ? "border-ink bg-ink text-panel" : "border-control bg-panel")}>{l}</button>; })}
-        <Input aria-label="Date" type="date" value={date} onChange={(e) => setDate(e.target.value)} className="h-10 w-40" />
-      </div>
-      {needsName ? (
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <Input aria-label="Business name" required autoFocus placeholder="Business name (required)" value={business} onChange={(e) => setBusiness(e.target.value)} />
-          <Input aria-label="Contact name" placeholder="Who you spoke to (optional)" value={contact} onChange={(e) => setContact(e.target.value)} />
-        </div>
-      ) : null}
-      <div className="flex gap-2">
-        <Button type="submit" variant="primary" disabled={busy || (needsName && !business.trim())}>{busy ? "Saving…" : `Save · ${CALL_OUTCOME_LABELS[outcome]}`}</Button>
-        <Button type="button" variant="ghost" onClick={onCancel}>Cancel</Button>
-      </div>
-    </form>
   );
 }
 
@@ -251,9 +106,41 @@ function SessionSummary({ id, onNew }: { id: string; onNew: () => void }) {
         <Bars data={[{ label: "Dials", value: s.dials }, { label: "Picked up", value: s.pickedUp }, { label: "Decision-maker", value: s.decisionMakerReached }, { label: "Yes", value: yes }, { label: "Meetings", value: s.meetings }]} showShare />
       </Panel>
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-        <Panel><PanelTitle>Objections</PanelTitle>{s.objections.length ? <Bars data={s.objections.map((o) => ({ label: OBJECTION_LABELS[o.key as keyof typeof OBJECTION_LABELS] ?? o.key, value: o.count }))} /> : <p className="text-sm text-text-2">No objection recorded.</p>}</Panel>
+        <Panel><PanelTitle>Objections</PanelTitle>{s.objections.length ? <ObjectionRows rows={s.objections} /> : <p className="text-sm text-text-2">No objection recorded.</p>}</Panel>
         <Panel><PanelTitle>By hour</PanelTitle>{s.byHour.length ? <Bars data={s.byHour.map((h) => ({ label: `${h.hour}:00`, value: h.dials, sub: `${h.pickedUp} picked up` }))} /> : <p className="text-sm text-text-2">No call.</p>}</Panel>
       </div>
     </div>
+  );
+}
+
+type ObjRow = { key: string; count: number; won: number; wonRate: number | null };
+/** Each objection: how often it came up, and the share of those calls that still ended in a yes. */
+function ObjectionRows({ rows }: { rows: ObjRow[] }) {
+  const max = Math.max(1, ...rows.map((r) => r.count));
+  return (
+    <ul className="flex flex-col gap-2.5">
+      {rows.map((r) => (
+        <li key={r.key} className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1">
+          <span className="text-sm">{OBJECTION_LABELS[r.key as keyof typeof OBJECTION_LABELS] ?? r.key}</span>
+          <span className="num text-right text-[12px] text-text-2">{r.count} heard · {r.won} won over{r.wonRate !== null ? ` (${Math.round(r.wonRate * 100)}%)` : ""}</span>
+          <div className="col-span-2 flex h-2 overflow-hidden rounded-full bg-subtle" aria-hidden>
+            <div className="bg-good" style={{ width: `${(r.won / max) * 100}%` }} />
+            <div className="bg-control" style={{ width: `${((r.count - r.won) / max) * 100}%` }} />
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ObjectionsPanel() {
+  const q = useQuery({ queryKey: ["call-objections"], queryFn: () => api<{ days: number; team: ObjRow[]; mine: ObjRow[] }>("/api/calls/objections") });
+  if (!q.data?.team.length) return null;
+  return (
+    <Panel>
+      <PanelTitle>Objections, last {q.data.days} days</PanelTitle>
+      <p className="mb-3 text-[12px] text-text-2"><span className="mr-1 inline-block size-2 rounded-full bg-good align-middle" />won over (call still ended in a yes) · <span className="mr-1 inline-block size-2 rounded-full bg-control align-middle" />lost. Both founders. Replies to use live are in Settings › Playbook.</p>
+      <ObjectionRows rows={q.data.team} />
+    </Panel>
   );
 }

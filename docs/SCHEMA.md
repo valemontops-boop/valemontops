@@ -1,4 +1,4 @@
-# Schema (Stage 1B + feedback round 2)
+# Schema (Stage 1B + feedback round 3)
 
 Generated from `src/data/schema/tables.ts`. Every tab also has the base columns `id` (UUID), `created_at`, `updated_at`, `updated_by`, `version`, `is_archived`, `write_id`.
 
@@ -17,7 +17,7 @@ Money: integer EUR cents (`value_minor`) + `currency`.
 | WorkModes | settings | founder_key, mode, effective_from, reason |
 | DailyTargets | settings | founder_key, mode, metric, target, weight, minutes_per_action, effective_from |
 | DailyPlans | settings | founder_key, local_date, timezone, mode, is_workday, capacity_minutes, targets |
-| ActivityEvents | activity | idempotency_key, founder_key, activity_type, channel, account_id, contact_id, opportunity_id, campaign_id, brand, market, outcome, objection, objection_note, met_person, notes, next_action, next_action_due, occurred_at, logged_at, timezone, local_date, late_logged, source, corrects_event_id, call_session_id, list_id, target_key, duration_sec |
+| ActivityEvents | activity | idempotency_key, founder_key, activity_type, channel, account_id, contact_id, opportunity_id, campaign_id, brand, market, outcome, objection, objection_note, met_person, notes, next_action, next_action_due, occurred_at, logged_at, timezone, local_date, late_logged, source, corrects_event_id, call_session_id, list_id, target_key, duration_sec, objections |
 | Accounts | crm | name, sector, niche, country, city, website, domain_normalized, phone, email, linkedin_url, lead_source, lead_type, brand, owner_founder, lead_status, observed_problem, problem_evidence, language, notes, import_batch_id, list_id |
 | Contacts | crm | account_id, full_name, role, is_decision_maker, phone, email, linkedin_url, contact_type, language, consent_status, lawful_basis, source, retention_review_at, import_batch_id |
 | Opportunities | crm | account_id, primary_contact_id, name, brand, market, stage, owner_founder, value_minor, currency, expected_close, next_action, next_action_due, next_action_priority, next_action_reason, lost_reason, anum_authority, anum_need, anum_urgency, anum_money |
@@ -53,7 +53,9 @@ Money: integer EUR cents (`value_minor`) + `currency`.
 
 | Tab | Columns (after base) |
 |---|---|
-| PrivateTasks | title, description, owner, created_by_founder, account_id, opportunity_id, project_id, client_id, priority, status, estimated_minutes, due_at, recurrence, recurrence_parent_id, dependency_ids, completion_evidence, completed_at, visibility, snoozed_until, snooze_reason, area, source, source_id |
+| PrivateTasks | private | title, description, owner, created_by_founder, account_id, opportunity_id, project_id, client_id, priority, status, estimated_minutes, due_at, recurrence, recurrence_parent_id, dependency_ids, completion_evidence, completed_at, visibility, snoozed_until, snooze_reason, area, source, source_id |
+| Playbook | settings | kind, key, language, subject, body |
+| EmailSends | activity | idempotency_key, founder_key, account_id, contact_id, activity_event_id, call_session_id, channel, via, context, template_key, language, brand, market, niche, to_address, subject, status, sent_at, local_date, gmail_message_id, gmail_thread_id, replied_at, reply_kind |
 
 ## Relations
 - Contacts.account_id, Opportunities.account_id → Accounts.id; OpportunityStageEvents.opportunity_id → Opportunities.id
@@ -63,5 +65,6 @@ Money: integer EUR cents (`value_minor`) + `currency`.
 - DailyResults (one per founder/day, UUIDv5) ← DailyPlans snapshot, ActivityEvents, DailyReviews, DailyResultCorrections
 - FilesIndex.record_id → Accounts/Opportunities/Tasks/Ideas; SocialAccountDaily.account_id → SocialAccounts.id
 - Calendar titles are never stored: only CalendarLinks (calendar id, event id, record).
+- EmailSends.account_id → Accounts.id; activity_event_id → ActivityEvents.id (the follow-up event); Playbook overrides built-in templates by (kind, key, language)
 - CallLists.id = import id; Accounts.list_id → CallLists.id; CallSessions → ActivityEvents.call_session_id
 - ContentLog (weekly deliverables), TrafficDaily (GA4/manual), AudienceBreakdown (country split per SocialAccount)

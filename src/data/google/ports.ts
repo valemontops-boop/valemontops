@@ -60,3 +60,8 @@ export class ConsentRequiredError extends Error {
     super("Google permission needed for this action");
   }
 }
+
+/** Sends one plain-text email as the founder (gmail.send only: no inbox read, spec 4.15). */
+export interface MailSender {
+  send(msg: { to: string; subject: string; body: string }): Promise<{ id: string; threadId: string }>;
+}

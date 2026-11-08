@@ -29,7 +29,11 @@ export function eventFor(o: CallOutcome): { activity_type: ActivityType; outcome
 /** Positive outcomes create or advance a deal; refusals are only counted. */
 export const isPositive = (o: CallOutcome) => o === "interested" || o === "meeting" || o === "call_back";
 
-interface CallEv { activity_type: string; outcome: string | null; objection: string | null; occurred_at: string; duration_sec?: number | null }
+interface CallEv { activity_type: string; outcome: string | null; objection: string | null; objections?: string[] | null; occurred_at: string; duration_sec?: number | null }
+
+/** All objections of a call: the multi-select list plus the legacy single field. */
+export const objectionsOf = (e: CallEv) => [...new Set([...(e.objection ? [e.objection] : []), ...(e.objections ?? [])])];
+const POSITIVE_OUTCOMES = ["interested", "meeting_booked", "callback_requested"];
 
 export interface CallStats {
   dials: number;
@@ -42,7 +46,10 @@ export interface CallStats {
   pickupRate: number | null;
   positiveRate: number | null; // (interested + meetings) / picked up
   meetingRate: number | null; // meetings / dials
-  objections: { key: string; count: number }[];
+  /** count = calls where it came up; won = of those, calls that still ended in a yes (call back, interested, meeting). */
+  objections: { key: string; count: number; won: number; wonRate: number | null }[];
+  /** Average talk time of picked-up calls that had the timer running. */
+  avgTalkSec: number | null;
   minutes: number | null;
   dialsPerHour: number | null;
   byHour: { hour: number; dials: number; pickedUp: number; positive: number }[];
@@ -56,8 +63,16 @@ export function callStats(events: CallEv[], tz: string, session?: { started_at: 
   const picked = calls.filter((e) => e.activity_type === "connected_call");
   const meetings = picked.filter((e) => e.outcome === "meeting_booked").length;
   const interested = picked.filter((e) => e.outcome === "interested").length;
-  const objections = new Map<string, number>();
-  for (const e of picked) if (e.objection) objections.set(e.objection, (objections.get(e.objection) ?? 0) + 1);
+  const objections = new Map<string, { count: number; won: number }>();
+  for (const e of picked) {
+    for (const k of objectionsOf(e)) {
+      const o = objections.get(k) ?? { count: 0, won: 0 };
+      o.count++;
+      if (e.outcome && POSITIVE_OUTCOMES.includes(e.outcome)) o.won++;
+      objections.set(k, o);
+    }
+  }
+  const timed = picked.filter((e) => typeof e.duration_sec === "number" && e.duration_sec > 0);
   const start = session?.started_at ?? calls[0]?.occurred_at;
   const end = session?.ended_at ?? calls.at(-1)?.occurred_at;
   const minutes = start && end ? Math.max(0, (Date.parse(end) - Date.parse(start)) / 60_000) : null;
@@ -83,7 +98,8 @@ export function callStats(events: CallEv[], tz: string, session?: { started_at: 
     pickupRate: ratio(picked.length, calls.length),
     positiveRate: ratio(interested + meetings, picked.length),
     meetingRate: ratio(meetings, calls.length),
-    objections: [...objections.entries()].sort((a, b) => b[1] - a[1]).map(([key, count]) => ({ key, count })),
+    objections: [...objections.entries()].sort((a, b) => b[1].count - a[1].count).map(([key, o]) => ({ key, count: o.count, won: o.won, wonRate: ratio(o.won, o.count) })),
+    avgTalkSec: timed.length ? Math.round(timed.reduce((a, e) => a + (e.duration_sec ?? 0), 0) / timed.length) : null,
     minutes: minutes === null ? null : Math.round(minutes),
     dialsPerHour: minutes && minutes >= 5 ? Math.round((calls.length / minutes) * 60) : null,
     byHour: [...byHour.entries()].sort((a, b) => a[0] - b[0]).map(([hour, v]) => ({ hour, ...v })),

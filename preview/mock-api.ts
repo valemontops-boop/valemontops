@@ -22,7 +22,7 @@ import { diagnostics } from "@/server/services/diagnostics";
 import { userRow } from "@/server/services/common";
 import type { AppContext } from "@/server/context";
 import { ConsentRequiredError } from "@/data/google/ports";
-import { MemoryCalendar, MemoryDrive, MemoryDriveUploader } from "@/fake-google/store";
+import { MemoryCalendar, MemoryDrive, MemoryDriveUploader, MemoryMailer } from "@/fake-google/store";
 import { demoGoogleStore } from "@/server/services/demo-google";
 import { seedDemoWork } from "@/server/services/demo-seed";
 import { createTask, createTaskSchema, listTasks, updateTask, updateTaskSchema, addComment, commentSchema, listComments } from "@/server/services/tasks";
@@ -34,16 +34,23 @@ import { addIdea, convertIdea, convertSchema, ideaSchema, ideaUpdateSchema, list
 import { filesFor, linkFile, linkSchema, listFolder, uploadFile, uploadSchema } from "@/server/services/files";
 import { addManualEntry, addSocialAccount, audienceSeries, importLinkedIn, importSchema, listAccounts, manualEntrySchema, seriesSchema, socialAccountSchema } from "@/server/services/audience";
 import { childId } from "@/lib/ids";
-import { callQueue, callSchema, callLists, endSession, endSessionSchema, listSessions, logCall, sessionSummary, startSession, startSessionSchema } from "@/server/services/calls";
+import { callQueue, callSchema, callLists, endSession, endSessionSchema, listSessions, logCall, objectionReport, sessionSummary, startSession, startSessionSchema } from "@/server/services/calls";
 import { contentLogSchema, logContent, marketingWeek } from "@/server/services/marketing-week";
 import { addBreakdown, addTraffic, breakdownSchema, importTraffic, marketingOverview, overviewSchema, trafficImportSchema, trafficManualSchema } from "@/server/services/marketing";
 import { dashboardSchema, reportsDashboard } from "@/server/services/dashboard";
 import { createFolder, folderSchema } from "@/server/services/files";
+import { getPlaybook, playbookEditSchema, savePlaybookItem } from "@/server/services/playbook";
+import { benchmarks as emailBenchmarksFor, listSends, markReply, replySchema, sendFollowUp, sendSchema } from "@/server/services/email";
 
 export const repo = new InMemoryRepository();
 const store = demoGoogleStore();
 const privates: Record<string, InMemoryRepository> = { theo: new InMemoryRepository(), pablo: new InMemoryRepository() };
 export let driveGrant = false;
+/** Preview stand-in for the per-founder gmail.send cookie. */
+export const gmailGrant: Record<string, boolean> = { theo: false, pablo: false };
+export function grantGmail() {
+  gmailGrant[founder] = true;
+}
 export function grantDrive() {
   driveGrant = true;
 }
@@ -53,6 +60,7 @@ export const ctx: AppContext = {
   calendar: new MemoryCalendar(store),
   drive: new MemoryDrive(store),
   uploaderFor: (f, grant) => (grant ? new MemoryDriveUploader(store, f) : null),
+  mailerFor: (f, grant) => (grant ? new MemoryMailer(store, f) : null),
   baseUrl: "https://preview.example.com",
   mode: "demo",
 };
@@ -133,7 +141,7 @@ const routes: Record<string, [z.ZodTypeAny | null, Handler]> = {
   "GET /api/audience/series": [seriesSchema, async (i, f) => audienceSeries(ctx, f, i as never)],
   "GET /api/settings/system": [null, async () => {
     const rows = (await repo.list("SystemSettings")).rows;
-    return Object.fromEntries(["drive_folder_id", "founder_point_video_link", "ideas_testing_limit", "hot_lead_stale_days", "conversion_min_sample", "company_name"].map((k) => [k, rows.find((r) => r.key === k)?.value ?? ""]));
+    return Object.fromEntries(["drive_folder_id", "founder_point_video_link", "ideas_testing_limit", "hot_lead_stale_days", "conversion_min_sample", "company_name", "calendly_url_theo", "calendly_url_pablo", "deck_url_fr", "deck_url_es"].map((k) => [k, rows.find((r) => r.key === k)?.value ?? ""]));
   }],
   "POST /api/settings/system": [z.object({ key: z.string(), value: z.string().max(500) }), async (i, f) => {
     const { key, value } = i as { key: string; value: string };
@@ -142,6 +150,15 @@ const routes: Record<string, [z.ZodTypeAny | null, Handler]> = {
     return cur ? repo.update("SystemSettings", id, cur.version, { value }, { founder: f }) : repo.insert("SystemSettings", [{ id, key, value, description: "" }], { founder: f });
   }],
   "GET /api/my-day": [null, async (_, f) => getMyDay(repo, f)],
+  "GET /api/playbook": [null, async (_, f) => getPlaybook(ctx, f)],
+  "POST /api/playbook": [playbookEditSchema, async (i, f) => savePlaybookItem(ctx, f, i as never)],
+  "GET /api/calls/objections": [null, async (_, f) => objectionReport(ctx, f)],
+  "GET /api/email/status": [null, async (_, f) => ({ connected: gmailGrant[f], mode: "demo" })],
+  "DELETE /api/email/status": [null, async (_, f) => { gmailGrant[f] = false; return { connected: false }; }],
+  "POST /api/email/send": [sendSchema, async (i, f) => sendFollowUp(ctx, f, gmailGrant[f] ? `preview-gmail-${f}` : null, i as never)],
+  "GET /api/email/sends": [null, async () => listSends(ctx)],
+  "PATCH /api/email/sends": [replySchema, async (i, f) => markReply(ctx, f, i as never)],
+  "GET /api/email/benchmarks": [null, async (_, f) => emailBenchmarksFor(ctx, f)],
   "POST /api/activities": [logActivitySchema, async (i, f) => logActivity(repo, f, i as never)],
   "POST /api/report": [z.object({ next_day_priority: z.string().trim().max(300).default("") }), async (i, f) => ({ text: await whatsappReport(repo, f, (i as { next_day_priority: string }).next_day_priority) })],
   "POST /api/settings/mode": [setModeSchema, async (i, f) => setMode(repo, f, i as never)],

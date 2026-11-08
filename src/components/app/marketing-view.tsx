@@ -4,6 +4,7 @@ import * as React from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { EmailTab } from "./email-tab";
 import { EmptyState, ErrorState, Field, Input, Panel, PanelTitle, SegmentedSwitch, Select, Skeleton } from "@/components/ui/form";
 import { Modal } from "@/components/ui/overlay";
 import { BRANDS, BRAND_LABELS } from "@/domain/constants";
@@ -18,7 +19,7 @@ const METRIC_NAMES: Record<string, string> = { followers: "Followers", views: "V
 const PLATFORM: Record<string, string> = { instagram: "Instagram", linkedin_page: "LinkedIn page", linkedin_personal: "LinkedIn personal" };
 
 export function MarketingView() {
-  const [tab, setTab] = React.useState<"overview" | "audience" | "traffic" | "content">("overview");
+  const [tab, setTab] = React.useState<"overview" | "email" | "audience" | "traffic" | "content">("overview");
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -26,9 +27,9 @@ export function MarketingView() {
           <h1 className="text-2xl font-semibold tracking-tight">Marketing</h1>
           <p className="text-sm text-text-2">Where people come from, which funnel converts, and whether we reach the right countries.</p>
         </div>
-        <SegmentedSwitch label="Section" value={tab} onChange={setTab} options={[{ value: "overview", label: "Overview" }, { value: "audience", label: "Audience" }, { value: "traffic", label: "Traffic" }, { value: "content", label: "Content" }]} />
+        <SegmentedSwitch label="Section" value={tab} onChange={setTab} options={[{ value: "overview", label: "Overview" }, { value: "email", label: "Email" }, { value: "audience", label: "Audience" }, { value: "traffic", label: "Traffic" }, { value: "content", label: "Content" }]} />
       </div>
-      {tab === "overview" ? <MarketingOverview /> : tab === "audience" ? <AudienceTab /> : tab === "traffic" ? <TrafficTab /> : <ContentTab />}
+      {tab === "overview" ? <MarketingOverview /> : tab === "email" ? <EmailTab /> : tab === "audience" ? <AudienceTab /> : tab === "traffic" ? <TrafficTab /> : <ContentTab />}
     </div>
   );
 }

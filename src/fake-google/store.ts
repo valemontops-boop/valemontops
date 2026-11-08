@@ -1,4 +1,4 @@
-import type { CalEvent, CalendarPort, DriveFile, DrivePort, DriveUploader, NewCalEvent } from "../data/google/ports";
+import type { CalEvent, CalendarPort, DriveFile, DrivePort, DriveUploader, MailSender, NewCalEvent } from "../data/google/ports";
 
 /**
  * In-memory Google Calendar + Drive used by DEMO (directly, via memory ports) and by tests
@@ -9,6 +9,16 @@ export class FakeGoogleStore {
   files: (DriveFile & { owner: string })[] = [];
   /** who performed writes: "service-account" or a founder token label */
   writes: { kind: string; by: string }[] = [];
+  /** Emails "sent" through the fake Gmail: they never leave the process. */
+  sentMail: { id: string; threadId: string; to: string; subject: string; body: string; by: string }[] = [];
+
+  sendMail(m: { to: string; subject: string; body: string }, by: string) {
+    const id = `msg-${this.sentMail.length + 1}`;
+    const rec = { id, threadId: `thr-${this.sentMail.length + 1}`, ...m, by };
+    this.sentMail.push(rec);
+    this.writes.push({ kind: "gmail.send", by });
+    return { id: rec.id, threadId: rec.threadId };
+  }
 
   addCalendar(id: string) {
     if (!this.calendars.has(id)) this.calendars.set(id, []);
@@ -104,5 +114,11 @@ export class MemoryDriveUploader implements DriveUploader {
   async createFolder(name: string, parentId: string | null) {
     this.s.writes.push({ kind: "drive.folder", by: this.founder });
     return this.s.addFile({ id: `fld-${crypto.randomUUID()}`, name, mimeType: "application/vnd.google-apps.folder", parents: parentId ? [parentId] : [] }, this.founder);
+  }
+}
+export class MemoryMailer implements MailSender {
+  constructor(private readonly s: FakeGoogleStore, private readonly founder: string) {}
+  async send(m: { to: string; subject: string; body: string }) {
+    return this.s.sendMail(m, this.founder);
   }
 }

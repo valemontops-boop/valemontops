@@ -38,6 +38,8 @@ export const logActivitySchema = z.object({
   brand: z.enum(BRANDS).nullable().default(null),
   outcome: z.enum(OUTCOMES).nullable().default(null),
   objection: z.enum(OBJECTIONS).nullable().default(null),
+  objections: z.array(z.enum(OBJECTIONS)).max(12).default([]),
+  duration_sec: z.number().int().min(0).max(4 * 3600).nullable().default(null),
   objection_note: z.string().trim().max(500).default(""),
   met_person: z.string().trim().max(200).default(""),
   notes: z.string().trim().max(4_000).default(""),
@@ -186,7 +188,8 @@ export async function logActivity(repo: DataRepository, founder: FounderKey, inp
     brand: input.brand ?? opp?.brand ?? account?.brand ?? null,
     market: account?.country ?? input.market ?? null,
     outcome: input.outcome,
-    objection: input.objection,
+    objection: input.objection ?? input.objections[0] ?? null,
+    objections: [...new Set([...(input.objection ? [input.objection] : []), ...input.objections])],
     objection_note: input.objection_note,
     met_person: input.met_person,
     notes: input.notes,
@@ -202,7 +205,7 @@ export async function logActivity(repo: DataRepository, founder: FounderKey, inp
     call_session_id: input.call_session_id,
     list_id: input.list_id || account?.list_id || "",
     target_key: tKey,
-    duration_sec: null,
+    duration_sec: input.duration_sec,
   };
   const [row] = await repo.insert("ActivityEvents", [event], actor);
 

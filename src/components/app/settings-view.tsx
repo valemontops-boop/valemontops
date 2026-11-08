@@ -3,7 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { ErrorState, Field, Input, Panel, PanelTitle, SegmentedSwitch, Select, Skeleton } from "@/components/ui/form";
+import { ErrorState, Field, Input, Panel, PanelTitle, SegmentedSwitch, Select, Skeleton, Textarea } from "@/components/ui/form";
+import { DEFAULT_PLAYBOOK, EMAIL_TEMPLATE_LABELS, objectionLabel, type Lang, type PlaybookItem } from "@/domain/playbook";
 import { CONTACT_TYPE_LABELS, RULE_STATUSES } from "@/domain/constants";
 import { ApiError, api } from "@/lib/api";
 import { relTime } from "@/lib/utils";
@@ -15,7 +16,7 @@ import Link from "next/link";
 import { FOUNDERS, FOUNDER_NAMES } from "@/domain/constants";
 import { addDays } from "@/domain/time";
 
-type Tab = "profile" | "targets" | "calendars" | "sprint" | "workspace" | "rules" | "suppression" | "diagnostics" | "roadmap";
+type Tab = "profile" | "targets" | "calendars" | "sprint" | "workspace" | "playbook" | "rules" | "suppression" | "diagnostics" | "roadmap";
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export function SettingsView() {
@@ -30,11 +31,11 @@ export function SettingsView() {
       <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
       <div className="overflow-x-auto">
         <SegmentedSwitch label="Settings section" value={tab} onChange={setTab} options={[
-          { value: "profile", label: "Profile" }, { value: "targets", label: "Mode & targets" }, { value: "calendars", label: "Calendars" }, { value: "sprint", label: "Sprint" }, { value: "workspace", label: "Workspace" }, { value: "rules", label: "Channel rules" },
+          { value: "profile", label: "Profile" }, { value: "targets", label: "Mode & targets" }, { value: "calendars", label: "Calendars" }, { value: "sprint", label: "Sprint" }, { value: "workspace", label: "Workspace" }, { value: "playbook", label: "Playbook" }, { value: "rules", label: "Channel rules" },
           { value: "suppression", label: "Suppression" }, { value: "diagnostics", label: "Diagnostics" }, { value: "roadmap", label: "Roadmap" },
         ]} />
       </div>
-      {tab === "profile" ? <Profile /> : tab === "targets" ? <TargetsTab /> : tab === "calendars" ? <Calendars /> : tab === "sprint" ? <SprintTab /> : tab === "workspace" ? <Workspace /> : tab === "rules" ? <Rules /> : tab === "suppression" ? <Suppression /> : tab === "diagnostics" ? <Diagnostics /> : <Roadmap />}
+      {tab === "profile" ? <Profile /> : tab === "targets" ? <TargetsTab /> : tab === "calendars" ? <Calendars /> : tab === "sprint" ? <SprintTab /> : tab === "workspace" ? <Workspace /> : tab === "playbook" ? <PlaybookTab /> : tab === "rules" ? <Rules /> : tab === "suppression" ? <Suppression /> : tab === "diagnostics" ? <Diagnostics /> : <Roadmap />}
     </div>
   );
 }
@@ -287,6 +288,10 @@ function Workspace() {
     ideas_testing_limit: ["Ideas in Testing during a sprint", "Seed 2."],
     hot_lead_stale_days: ["Hot lead goes cold after (days)", "Seed 5."],
     conversion_min_sample: ["Show conversion rates from (attempts)", "Below this, reports say “not enough data”."],
+    calendly_url_theo: ["Théo's Calendly link", "Inserted in call follow-ups (email and WhatsApp)."],
+    calendly_url_pablo: ["Pablo's Calendly link", "Inserted in call follow-ups (email and WhatsApp)."],
+    deck_url_fr: ["Commercial deck, French", "A Drive or PDF link shared “anyone with the link”."],
+    deck_url_es: ["Commercial deck, Spanish", "A Drive or PDF link shared “anyone with the link”."],
   };
   if (q.isPending) return <Skeleton className="h-64" />;
   if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
@@ -306,6 +311,53 @@ function SettingField({ k, label, hint, initial, onSave }: { k: string; label: s
     <form className="flex items-end gap-2" onSubmit={(e) => { e.preventDefault(); onSave(v); }}>
       <Field label={label} htmlFor={`ws-${k}`} hint={hint} className="flex-1"><Input id={`ws-${k}`} value={v} onChange={(e) => setV(e.target.value)} /></Field>
       <Button type="submit" variant="outline" disabled={v === initial} className="mb-6">Save</Button>
+    </form>
+  );
+}
+
+const KIND_TITLES: Record<PlaybookItem["kind"], string> = { opener: "Call opener", objection: "Objection replies (shown live in call mode)", email: "Follow-up emails", whatsapp: "WhatsApp messages" };
+function PlaybookTab() {
+  const qc = useQueryClient();
+  const [lang, setLang] = React.useState<Lang>("FR");
+  const q = useQuery({ queryKey: ["playbook"], queryFn: () => api<{ items: PlaybookItem[] }>("/api/playbook") });
+  const save = useMutation({ mutationFn: (b: PlaybookItem) => api("/api/playbook", { body: b }), onSuccess: () => { qc.invalidateQueries({ queryKey: ["playbook"] }); toast("Saved"); } });
+  if (q.isPending) return <Skeleton className="h-64" />;
+  if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
+  const items = q.data.items.filter((i) => i.language === lang);
+  return (
+    <div className="flex flex-col gap-4">
+      <Panel className="flex flex-wrap items-center justify-between gap-3">
+        <p className="max-w-xl text-sm text-text-2">Scripts and templates used live in call mode. Placeholders: <code>{"{business}"}</code> <code>{"{contact}"}</code> <code>{"{founder}"}</code> <code>{"{calendly}"}</code> <code>{"{deck}"}</code>. Links are set in Workspace. Nothing is ever sent without your click.</p>
+        <SegmentedSwitch label="Language" value={lang} onChange={setLang} options={[{ value: "FR", label: "Français" }, { value: "ES", label: "Español" }]} />
+      </Panel>
+      {(["opener", "objection", "email", "whatsapp"] as const).map((kind) => (
+        <Panel key={kind}>
+          <PanelTitle>{KIND_TITLES[kind]}</PanelTitle>
+          <div className="flex flex-col gap-4">
+            {items.filter((i) => i.kind === kind).map((i) => <PlaybookEditor key={`${i.kind}:${i.key}:${i.language}:${i.body.length}:${i.subject}`} item={i} busy={save.isPending} onSave={(v) => save.mutate(v)} />)}
+          </div>
+        </Panel>
+      ))}
+      {save.isError ? <ErrorState error={save.error} onRetry={() => save.reset()} /> : null}
+    </div>
+  );
+}
+function PlaybookEditor({ item, busy, onSave }: { item: PlaybookItem; busy: boolean; onSave: (v: PlaybookItem) => void }) {
+  const [subject, setSubject] = React.useState(item.subject);
+  const [body, setBody] = React.useState(item.body);
+  const def = DEFAULT_PLAYBOOK.find((d) => d.kind === item.kind && d.key === item.key && d.language === item.language);
+  const isDefault = def?.body === item.body && def?.subject === item.subject;
+  const title = item.kind === "objection" ? objectionLabel(item.key) : item.kind === "email" ? EMAIL_TEMPLATE_LABELS[item.key as keyof typeof EMAIL_TEMPLATE_LABELS] ?? item.key : item.kind === "whatsapp" ? (item.key === "deck" ? "Deck" : "Calendly") : "Opener";
+  const id = `pb-${item.kind}-${item.key}-${item.language}`;
+  return (
+    <form className="flex flex-col gap-2 border-t border-hairline pt-3 first:border-0 first:pt-0" onSubmit={(e) => { e.preventDefault(); onSave({ ...item, subject, body }); }}>
+      <p className="text-sm font-medium">{title}{isDefault ? <span className="ml-2 text-[12px] font-normal text-text-3">default</span> : null}</p>
+      {item.kind === "email" ? <Input aria-label={`${title} subject`} value={subject} onChange={(e) => setSubject(e.target.value)} /> : null}
+      <Textarea id={id} aria-label={`${title} text`} rows={item.kind === "email" ? 7 : 3} value={body} onChange={(e) => setBody(e.target.value)} />
+      <div className="flex gap-2">
+        <Button type="submit" size="sm" variant="outline" disabled={busy || (body === item.body && subject === item.subject)}>Save</Button>
+        {!isDefault ? <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => onSave({ ...item, subject: "", body: "" })}>Back to default</Button> : null}
+      </div>
     </form>
   );
 }

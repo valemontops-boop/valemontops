@@ -1,6 +1,16 @@
 # Status
 
-Updated: 2026-11-09 · Stage: **1B complete + founder feedback round 2 (fake-verified)** · Next: Stage 2 (revenue operations).
+Updated: 2026-11-09 · Stage: **1B complete + founder feedback round 3 (fake-verified)** · Next: Stage 2 (revenue operations).
+
+## Feedback round 3 (2026-11-09)
+| Change | Status |
+|---|---|
+| Call mode v2: objections on any outcome (multi-select, keys A–L), live reply in FR/ES, "won over" rate per objection | VERIFIED_FAKE (followups.test.ts, e2e) |
+| Live preparation: opener per language, follow-up panel (E email + Calendly, P deck, W WhatsApp, C copy link), suggested action after each outcome, call timer | VERIFIED_FAKE (e2e, preview smoke test) |
+| Gmail connection (gmail.send only), send from templates, mail-app/WhatsApp with confirmation, suppression + LSSI checks, idempotent sends | VERIFIED_FAKE (fake Gmail HTTP) — needs real OAuth credentials for VERIFIED_LIVE |
+| Marketing › Email: reply-rate benchmarks vs public ranges, by template / language / weekday / niche, one-tap reply marking | VERIFIED_FAKE (playbook.test.ts, followups.test.ts) |
+| Settings › Playbook (editable scripts and templates) and Calendly/deck links | VERIFIED_FAKE |
+| Reports: blue = volume, teal = conversions, palette validated for colour blindness | VERIFIED_FAKE (preview) |
 
 ## Feedback round 2 (2026-11-09)
 | Change | Status |
@@ -18,7 +28,7 @@ No Google credentials exist in the build environment, so nothing is `VERIFIED_LI
 | Check | Result |
 |---|---|
 | `npm run lint` / `npm run typecheck` | pass |
-| `npm test` (vitest: unit, contract, integration on fake Sheets + fake Calendar/Drive HTTP servers) | 121/121 pass |
+| `npm test` (vitest: unit, contract, integration on fake Sheets + fake Calendar/Drive HTTP servers) | 135/135 pass |
 | `npm run test:e2e` (Playwright, production build, DEMO on fake Sheets + LIVE-without-credentials server) | 17/17 pass |
 | `npm run test:live` | NOT RUN (no credentials) |
 | Browser preview artifact (all pages load, no console errors, Théo→Pablo task, agenda privacy) | pass |

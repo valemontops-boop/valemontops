@@ -24,7 +24,7 @@ describe("call mode", () => {
     expect(s).toMatchObject({ dials: 7, pickedUp: 5, decisionMakerReached: 4, refusals: 2, interested: 1, meetings: 1, minutes: 90, dialsPerHour: 5 });
     expect(s.pickupRate).toBeCloseTo(5 / 7);
     expect(s.positiveRate).toBeCloseTo(2 / 5);
-    expect(s.objections).toEqual([{ key: "too_expensive", count: 2 }]);
+    expect(s.objections).toMatchObject([{ key: "too_expensive", count: 2 }]);
     expect(s.byHour).toEqual([{ hour: 9, dials: 5, pickedUp: 3, positive: 0 }, { hour: 10, dials: 2, pickedUp: 2, positive: 2 }]);
   });
   it("returns null rates instead of dividing by zero", () => {

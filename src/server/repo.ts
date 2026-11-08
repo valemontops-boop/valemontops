@@ -10,8 +10,8 @@ import { seedBaseline } from "./services/baseline";
 import { seedDemo } from "./services/demo-seed";
 import type { AppContext } from "./context";
 import { GoogleHttp } from "@/data/google/http";
-import { GoogleCalendarAdapter, GoogleDriveAdapter, GoogleDriveUploader } from "@/data/google/adapters";
-import { MemoryCalendar, MemoryDrive, MemoryDriveUploader } from "@/fake-google/store";
+import { GmailSender, GoogleCalendarAdapter, GoogleDriveAdapter, GoogleDriveUploader } from "@/data/google/adapters";
+import { MemoryCalendar, MemoryDrive, MemoryDriveUploader, MemoryMailer } from "@/fake-google/store";
 import { demoGoogleStore } from "./services/demo-google";
 import { seedDemoWork } from "./services/demo-seed";
 
@@ -98,6 +98,7 @@ async function buildContext(cfg: AppConfig): Promise<AppContext> {
       calendar: new MemoryCalendar(store),
       drive: new MemoryDrive(store),
       uploaderFor: (f, grant) => (grant ? new MemoryDriveUploader(store, f) : null),
+      mailerFor: (f, grant) => (grant ? new MemoryMailer(store, f) : null),
       baseUrl: cfg.baseUrl,
       mode: "demo",
     };
@@ -118,6 +119,7 @@ async function buildContext(cfg: AppConfig): Promise<AppContext> {
     calendar: new GoogleCalendarAdapter(new GoogleHttp(api, googleToken)),
     drive: new GoogleDriveAdapter(new GoogleHttp(api, googleToken)),
     uploaderFor: (_f, grant) => (grant ? new GoogleDriveUploader(new GoogleHttp(api, async () => grant)) : null),
+    mailerFor: (_f, grant) => (grant ? new GmailSender(new GoogleHttp(api, async () => grant)) : null),
     baseUrl: cfg.baseUrl,
     mode: "live",
   };

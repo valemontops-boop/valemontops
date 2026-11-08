@@ -45,6 +45,12 @@ export function Providers({ me, children }: { me: Me; children: React.ReactNode 
         }),
       }),
   );
+  React.useEffect(() => {
+    // The static preview grants Google access without a page load; it asks for a refetch this way.
+    const onRefetch = () => void client.invalidateQueries();
+    window.addEventListener("vos-refetch", onRefetch);
+    return () => window.removeEventListener("vos-refetch", onRefetch);
+  }, [client]);
   return (
     <MeCtx.Provider value={me}>
       <QueryClientProvider client={client}>

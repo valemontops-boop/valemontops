@@ -8,7 +8,7 @@ import { SheetsClient } from "@/data/sheets/client";
 import { GoogleSheetsRepository } from "@/data/sheets/repository";
 import { setupSpreadsheet } from "@/data/sheets/setup";
 import { GoogleHttp } from "@/data/google/http";
-import { GoogleCalendarAdapter, GoogleDriveAdapter, GoogleDriveUploader } from "@/data/google/adapters";
+import { GoogleCalendarAdapter, GoogleDriveAdapter, GoogleDriveUploader, GmailSender } from "@/data/google/adapters";
 import type { AppContext } from "@/server/context";
 import { seedBaseline } from "@/server/services/baseline";
 import { setMode, setTargets, getMyDay } from "@/server/services/myday";
@@ -53,6 +53,7 @@ beforeEach(async () => {
     calendar: new GoogleCalendarAdapter(sa),
     drive: new GoogleDriveAdapter(sa),
     uploaderFor: (f, grant) => (grant ? new GoogleDriveUploader(new GoogleHttp(gurl, async () => grant)) : null),
+    mailerFor: (_f, grant) => (grant ? new GmailSender(new GoogleHttp(gurl, async () => grant)) : null),
     baseUrl: "http://localhost:3000",
     mode: "demo",
   };

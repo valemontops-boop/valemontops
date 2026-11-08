@@ -14,7 +14,7 @@ let ctx: AppContext;
 beforeEach(async () => {
   const env = await freshSheetsRepo();
   fake = env.fake;
-  ctx = { repo: env.repo, privateRepo: () => null, calendar: null, drive: null, uploaderFor: () => null, baseUrl: "", mode: "demo" };
+  ctx = { repo: env.repo, privateRepo: () => null, calendar: null, drive: null, uploaderFor: () => null, mailerFor: () => null, baseUrl: "", mode: "demo" };
   await seedBaseline(env.repo, { theo: "Europe/Paris", pablo: "Europe/Madrid" });
   await setMode(env.repo, "theo", { mode: "JOB_SEARCHING", reason: "" });
 });
@@ -44,7 +44,7 @@ describe("Call mode", () => {
     expect(q.queue).toHaveLength(0); // no-answer comes back tomorrow, not today
     const s = await sessionSummary(ctx, "theo", sid);
     expect(s.stats).toMatchObject({ dials: 3, pickedUp: 2, refusals: 1, meetings: 1 });
-    expect(s.stats.objections).toEqual([{ key: "too_expensive", count: 1 }]);
+    expect(s.stats.objections).toMatchObject([{ key: "too_expensive", count: 1, won: 0 }]);
     expect((await callLists(ctx))[0]).toMatchObject({ called: 3, reached: 2, meetings: 1, remaining: 0 });
     await endSession(ctx, "theo", sid);
   });

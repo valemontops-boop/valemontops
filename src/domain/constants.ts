@@ -124,7 +124,11 @@ export const OBJECTIONS = [
   "call_back_later",
   "not_interested",
   "other",
+  "send_info",
+  "bad_timing",
+  "bad_experience",
 ] as const;
+export type Objection = (typeof OBJECTIONS)[number];
 export const OBJECTION_LABELS: Record<(typeof OBJECTIONS)[number], string> = {
   no_need: "No need",
   no_time: "No time",
@@ -134,7 +138,13 @@ export const OBJECTION_LABELS: Record<(typeof OBJECTIONS)[number], string> = {
   call_back_later: "Call back later",
   not_interested: "Not interested",
   other: "Other",
+  send_info: "Send me info",
+  bad_timing: "Bad timing",
+  bad_experience: "Bad past experience",
 };
+/** Objections offered live during a call, in key order (a s d f g h j k l). Any outcome can carry them. */
+export const LIVE_OBJECTIONS = ["no_need", "no_time", "too_expensive", "already_has_solution", "send_info", "not_decision_maker", "bad_timing", "bad_experience", "other"] as const satisfies readonly Objection[];
+export const OBJECTION_KEYS = ["a", "s", "d", "f", "g", "h", "j", "k", "l"] as const;
 
 export const OUTCOMES = [
   "no_answer",

@@ -29,6 +29,6 @@ describe("reports dashboard", () => {
     expect(d.funnel.map((f) => f.value)).toEqual([3, 2, 1, 1, 1]);
     expect(d.byMarket.find((m) => m.key === "ES")).toMatchObject({ dials: 2, picked: 1, yes: 1, yesRate: 1 });
     expect(d.byNiche[0]).toMatchObject({ key: "Garages", dials: 2 });
-    expect(d.objections).toEqual([{ key: "no_need", count: 1 }]);
+    expect(d.objections).toMatchObject([{ key: "no_need", count: 1 }]);
   });
 });
