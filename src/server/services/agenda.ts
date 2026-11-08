@@ -192,7 +192,7 @@ export async function addPointItem(ctx: AppContext, founder: FounderKey, input: 
   let taskId = "";
   if (input.kind === "action") {
     taskId = childId(input.id, "task");
-    await createTask(ctx, founder, { id: taskId, task: { title: input.text, description: "From a founder point", owner: input.owner, priority: "P1", due_at: input.due_at, estimated_minutes: null, recurrence: "none", account_id: "", opportunity_id: "", dependency_ids: [], private: false }, source: "founder_point", source_id: input.point_id });
+    await createTask(ctx, founder, { id: taskId, task: { title: input.text, description: "From a founder point", owner: input.owner, priority: "P1", due_at: input.due_at, estimated_minutes: null, recurrence: "none", account_id: "", opportunity_id: "", dependency_ids: [], private: false, area: "ops" }, source: "founder_point", source_id: input.point_id });
   }
   await ctx.repo.insert("FounderPointItems", [{ id: input.id, point_id: input.point_id, kind: input.kind, text: input.text, done: false, owner: input.owner, task_id: taskId, idea_id: "" }], { founder });
   return { duplicate: false, taskId };

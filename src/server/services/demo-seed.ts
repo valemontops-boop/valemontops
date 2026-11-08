@@ -102,10 +102,12 @@ export async function seedDemoWork(repo: DataRepository, privateRepo: (f: string
     completed_at: null, visibility: "team", snoozed_until: null, snooze_reason: "", source: "manual", source_id: "", ...p,
   });
   await repo.insert("Tasks", [
-    task(1, { title: "Prepare the Local demo video (FR)", owner: "theo", priority: "P1", due_at: today, estimated_minutes: 60 }),
-    task(2, { title: "Translate the call script to Spanish", owner: "pablo", priority: "P0", due_at: today, created_by_founder: "theo", estimated_minutes: 45 }),
-    task(3, { title: "Update the garage prospect list", owner: null, priority: "P2", due_at: addDays(today, 2) }),
-    task(4, { title: "Weekly pipeline cleanup", owner: "theo", priority: "P2", due_at: addDays(today, -1), recurrence: "weekly" }),
+    task(1, { title: "Script and record the Local demo reel (FR)", owner: "theo", priority: "P1", due_at: today, estimated_minutes: 60, area: "marketing" }),
+    task(2, { title: "Translate the call script to Spanish", owner: "pablo", priority: "P0", due_at: today, created_by_founder: "theo", estimated_minutes: 45, area: "sales" }),
+    task(3, { title: "Buy the garage prospect list for Lyon", owner: null, priority: "P2", due_at: addDays(today, 2), area: "sales" }),
+    task(4, { title: "Weekly pipeline cleanup", owner: "theo", priority: "P2", due_at: addDays(today, -1), recurrence: "weekly", area: "ops" }),
+    task(5, { title: "Set up the business bank account", owner: "theo", priority: "P1", due_at: today, area: "ops" }),
+    task(6, { title: "Post 2 Instagram stories (ES)", owner: "pablo", priority: "P2", due_at: today, area: "marketing" }),
   ] as never, sys);
   await repo.insert("Ideas", [
     { id: childId("demo-idea", "1"), text: "Offer a 14-day free pilot to garages", note: "", brand: "local", category: "offer", status: "testing", votes: { theo: "yes" }, reason: "", created_by_founder: "theo", converted_type: null, converted_id: "" },
@@ -130,12 +132,26 @@ export async function seedDemoWork(repo: DataRepository, privateRepo: (f: string
     rows.push({ id: childId("demo-daily", personal, date), account_id: personal, date, followers: 800 + k * 5, views: null, impressions: 500 + ((k * 53) % 400), reach: null, profile_visits: null, interactions: 30 + (k % 20), link_clicks: null, source: "import", captured_at: new Date().toISOString(), import_file: "demo.xlsx" });
   }
   await repo.insert("SocialAccountDaily", rows as never, sys);
-  const theoPrivate = privateRepo("theo");
-  if (theoPrivate) {
-    await theoPrivate.insert("JobApplications", [
-      { id: childId("demo-job", "1"), company: "Example Corp (demo)", role: "Product engineer", status: "applied", applied_on: addDays(today, -3), next_step: "Follow up with recruiter", next_step_due: addDays(today, 2), url: "", notes: "" },
-      { id: childId("demo-job", "2"), company: "Sample Industries (demo)", role: "Solutions architect", status: "interview", applied_on: addDays(today, -10), next_step: "Second interview", next_step_due: addDays(today, 1), url: "", notes: "" },
-    ] as never, { founder: "theo" });
+  void privateRepo;
+  // Synthetic website traffic and audience countries so the Marketing overview has something to show.
+  const traffic = [];
+  const srcs = [["instagram", "social", "thirty", 22, 0.06], ["linkedin.com", "referral", "consulting", 9, 0.03], ["google", "organic", "thirty", 7, 0], ["(direct)", "(none)", "consulting", 5, 0.08]] as const;
+  for (let d = -20; d <= -1; d++) {
+    const date = addDays(today, d);
+    for (const [src, med, brand, base, rate] of srcs) {
+      for (const [country, share] of [["France", 0.6], ["Spain", 0.15], ["Belgium", 0.25]] as const) {
+        const sessions = Math.round(base * share * (1 + ((d * 7 + base) % 5) / 10));
+        if (!sessions) continue;
+        traffic.push({ id: childId("demo-traffic", date, src, country), date, brand, source: src, medium: med, campaign: "", country, sessions, leads: brand === "consulting" && rate > 0 && country === "France" && (d + base) % 3 === 0 ? 1 : 0, meetings: null, purchases: brand === "thirty" ? Math.round(sessions * rate) : 0, revenue_minor: null, origin: "import" as const, import_file: "demo-ga4.csv" });
+      }
+    }
   }
+  await repo.insert("TrafficDaily", traffic as never, sys);
+  await repo.insert("AudienceBreakdown", [["FR", 4800], ["BE", 1800], ["ES", 900], ["MA", 800], ["CH", 700], ["CA", 1000]].map(([key, value]) => ({ id: childId("demo-bd", igId, String(key)), account_id: igId, date: addDays(today, -1), dimension: "country" as const, key: String(key), value: Number(value), unit: "bp" as const, source: "manual" as const })), sys);
+  await repo.insert("AudienceBreakdown", [["FR", 210], ["ES", 64], ["BE", 22], ["CH", 9]].map(([key, value]) => ({ id: childId("demo-bd", accId, String(key)), account_id: accId, date: addDays(today, -2), dimension: "country" as const, key: String(key), value: Number(value), unit: "count" as const, source: "import" as const })), sys);
+  await repo.insert("ContentLog", [
+    { id: childId("demo-content", "1"), idempotency_key: childId("demo-content-key", "1"), founder_key: "theo", deliverable: "reel", brand: "thirty", language: "FR", title: "30/30: 3 AI tools for plumbers (FR)", url: "", local_date: today },
+    { id: childId("demo-content", "2"), idempotency_key: childId("demo-content-key", "2"), founder_key: "pablo", deliverable: "brand_post", brand: "consulting", language: "ES", title: "Caso: respuesta en 5 minutos", url: "", local_date: today },
+  ], sys);
   return true;
 }

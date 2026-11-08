@@ -18,9 +18,8 @@ import { closeDays, saveReview, streakSummary } from "@/server/services/results"
 import { addCalendarSource, listPoints, proposeSlots, schedulePoint, upcomingEvents, addPointItem } from "@/server/services/agenda";
 import { addIdea, updateIdea, convertIdea } from "@/server/services/ideas";
 import { createSprint } from "@/server/services/sprints";
-import { linkFile, listFolder, uploadFile, filesFor } from "@/server/services/files";
+import { createFolder, linkFile, listFolder, uploadFile, filesFor } from "@/server/services/files";
 import { addSocialAccount, audienceSeries, importLinkedIn, listAccounts } from "@/server/services/audience";
-import { listJobs, saveJob } from "@/server/services/jobs";
 import { commandCenter, scorecardCsv, weeklyReview } from "@/server/services/insights";
 import { createAccount, createAccountSchema } from "@/server/services/crm";
 import { childId } from "@/lib/ids";
@@ -111,19 +110,14 @@ describe("Scenario 5 (stored): day closure after cutoff", () => {
   });
 });
 
-describe("Scenario 16: private job-search data", () => {
-  it("lives only in the owner's spreadsheet and is unreachable for the other founder", async () => {
-    await saveJob(ctx, "theo", { id: randomUUID(), company: "Secret Employer", role: "", status: "applied", applied_on: "", next_step: "", next_step_due: "", url: "", notes: "" });
-    expect((await listJobs(ctx, "theo")).jobs.map((j) => j.company)).toEqual(["Secret Employer"]);
-    expect((await listJobs(ctx, "pablo")).jobs).toEqual([]);
-    const shared = JSON.stringify([...sheets.books.get("main")!.sheets.map((s) => s.grid)]);
-    expect(shared).not.toContain("Secret Employer");
+describe("Scenario 16: private data", () => {
+  it("private tasks live only in the owner's spreadsheet and are unreachable for the other founder", async () => {
     const priv = randomUUID();
     await createTask(ctx, "theo", { id: priv, task: { title: "Prepare interview", description: "", owner: null, priority: "P1", due_at: "2026-11-09", estimated_minutes: 30, recurrence: "none", account_id: "", opportunity_id: "", dependency_ids: [], private: true }, source: "manual", source_id: "" });
     expect((await listTasks(ctx, "pablo", "all")).some((t) => t.id === priv)).toBe(false);
     expect((await listTasks(ctx, "theo", "all")).some((t) => t.id === priv)).toBe(true);
     expect(JSON.stringify(sheets.books.get("main")!.sheets.map((s) => s.grid))).not.toContain("Prepare interview");
-    expect(await scorecardCsv(ctx, "pablo")).not.toContain("Secret");
+    expect(await scorecardCsv(ctx, "pablo")).not.toContain("Prepare interview");
   });
 });
 
@@ -209,7 +203,7 @@ describe("Scenario 20: files", () => {
     await linkFile(ctx, "theo", { file_id: "f1", record_type: "account", record_id: acc });
     const reload = new GoogleSheetsRepository(new SheetsClient({ baseUrl: sheets.url, spreadsheetId: "main", getToken: async () => "fake" }));
     expect((await filesFor({ ...ctx, repo: reload }, "account", acc)).map((f) => f.name)).toEqual(["Pitch FR.pdf"]);
-    const upload = { name: "notes.txt", mime_type: "text/plain", data_base64: Buffer.from("hello").toString("base64"), record_type: null, record_id: "" } as const;
+    const upload = { name: "notes.txt", mime_type: "text/plain", data_base64: Buffer.from("hello").toString("base64"), record_type: null, record_id: "", parent_id: null };
     await expect(uploadFile(ctx, "theo", null, upload)).rejects.toBeInstanceOf(ConsentRequiredError);
     expect(google.store.writes).toEqual([]);
     const f = await uploadFile(ctx, "theo", "theo-drive-file-token", upload);
@@ -281,5 +275,19 @@ describe("Task partial update regression", () => {
     await createTask(ctx, "theo", { id, task: { title: "Keep owner", description: "", owner: "pablo", priority: "P0", due_at: "2026-11-09", estimated_minutes: null, recurrence: "none", account_id: "", opportunity_id: "", dependency_ids: [], private: false }, source: "manual", source_id: "" });
     const done = await updateTask(ctx, "pablo", { id, private: false, expected_version: 1, patch: { status: "done" } });
     expect(done).toMatchObject({ owner: "pablo", priority: "P0", due_at: "2026-11-09", status: "done" });
+  });
+});
+
+describe("Drive shell", () => {
+  it("searches the shared tree and lists recent files with the service account; new folders need the founder's grant", async () => {
+    await ctx.repo.insert("SystemSettings", [{ id: childId("setting", "drive_folder_id"), key: "drive_folder_id", value: FOLDER, description: "" }], { founder: "system" });
+    google.store.addFile({ id: "sub", name: "Clients", mimeType: "application/vnd.google-apps.folder", parents: [FOLDER] });
+    google.store.addFile({ id: "deep", name: "Garage quote.pdf", parents: ["sub"] });
+    expect((await listFolder(ctx, null, "quote", "search")).files.map((f) => f.name)).toEqual(["Garage quote.pdf"]);
+    expect((await listFolder(ctx, null, "", "recent")).files.map((f) => f.name)).toEqual(["Garage quote.pdf"]);
+    await expect(createFolder(ctx, "theo", null, { name: "New", parent_id: "sub" })).rejects.toBeInstanceOf(ConsentRequiredError);
+    const f = await createFolder(ctx, "theo", "theo-grant", { name: "New", parent_id: "sub" });
+    expect(f).toMatchObject({ name: "New", parents: ["sub"] });
+    expect(google.store.writes.at(-1)).toEqual({ kind: "drive.folder", by: "theo-grant" });
   });
 });

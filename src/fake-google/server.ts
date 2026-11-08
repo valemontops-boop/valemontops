@@ -64,9 +64,17 @@ export class FakeGoogleServer {
       }
       if (url.pathname === "/drive/v3/files" && method === "GET") {
         const q = url.searchParams.get("q") ?? "";
-        const folder = /'([^']+)' in parents/.exec(q)?.[1] ?? "";
+        const folder = /'([^']+)' in parents/.exec(q)?.[1];
         const search = /name contains '([^']*)'/.exec(q)?.[1];
-        return send(200, { files: s.listFiles(folder, search) });
+        if (folder) return send(200, { files: s.listFiles(folder, search) });
+        if (search !== undefined) return send(200, { files: s.searchFiles(search) });
+        return send(200, { files: s.recentFiles(Number(url.searchParams.get("pageSize") ?? 20)) });
+      }
+      if (url.pathname === "/drive/v3/files" && method === "POST") {
+        if (token === "sa-token") return send(403, { error: { code: 403, message: "Service Accounts do not have storage quota." } });
+        const b = JSON.parse(raw.toString("utf8")) as { name: string; mimeType: string; parents?: string[] };
+        s.writes.push({ kind: "drive.folder", by: token });
+        return send(200, s.addFile({ id: `fld-${s.files.length + 1}`, name: b.name, mimeType: b.mimeType, parents: b.parents ?? [] }, token));
       }
       m = /^\/drive\/v3\/files\/([^/]+)$/.exec(url.pathname);
       if (m && method === "GET") {

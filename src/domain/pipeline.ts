@@ -45,16 +45,18 @@ export function weightedValueMinor(opps: (OppLike & { probability: number })[]):
 }
 
 /**
- * Simple board (D018): five columns over the ten stored stages. Founders move cards between
- * columns; the exact stage stays editable under "More details".
+ * Yes-only pipeline (D029): businesses enter the board when they say yes (talk again or meeting).
+ * Targeted/contacted businesses live in call lists, not on the board. Exact stages stay editable.
  */
 export const PIPELINE_GROUPS: { key: string; label: string; stages: Stage[]; entry: Stage }[] = [
-  { key: "to_contact", label: "To contact", stages: ["targeted"], entry: "targeted" },
-  { key: "contacted", label: "Contacted", stages: ["contacted"], entry: "contacted" },
-  { key: "talking", label: "In talks", stages: ["replied", "discovery_scheduled", "qualified"], entry: "replied" },
-  { key: "demo", label: "Demo & proposal", stages: ["demo_shown", "proposal_sent", "negotiation"], entry: "demo_shown" },
+  { key: "talk", label: "Talk again", stages: ["replied"], entry: "replied" },
+  { key: "meeting", label: "Meeting booked", stages: ["discovery_scheduled"], entry: "discovery_scheduled" },
+  { key: "met", label: "Met / demo", stages: ["qualified", "demo_shown"], entry: "qualified" },
+  { key: "proposal", label: "Proposal", stages: ["proposal_sent", "negotiation"], entry: "proposal_sent" },
   { key: "won", label: "Won", stages: ["won"], entry: "won" },
 ];
+
+export const PRE_PIPELINE: Stage[] = ["targeted", "contacted"];
 
 export function groupOf(stage: Stage): string | null {
   return PIPELINE_GROUPS.find((g) => g.stages.includes(stage))?.key ?? null;
@@ -70,4 +72,16 @@ export function stageForGroup(current: Stage, groupKey: string): Stage {
 export function nextGroup(stage: Stage): string | null {
   const i = PIPELINE_GROUPS.findIndex((g) => g.stages.includes(stage));
   return i >= 0 && i < PIPELINE_GROUPS.length - 1 ? PIPELINE_GROUPS[i + 1].key : null;
+}
+
+/** Business status from its last call, for the contacts view. */
+export type LeadStatus = "not_called" | "no_answer" | "refused" | "yes" | "won" | "lost" | "opted_out";
+export function leadStatus(i: { blocked: boolean; stage: Stage | null; lastOutcome: string | null; called: boolean }): LeadStatus {
+  if (i.blocked) return "opted_out";
+  if (i.stage === "won") return "won";
+  if (i.stage === "lost") return "lost";
+  if (i.stage && !PRE_PIPELINE.includes(i.stage)) return "yes";
+  if (!i.called) return "not_called";
+  if (i.lastOutcome === "not_interested") return "refused";
+  return "no_answer";
 }

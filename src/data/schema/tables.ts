@@ -19,7 +19,7 @@ import {
   SUPPRESSION_KINDS,
   WORK_MODES,
 } from "@/domain/constants";
-import { bool, day, int, iso, json, oneOf, optDay, optInt, optIso, optOneOf, reqText, text } from "./codecs";
+import { bool, day, int, iso, json, oneOf, oneOfOr, optDay, optInt, optIso, optOneOf, reqText, text } from "./codecs";
 
 /** Revision domains: a mutation in a table bumps its domain token (spec 4.1). */
 export const DOMAINS = ["settings", "activity", "crm", "audit", "work", "audience", "private"] as const;
@@ -61,6 +61,7 @@ function taskShape() {
     visibility: oneOf(["team", "private"] as const),
     snoozed_until: optDay(),
     snooze_reason: text(300),
+    area: oneOfOr(["sales", "marketing", "ops"] as const, "sales"),
     source: oneOf(["manual", "founder_point", "idea", "system"] as const),
     source_id: text(40),
   };
@@ -149,6 +150,11 @@ export const TABLES = {
       late_logged: bool(),
       source: oneOf(ACTIVITY_SOURCES),
       corrects_event_id: text(40),
+      call_session_id: text(40),
+      list_id: text(40),
+      /** Keyed hash of the normalised phone for calls to numbers not in the CRM (no number stored for a refusal). */
+      target_key: text(80),
+      duration_sec: optInt(),
     },
   },
   Accounts: {
@@ -175,6 +181,7 @@ export const TABLES = {
       language: text(10),
       notes: text(4_000),
       import_batch_id: text(40),
+      list_id: text(40),
     },
   },
   Contacts: {
@@ -429,26 +436,82 @@ export const TABLES = {
     domain: "settings",
     shape: { ...base, integration: reqText(60), status: reqText(40), last_success_at: optIso(), last_error: text(500) },
   },
-  /* ----- private founder spreadsheets only (spec 4.7) ----- */
-  JobApplications: {
-    domain: "private",
+  CallLists: {
+    domain: "crm",
     shape: {
       ...base,
-      company: reqText(200),
-      role: text(200),
-      status: oneOf(["to_apply", "applied", "interview", "offer", "rejected", "withdrawn"] as const),
-      applied_on: optDay(),
-      next_step: text(300),
-      next_step_due: optDay(),
-      url: text(500),
-      notes: text(2_000),
+      name: reqText(160),
+      source: text(200),
+      market: optOneOf(MARKETS),
+      niche: text(120),
+      brand: optOneOf(BRANDS),
+      owner_founder: optFounder(),
+      notes: text(1_000),
     },
   },
+  CallSessions: {
+    domain: "activity",
+    shape: {
+      ...base,
+      founder_key: founder(),
+      list_id: text(40),
+      started_at: iso(),
+      ended_at: optIso(),
+      notes: text(1_000),
+    },
+  },
+  ContentLog: {
+    domain: "audience",
+    shape: {
+      ...base,
+      idempotency_key: reqText(80),
+      founder_key: founder(),
+      deliverable: oneOf(["concept", "reel", "brand_post", "personal_post", "story", "vsl"] as const),
+      brand: optOneOf(BRANDS),
+      language: optOneOf(["FR", "ES"] as const),
+      title: text(200),
+      url: text(500),
+      local_date: day(),
+    },
+  },
+  AudienceBreakdown: {
+    domain: "audience",
+    shape: {
+      ...base,
+      account_id: reqText(40),
+      date: day(),
+      dimension: oneOf(["country"] as const),
+      key: reqText(60),
+      value: int(), // followers or share in basis points, see unit
+      unit: oneOf(["count", "bp"] as const),
+      source: oneOf(["api", "import", "manual"] as const),
+    },
+  },
+  TrafficDaily: {
+    domain: "audience",
+    shape: {
+      ...base,
+      date: day(),
+      brand: optOneOf(BRANDS),
+      source: reqText(80),
+      medium: text(80),
+      campaign: text(120),
+      country: text(60),
+      sessions: optInt(),
+      leads: optInt(),
+      meetings: optInt(),
+      purchases: optInt(),
+      revenue_minor: optInt(),
+      origin: oneOf(["import", "manual", "webhook"] as const),
+      import_file: text(200),
+    },
+  },
+  /* ----- private founder spreadsheets only (spec 4.7) ----- */
   PrivateTasks: { domain: "private", shape: taskShape() },
 } as const;
 
 export type TableName = keyof typeof TABLES;
-export const PRIVATE_TABLES: TableName[] = ["JobApplications", "PrivateTasks"];
+export const PRIVATE_TABLES: TableName[] = ["PrivateTasks"];
 /** Tabs of the shared production Sheet. Private tables live only in each founder's own spreadsheet. */
 export const TABLE_NAMES = (Object.keys(TABLES) as TableName[]).filter((t) => !PRIVATE_TABLES.includes(t));
 
@@ -465,7 +528,11 @@ export interface BaseRow {
 }
 export type Row<T extends TableName> = RowMap[T] & BaseRow;
 export type BaseFields = keyof typeof base;
-export type NewRow<T extends TableName> = Omit<Row<T>, Exclude<BaseFields, "id">> & { id: string };
+/** Columns added after a table was first created: optional on create, filled by CREATE_DEFAULTS. */
+export const CREATE_DEFAULTS: Record<string, unknown> = { list_id: "", call_session_id: "", target_key: "", duration_sec: null, area: "sales" };
+type LateKeys = "list_id" | "call_session_id" | "target_key" | "duration_sec" | "area";
+export type NewRow<T extends TableName> = Omit<Row<T>, Exclude<BaseFields, "id"> | LateKeys> &
+  Partial<Pick<Row<T>, Extract<keyof Row<T>, LateKeys>>> & { id: string };
 
 const schemaCache = new Map<TableName, z.ZodObject<z.ZodRawShape>>();
 export function tableSchema<T extends TableName>(name: T): z.ZodObject<Shape<T>> {

@@ -9,6 +9,8 @@ import { Modal } from "@/components/ui/overlay";
 import { BRANDS, BRAND_LABELS } from "@/domain/constants";
 import { api } from "@/lib/api";
 import { fmtDay } from "./bits";
+import { CountrySplitButton, MarketingOverview, TrafficTab } from "./marketing-overview";
+import { MarketingWeek, TasksFor } from "./my-day-extras";
 
 type Account = { id: string; platform: "instagram" | "linkedin_page" | "linkedin_personal"; handle: string; brand: string | null; market: string | null; visibility: string; owner_founder: string | null };
 type Series = { account: Account; metric: string; allowedMetrics: string[]; points: { date: string; value: number | null; source: string | null }[]; gaps: number; latest: { date: string; value: number; source: string } | null };
@@ -16,6 +18,31 @@ const METRIC_NAMES: Record<string, string> = { followers: "Followers", views: "V
 const PLATFORM: Record<string, string> = { instagram: "Instagram", linkedin_page: "LinkedIn page", linkedin_personal: "LinkedIn personal" };
 
 export function MarketingView() {
+  const [tab, setTab] = React.useState<"overview" | "audience" | "traffic" | "content">("overview");
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Marketing</h1>
+          <p className="text-sm text-text-2">Where people come from, which funnel converts, and whether we reach the right countries.</p>
+        </div>
+        <SegmentedSwitch label="Section" value={tab} onChange={setTab} options={[{ value: "overview", label: "Overview" }, { value: "audience", label: "Audience" }, { value: "traffic", label: "Traffic" }, { value: "content", label: "Content" }]} />
+      </div>
+      {tab === "overview" ? <MarketingOverview /> : tab === "audience" ? <AudienceTab /> : tab === "traffic" ? <TrafficTab /> : <ContentTab />}
+    </div>
+  );
+}
+
+function ContentTab() {
+  return (
+    <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+      <Panel><MarketingWeek /></Panel>
+      <Panel><TasksFor area="marketing" /></Panel>
+    </div>
+  );
+}
+
+function AudienceTab() {
   const accounts = useQuery({ queryKey: ["audience-accounts"], queryFn: () => api<Account[]>("/api/audience/accounts") });
   const [accountId, setAccountId] = React.useState<string | null>(null);
   const [adding, setAdding] = React.useState(false);
@@ -23,10 +50,7 @@ export function MarketingView() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Marketing · Audience</h1>
-          <p className="text-sm text-text-2">How views and followers evolve. Gaps stay visible; nothing is interpolated.</p>
-        </div>
+        <p className="text-sm text-text-2">How views and followers evolve. Gaps stay visible; nothing is interpolated.</p>
         <Button variant="outline" onClick={() => setAdding(true)}>Add account</Button>
       </div>
       {accounts.isPending ? <Skeleton className="h-96" /> : accounts.isError ? <ErrorState error={accounts.error} onRetry={() => accounts.refetch()} /> : accounts.data.length === 0 ? (
@@ -92,6 +116,7 @@ function AccountChart({ account }: { account: Account }) {
       <div className="mt-4 flex flex-wrap gap-2 border-t border-hairline pt-4">
         <Button size="sm" variant="outline" onClick={() => setEntry(true)}>Enter numbers</Button>
         {account.platform !== "instagram" ? <Button size="sm" variant="outline" onClick={() => setImporting(true)}>Import LinkedIn export</Button> : null}
+        {account.visibility === "team" ? <CountrySplitButton accountId={account.id} /> : null}
       </div>
       <ManualEntryModal open={entry} onOpenChange={setEntry} account={account} allowed={s?.allowedMetrics ?? []} />
       <ImportModal open={importing} onOpenChange={setImporting} account={account} />

@@ -13,6 +13,7 @@ import { isOpen } from "@/domain/pipeline";
 import { formatWhatsAppReport } from "@/domain/report";
 import { CAPACITY_SEED_MINUTES, MINUTES_PER_ACTION_SEED, seedTargetsFor } from "@/domain/seeds";
 import { userRow } from "./common";
+import { callStats } from "@/domain/calls";
 
 function earliest<R extends { created_at: string; id: string }>(rows: R[]): R | undefined {
   return [...rows].sort((a, b) => (a.created_at === b.created_at ? (a.id < b.id ? -1 : 1) : a.created_at < b.created_at ? -1 : 1))[0];
@@ -79,6 +80,7 @@ export interface MyDay {
   todayEvents: { id: string; type: ActivityType; label: string; accountName: string; occurredAt: string; outcome: string | null; lateLogged: boolean }[];
   nextAction: { kind: "follow_up" | "metric" | "onboarding" | "done"; title: string; detail: string; followUp?: FollowUp; metric?: Metric };
   byType: Partial<Record<ActivityType, number>>;
+  calls: ReturnType<typeof callStats>;
 }
 
 export async function getMyDay(repo: DataRepository, founder: FounderKey, now = new Date()): Promise<MyDay> {
@@ -171,6 +173,7 @@ export async function getMyDay(repo: DataRepository, founder: FounderKey, now = 
     })),
     nextAction,
     byType,
+    calls: callStats(todays, user.timezone),
   };
 }
 

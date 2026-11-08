@@ -44,7 +44,7 @@ export class GoogleCalendarAdapter implements CalendarPort {
   }
 }
 
-const FIELDS = "id,name,mimeType,modifiedTime,webViewLink,parents,ownedByMe";
+const FIELDS = "id,name,mimeType,modifiedTime,webViewLink,parents,ownedByMe,size,iconLink";
 
 /** Drive read path: the Valemont OS folder shared with the service account as Viewer. */
 export class GoogleDriveAdapter implements DrivePort {
@@ -58,6 +58,15 @@ export class GoogleDriveAdapter implements DrivePort {
   async get(fileId: string) {
     const r = await this.http.request<DriveFile>("GET", `/drive/v3/files/${encodeURIComponent(fileId)}`, { idempotent: true, allow404: true, query: { fields: FIELDS, supportsAllDrives: "true" } });
     return r.data;
+  }
+  async search(query: string) {
+    const q = `name contains '${query.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}' and trashed = false`;
+    const r = await this.http.request<{ files?: DriveFile[] }>("GET", "/drive/v3/files", { idempotent: true, query: { q, fields: `files(${FIELDS})`, pageSize: "50", orderBy: "modifiedTime desc", supportsAllDrives: "true", includeItemsFromAllDrives: "true" } });
+    return r.data?.files ?? [];
+  }
+  async recent(limit: number) {
+    const r = await this.http.request<{ files?: DriveFile[] }>("GET", "/drive/v3/files", { idempotent: true, query: { q: "trashed = false and mimeType != 'application/vnd.google-apps.folder'", fields: `files(${FIELDS})`, pageSize: String(limit), orderBy: "modifiedTime desc", supportsAllDrives: "true", includeItemsFromAllDrives: "true" } });
+    return r.data?.files ?? [];
   }
 }
 
@@ -74,6 +83,10 @@ export class GoogleDriveUploader implements DriveUploader {
     data.set(bytes, head.length);
     data.set(tail, head.length + bytes.length);
     const r = await this.http.request<DriveFile>("POST", "/upload/drive/v3/files", { idempotent: false, query: { uploadType: "multipart", fields: FIELDS }, raw: { contentType: `multipart/related; boundary=${boundary}`, data } });
+    return r.data!;
+  }
+  async createFolder(name: string, parentId: string | null) {
+    const r = await this.http.request<DriveFile>("POST", "/drive/v3/files", { idempotent: false, query: { fields: FIELDS }, body: { name, mimeType: "application/vnd.google-apps.folder", ...(parentId ? { parents: [parentId] } : {}) } });
     return r.data!;
   }
 }

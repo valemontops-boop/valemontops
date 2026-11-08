@@ -13,7 +13,12 @@ export interface EventLike {
   local_date: string;
   occurred_at: string;
   outcome?: string | null;
+  /** Keyed hash of a dialled number that is not in the CRM (call mode). */
+  target_key?: string;
 }
+
+/** The business an event touches: its account, or the hashed number for a call outside the CRM. */
+export const businessKey = (e: Pick<EventLike, "account_id" | "target_key">) => e.account_id || (e.target_key ? `n:${e.target_key}` : "");
 
 /**
  * Exactly-once by derivation (spec 4.2): one logical event per idempotency_key.
@@ -51,9 +56,10 @@ export function isOutreach(t: ActivityType): boolean {
 export function firstTouchByAccount<E extends EventLike>(events: E[]): Map<string, E> {
   const first = new Map<string, E>();
   for (const e of dedupeEvents(events)) {
-    if (!e.account_id || !isOutreach(e.activity_type)) continue;
-    const prev = first.get(e.account_id);
-    if (!prev || e.occurred_at < prev.occurred_at) first.set(e.account_id, e);
+    const key = businessKey(e);
+    if (!key || !isOutreach(e.activity_type)) continue;
+    const prev = first.get(key);
+    if (!prev || e.occurred_at < prev.occurred_at) first.set(key, e);
   }
   return first;
 }
@@ -106,7 +112,7 @@ export function funnelCounts<E extends EventLike>(events: E[], founder: string |
     )
       c.conversations++;
     if (e.activity_type === "demo_shown") c.demos++;
-    if (e.activity_type === "meeting_booked") c.meetingsBooked++;
+    if (e.activity_type === "meeting_booked" || (e.activity_type === "connected_call" && e.outcome === "meeting_booked")) c.meetingsBooked++;
     if (e.activity_type === "meeting_held") c.meetingsHeld++;
     if (e.activity_type === "proposal_sent") c.proposals++;
     if (e.activity_type === "sale") c.sales++;

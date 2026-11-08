@@ -1,5 +1,5 @@
 "use client";
-import { Bell, CalendarDays, ChevronDown, Command, FileText, Gauge, Lightbulb, LayoutList, ListChecks, Megaphone, Plus, RefreshCw, Settings, Sun, Users, AlertCircle, Check, Loader2, BarChart3, X } from "lucide-react";
+import { PhoneCall, Bell, CalendarDays, ChevronDown, Command, FileText, Gauge, Lightbulb, LayoutList, ListChecks, Megaphone, Plus, RefreshCw, Settings, Sun, Users, AlertCircle, Check, Loader2, BarChart3, X } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { IdeaCapture } from "./idea-capture";
@@ -18,6 +18,7 @@ import { useCrm, useMyDay } from "./use-crm";
 const NAV = [
   { href: "/command-center", label: "Command Center", icon: Gauge },
   { href: "/my-day", label: "My Day", icon: Sun },
+  { href: "/call", label: "Call mode", icon: PhoneCall },
   { href: "/crm", label: "Sales CRM", icon: Users },
   { href: "/marketing", label: "Marketing", icon: Megaphone },
 ];
@@ -30,8 +31,8 @@ const WORKSPACE = [
 ];
 const MOBILE_NAV = [
   { href: "/my-day", label: "My Day", icon: Sun },
+  { href: "/call", label: "Call", icon: PhoneCall },
   { href: "/crm", label: "CRM", icon: Users },
-  { href: "/tasks", label: "Tasks", icon: ListChecks },
   { href: "/command-center", label: "Team", icon: Gauge },
   { href: "/settings", label: "More", icon: Settings },
 ];

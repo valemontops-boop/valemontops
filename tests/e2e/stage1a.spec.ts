@@ -43,7 +43,6 @@ test("scenario 2: a cold call logged once appears once and survives reload; visi
   const pablo = await pabloCtx.newPage();
   await signIn(pablo, "pablo");
   await pablo.goto("/crm");
-  await pablo.getByRole("radio", { name: "List" }).click();
   await pablo.getByRole("radio", { name: "All businesses" }).click();
   await pablo.getByRole("button", { name: "Garage du Parc (demo)" }).click();
   const panel = pablo.getByRole("complementary", { name: "Details" });
@@ -79,7 +78,6 @@ test("scenario 3: concurrent edits on the same opportunity show a conflict, neve
 test("scenario 14: an opted-out contact is blocked in the UI and by the server for both founders", async ({ page }) => {
   await signIn(page, "pablo");
   await page.goto("/crm");
-  await page.getByRole("radio", { name: "List" }).click();
   await page.getByRole("radio", { name: "All businesses" }).click();
   await page.getByRole("button", { name: "Climatización Ortega (demo)" }).click();
   const panel = page.getByRole("complementary", { name: "Details" });

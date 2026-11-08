@@ -33,8 +33,12 @@ import { addCalendarSource, addPointItem, itemToggleSchema, listCalendarSources,
 import { addIdea, convertIdea, convertSchema, ideaSchema, ideaUpdateSchema, listIdeas, updateIdea } from "@/server/services/ideas";
 import { filesFor, linkFile, linkSchema, listFolder, uploadFile, uploadSchema } from "@/server/services/files";
 import { addManualEntry, addSocialAccount, audienceSeries, importLinkedIn, importSchema, listAccounts, manualEntrySchema, seriesSchema, socialAccountSchema } from "@/server/services/audience";
-import { jobSchema, listJobs, saveJob } from "@/server/services/jobs";
 import { childId } from "@/lib/ids";
+import { callQueue, callSchema, callLists, endSession, endSessionSchema, listSessions, logCall, sessionSummary, startSession, startSessionSchema } from "@/server/services/calls";
+import { contentLogSchema, logContent, marketingWeek } from "@/server/services/marketing-week";
+import { addBreakdown, addTraffic, breakdownSchema, importTraffic, marketingOverview, overviewSchema, trafficImportSchema, trafficManualSchema } from "@/server/services/marketing";
+import { dashboardSchema, reportsDashboard } from "@/server/services/dashboard";
+import { createFolder, folderSchema } from "@/server/services/files";
 
 export const repo = new InMemoryRepository();
 const store = demoGoogleStore();
@@ -103,7 +107,22 @@ const routes: Record<string, [z.ZodTypeAny | null, Handler]> = {
   "POST /api/ideas": [ideaSchema, async (i, f) => addIdea(ctx, f, i as never)],
   "PATCH /api/ideas": [ideaUpdateSchema, async (i, f) => updateIdea(ctx, f, i as never)],
   "POST /api/ideas/convert": [convertSchema, async (i, f) => convertIdea(ctx, f, i as never)],
-  "GET /api/files": [z.object({ folder: z.string().optional(), q: z.string().default("") }), async (i) => listFolder(ctx, (i as { folder?: string }).folder ?? null, (i as { q: string }).q)],
+  "GET /api/files": [z.object({ folder: z.string().optional(), q: z.string().default(""), view: z.enum(["folder", "recent", "search"]).default("folder") }), async (i) => listFolder(ctx, (i as { folder?: string }).folder ?? null, (i as { q: string }).q, (i as { view: "folder" }).view)],
+  "POST /api/files/folder": [folderSchema, async (i, f) => createFolder(ctx, f, driveGrant ? `preview-grant-${f}` : null, i as never)],
+  "POST /api/calls": [callSchema, async (i, f) => logCall(ctx, f, i as never)],
+  "GET /api/calls/sessions": [null, async (_, f) => listSessions(ctx, f)],
+  "POST /api/calls/sessions": [startSessionSchema, async (i, f) => startSession(ctx, f, i as never)],
+  "PATCH /api/calls/sessions": [endSessionSchema, async (i, f) => endSession(ctx, f, (i as { id: string }).id)],
+  "GET /api/calls/queue": [z.object({ list_id: z.string().max(40).default("") }), async (i, f) => callQueue(ctx, f, (i as { list_id: string }).list_id)],
+  "GET /api/calls/summary": [z.object({ id: z.string().uuid() }), async (i, f) => sessionSummary(ctx, f, (i as { id: string }).id)],
+  "GET /api/call-lists": [null, async () => callLists(ctx)],
+  "GET /api/marketing/week": [null, async (_, f) => marketingWeek(ctx, f)],
+  "POST /api/marketing/week": [contentLogSchema, async (i, f) => logContent(ctx, f, i as never)],
+  "GET /api/marketing/overview": [overviewSchema, async (i, f) => marketingOverview(ctx, f, i as never)],
+  "POST /api/marketing/traffic": [trafficImportSchema, async (i, f) => importTraffic(ctx, f, i as never)],
+  "PUT /api/marketing/traffic": [trafficManualSchema, async (i, f) => addTraffic(ctx, f, i as never)],
+  "POST /api/marketing/breakdown": [breakdownSchema, async (i, f) => addBreakdown(ctx, f, i as never)],
+  "GET /api/reports/dashboard": [dashboardSchema, async (i, f) => reportsDashboard(ctx, f, i as never)],
   "GET /api/files/link": [z.object({ record_type: z.string(), record_id: z.string().uuid() }), async (i) => filesFor(ctx, (i as { record_type: string }).record_type, (i as { record_id: string }).record_id)],
   "POST /api/files/link": [linkSchema, async (i, f) => linkFile(ctx, f, i as never)],
   "POST /api/files/upload": [uploadSchema, async (i, f) => uploadFile(ctx, f, driveGrant ? `preview-grant-${f}` : null, i as never)],
@@ -112,8 +131,6 @@ const routes: Record<string, [z.ZodTypeAny | null, Handler]> = {
   "POST /api/audience/manual": [manualEntrySchema, async (i, f) => addManualEntry(ctx, f, i as never)],
   "POST /api/audience/import": [importSchema, async (i, f) => importLinkedIn(ctx, f, i as never)],
   "GET /api/audience/series": [seriesSchema, async (i, f) => audienceSeries(ctx, f, i as never)],
-  "GET /api/jobs": [null, async (_, f) => listJobs(ctx, f)],
-  "POST /api/jobs": [jobSchema.extend({ expected_version: z.number().int().optional() }), async (i, f) => saveJob(ctx, f, i as never)],
   "GET /api/settings/system": [null, async () => {
     const rows = (await repo.list("SystemSettings")).rows;
     return Object.fromEntries(["drive_folder_id", "founder_point_video_link", "ideas_testing_limit", "hot_lead_stale_days", "conversion_min_sample", "company_name"].map((k) => [k, rows.find((r) => r.key === k)?.value ?? ""]));

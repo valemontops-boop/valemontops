@@ -1,4 +1,4 @@
-import { columnsOf, tableSchema, type Domain, type NewRow, type Row, type TableName } from "./schema/tables";
+import { CREATE_DEFAULTS, columnsOf, tableSchema, type Domain, type NewRow, type Row, type TableName } from "./schema/tables";
 export type { NewRow, Row, TableName } from "./schema/tables";
 import { serializeCell } from "./schema/codecs";
 
@@ -98,7 +98,9 @@ export function nowIso(): string {
 
 export function completeRow<T extends TableName>(table: T, rec: NewRow<T>, actor: Actor, writeId: string): Row<T> {
   const ts = nowIso();
+  const defaults = Object.fromEntries(columnsOf(table).filter((c) => c in CREATE_DEFAULTS && !(c in rec)).map((c) => [c, CREATE_DEFAULTS[c]]));
   const full = {
+    ...defaults,
     ...rec,
     created_at: ts,
     updated_at: ts,

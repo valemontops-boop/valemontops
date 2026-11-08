@@ -16,6 +16,8 @@ import { ConflictNotice } from "./conflict";
 import { useMe } from "./providers";
 
 type View = "mine" | "theo" | "pablo" | "unassigned" | "overdue" | "all";
+export type Area = "sales" | "marketing" | "ops";
+export const AREA_LABEL: Record<Area, string> = { sales: "Sales", marketing: "Marketing", ops: "Ops" };
 const today = () => new Date().toLocaleDateString("en-CA");
 
 export function useTasks(view: View) {
@@ -49,6 +51,7 @@ export function TaskRowItem({ t, onOpen }: { t: TaskRow; onOpen?: () => void }) 
           <span className={cn(t.priority === "P0" && "font-semibold text-ink")}>{t.priority}</span>
           {t.due_at ? <span className={cn(overdue && "font-medium text-bad")}>{overdue ? "Overdue · " : ""}{fmtDay(t.due_at)}</span> : null}
           <span>{t.owner ? FOUNDER_NAMES[t.owner] : "Unassigned"}</span>
+          <span className="rounded-full bg-subtle px-1.5">{AREA_LABEL[t.area]}</span>
           {t.recurrence !== "none" ? <span>repeats {t.recurrence}</span> : null}
           {t.snoozed_until && t.snoozed_until > today() ? <span>snoozed to {fmtDay(t.snoozed_until)}</span> : null}
         </p>
@@ -61,10 +64,12 @@ export function TasksView() {
   const me = useMe();
   const [view, setView] = React.useState<View>("mine");
   const [display, setDisplay] = React.useState<"list" | "board" | "week">("list");
+  const [area, setArea] = React.useState<Area | "all">("all");
   const [creating, setCreating] = React.useState(false);
   const [openId, setOpenId] = React.useState<string | null>(null);
-  const q = useTasks(view);
-  const opened = q.data?.find((t) => t.id === openId) ?? null;
+  const q0 = useTasks(view);
+  const q = { ...q0, data: q0.data?.filter((t) => area === "all" || t.area === area) } as typeof q0;
+  const opened = q0.data?.find((t) => t.id === openId) ?? null;
   return (
     <div className="flex gap-6">
       <div className="flex min-w-0 flex-1 flex-col gap-4">
@@ -74,6 +79,7 @@ export function TasksView() {
         </div>
         <div className="flex flex-wrap gap-2">
           <div className="overflow-x-auto"><SegmentedSwitch size="sm" label="View" value={view} onChange={setView} options={[{ value: "mine", label: "My tasks" }, { value: me.founder === "theo" ? "pablo" : "theo", label: `Assigned to ${FOUNDER_NAMES[me.founder === "theo" ? "pablo" : "theo"]}` }, { value: "unassigned", label: "Unassigned" }, { value: "overdue", label: "Overdue" }, { value: "all", label: "All" }]} /></div>
+          <SegmentedSwitch size="sm" label="Area" value={area} onChange={setArea} options={[{ value: "all", label: "All areas" }, { value: "sales", label: "Sales" }, { value: "marketing", label: "Marketing" }, { value: "ops", label: "Ops" }]} />
           <SegmentedSwitch size="sm" label="Display" value={display} onChange={setDisplay} options={[{ value: "list", label: "List" }, { value: "board", label: "Board" }, { value: "week", label: "Week" }]} />
         </div>
         {q.isPending ? <Skeleton className="h-64" /> : q.isError ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : q.data.length === 0 ? (
@@ -94,7 +100,7 @@ export function TasksView() {
         )}
       </div>
       {opened ? <TaskPanel key={opened.id + opened.version} t={opened} onClose={() => setOpenId(null)} /> : null}
-      <NewTaskModal open={creating} onOpenChange={setCreating} />
+      <NewTaskModal open={creating} onOpenChange={setCreating} defaults={{ area: area === "all" ? undefined : area }} />
     </div>
   );
 }
@@ -116,7 +122,7 @@ function WeekGrid({ tasks, onOpen }: { tasks: TaskRow[]; onOpen: (id: string) =>
 
 function TaskPanel({ t, onClose }: { t: TaskRow; onClose: () => void }) {
   const qc = useQueryClient();
-  const [v, setV] = React.useState({ title: t.title, description: t.description, owner: t.owner ?? "", priority: t.priority, due_at: t.due_at ?? "", status: t.status, completion_evidence: t.completion_evidence });
+  const [v, setV] = React.useState({ title: t.title, description: t.description, owner: t.owner ?? "", priority: t.priority, due_at: t.due_at ?? "", status: t.status, completion_evidence: t.completion_evidence, area: t.area });
   const [snooze, setSnooze] = React.useState({ until: "", reason: "" });
   const save = useMutation({
     mutationFn: (patch: Record<string, unknown>) => api("/api/tasks", { method: "PATCH", body: { id: t.id, private: t.private, expected_version: t.version, patch } }),
@@ -135,6 +141,7 @@ function TaskPanel({ t, onClose }: { t: TaskRow; onClose: () => void }) {
           <Field label="Owner" htmlFor="tk-owner"><Select id="tk-owner" disabled={t.private} value={v.owner} onChange={(e) => setV({ ...v, owner: e.target.value })}><option value="">Unassigned</option>{FOUNDERS.map((f) => <option key={f} value={f}>{FOUNDER_NAMES[f]}</option>)}</Select></Field>
           <Field label="Priority" htmlFor="tk-pr"><Select id="tk-pr" value={v.priority} onChange={(e) => setV({ ...v, priority: e.target.value as "P0" })}>{["P0", "P1", "P2", "P3"].map((p) => <option key={p}>{p}</option>)}</Select></Field>
           <Field label="Due" htmlFor="tk-due"><Input id="tk-due" type="date" value={v.due_at} onChange={(e) => setV({ ...v, due_at: e.target.value })} /></Field>
+          <Field label="Area" htmlFor="tk-area"><Select id="tk-area" value={v.area} onChange={(e) => setV({ ...v, area: e.target.value as Area })}><option value="sales">Sales</option><option value="marketing">Marketing</option><option value="ops">Ops</option></Select></Field>
           <Field label="Status" htmlFor="tk-st"><Select id="tk-st" value={v.status} onChange={(e) => setV({ ...v, status: e.target.value as "todo" })}><option value="todo">To do</option><option value="in_progress">In progress</option><option value="done">Done</option><option value="cancelled">Cancelled</option></Select></Field>
         </div>
         <Field label="Description" htmlFor="tk-desc"><Textarea id="tk-desc" value={v.description} onChange={(e) => setV({ ...v, description: e.target.value })} /></Field>
@@ -164,11 +171,11 @@ function TaskPanel({ t, onClose }: { t: TaskRow; onClose: () => void }) {
   );
 }
 
-export function NewTaskModal({ open, onOpenChange, defaults }: { open: boolean; onOpenChange: (o: boolean) => void; defaults?: { account_id?: string; title?: string } }) {
+export function NewTaskModal({ open, onOpenChange, defaults }: { open: boolean; onOpenChange: (o: boolean) => void; defaults?: { account_id?: string; title?: string; area?: Area } }) {
   const qc = useQueryClient();
   const me = useMe();
   const [id, setId] = React.useState(() => crypto.randomUUID());
-  const blank = { title: defaults?.title ?? "", owner: me.founder as string, priority: "P2", due_at: today(), recurrence: "none", private: false };
+  const blank = { title: defaults?.title ?? "", owner: me.founder as string, priority: "P2", due_at: today(), recurrence: "none", private: false, area: (defaults?.area ?? "sales") as Area };
   const [v, setV] = React.useState(blank);
   const m = useMutation({
     mutationFn: () => api("/api/tasks", { body: { id, task: { ...v, owner: v.owner || null, account_id: defaults?.account_id ?? "" } } }),
@@ -182,6 +189,7 @@ export function NewTaskModal({ open, onOpenChange, defaults }: { open: boolean; 
           <Field label="Owner" htmlFor="nt-owner"><Select id="nt-owner" value={v.owner} disabled={v.private} onChange={(e) => setV({ ...v, owner: e.target.value })}><option value="">Unassigned</option>{FOUNDERS.map((f) => <option key={f} value={f}>{FOUNDER_NAMES[f]}</option>)}</Select></Field>
           <Field label="Priority" htmlFor="nt-pr"><Select id="nt-pr" value={v.priority} onChange={(e) => setV({ ...v, priority: e.target.value })}>{["P0", "P1", "P2", "P3"].map((p) => <option key={p}>{p}</option>)}</Select></Field>
           <Field label="Due" htmlFor="nt-due"><Input id="nt-due" type="date" value={v.due_at} onChange={(e) => setV({ ...v, due_at: e.target.value })} /></Field>
+          <Field label="Area" htmlFor="nt-area"><Select id="nt-area" value={v.area} onChange={(e) => setV({ ...v, area: e.target.value as Area })}><option value="sales">Sales</option><option value="marketing">Marketing</option><option value="ops">Ops</option></Select></Field>
           <Field label="Repeats" htmlFor="nt-rec"><Select id="nt-rec" value={v.recurrence} onChange={(e) => setV({ ...v, recurrence: e.target.value })}><option value="none">No</option><option value="daily">Daily</option><option value="weekdays">Weekdays</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></Select></Field>
         </div>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="size-4" checked={v.private} onChange={(e) => setV({ ...v, private: e.target.checked, owner: e.target.checked ? me.founder : v.owner })} /> Private (only you, stored in your own spreadsheet)</label>

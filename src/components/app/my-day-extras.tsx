@@ -1,6 +1,6 @@
 "use client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Lock, Phone } from "lucide-react";
+import { Phone } from "lucide-react";
 import Link from "next/link";
 import * as React from "react";
 import { toast } from "sonner";
@@ -11,7 +11,8 @@ import { api } from "@/lib/api";
 import type { streakSummary } from "@/server/services/results";
 import { fmtDateTime, fmtDay } from "./bits";
 import { useQuickAction } from "./quick-action";
-import { TaskRowItem, NewTaskModal, useTasks } from "./tasks-view";
+import { TaskRowItem, NewTaskModal, useTasks, type Area } from "./tasks-view";
+import { cn } from "@/lib/utils";
 import { useAgenda } from "./agenda-view";
 import { useCrm } from "./use-crm";
 
@@ -22,16 +23,36 @@ export function useStreaks() {
   return useQuery({ queryKey: ["streaks"], queryFn: () => api<Streaks>("/api/streaks") });
 }
 
-export function StreakLine() {
+/** Multi-day streak: one column per day for the last 14 days, shape + color by status. */
+export function StreakStrip() {
   const q = useStreaks();
-  if (!q.data) return null;
+  if (q.isPending) return <Skeleton className="h-24" />;
+  if (q.isError) return null;
   const s = q.data;
+  const days = s.days.slice(-14);
   const c = (x: { pct: number | null }) => (x.pct === null ? "—" : `${Math.round(x.pct * 100)}%`);
+  const dot = (st: string) => st === "perfect" ? "bg-ink ring-2 ring-ink ring-offset-2 ring-offset-panel" : st === "passed" ? "bg-ink" : st === "missed" ? "border-2 border-bad" : st === "in_progress" ? "border-2 border-ink border-dashed" : "bg-subtle";
   return (
-    <p className="text-[13px] text-text-2">
-      Streak <span className="num font-semibold text-ink">{s.streak}</span> · 7 days {c(s.c7)} · 30 days {c(s.c30)}
-      {s.todayStatus.attainment !== null ? <> · today {s.todayStatus.wouldPass ? "on track to pass" : s.todayStatus.reviewDone ? "review done" : "review not done yet"}</> : null}
-    </p>
+    <section aria-label="Streak" className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-[20px] bg-panel px-5 py-4">
+      <div className="flex items-baseline gap-2">
+        <span className="num text-[40px] font-semibold leading-none tracking-tight">{s.streak}</span>
+        <span className="text-sm text-text-2">day streak</span>
+      </div>
+      <ol className="flex flex-1 items-end gap-1.5" aria-label="Last 14 days">
+        {days.map((d) => (
+          <li key={d.date} className="flex flex-1 flex-col items-center gap-1" title={`${d.date}: ${d.status}${d.attainment !== null ? ` · ${Math.round(d.attainment * 100)}%` : ""}`}>
+            <span className={cn("size-4 rounded-full sm:size-5", dot(d.status))} />
+            <span className="num text-[10px] text-text-3">{"SMTWTFS"[new Date(d.date + "T12:00:00Z").getUTCDay()]}</span>
+            <span className="sr-only">{d.date} {d.status}</span>
+          </li>
+        ))}
+      </ol>
+      <div className="flex gap-4 text-[13px] text-text-2">
+        <span>7 days <span className="num font-semibold text-ink">{c(s.c7)}</span></span>
+        <span>30 days <span className="num font-semibold text-ink">{c(s.c30)}</span></span>
+        <span>{s.todayStatus.attainment === null ? "Today: off" : `Today ${Math.round(s.todayStatus.attainment * 100)}%${s.todayStatus.reviewDone ? " · reviewed" : ""}`}</span>
+      </div>
+    </section>
   );
 }
 
@@ -67,22 +88,51 @@ export function NextBestActions() {
   );
 }
 
-export function TodaysTasks() {
+/** Today's tasks for one area (sales, marketing, ops): open, mine, due today/overdue or undated P0. */
+export function TasksFor({ area }: { area: Area }) {
   const q = useTasks("mine");
   const [adding, setAdding] = React.useState(false);
   const today = new Date().toLocaleDateString("en-CA");
-  const items = (q.data ?? []).filter((t) => (t.status === "todo" || t.status === "in_progress") && (!t.snoozed_until || t.snoozed_until <= today) && ((t.due_at && t.due_at <= today) || (!t.due_at && t.priority === "P0")));
-  const doneToday = (q.data ?? []).filter((t) => t.status === "done" && t.completed_at?.slice(0, 10) === today);
+  const items = (q.data ?? []).filter((t) => t.area === area && (t.status === "todo" || t.status === "in_progress") && (!t.snoozed_until || t.snoozed_until <= today) && ((t.due_at && t.due_at <= today) || (!t.due_at && t.priority === "P0")));
   return (
-    <Panel aria-labelledby="tt-title">
-      <PanelTitle action={<div className="flex gap-1"><Button variant="ghost" size="sm" onClick={() => setAdding(true)}>Add</Button><Button asChild variant="ghost" size="sm"><Link href="/tasks">All tasks</Link></Button></div>}>
-        <span id="tt-title">Today&apos;s tasks <span className="num text-text-3">{items.length}</span></span>
-      </PanelTitle>
-      {q.isPending ? <Skeleton className="h-24" /> : q.isError ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : items.length === 0 ? (
-        <p className="text-sm text-text-2">{doneToday.length ? `All done: ${doneToday.length} completed today.` : "No task due today."}</p>
-      ) : <ul>{items.slice(0, 5).map((t) => <TaskRowItem key={t.id} t={t} />)}</ul>}
-      <NewTaskModal open={adding} onOpenChange={setAdding} />
-    </Panel>
+    <div>
+      <div className="mb-1 flex items-center justify-between">
+        <h3 className="text-[13px] font-semibold text-text-2">Tasks today <span className="num font-normal text-text-3">{items.length}</span></h3>
+        <Button variant="ghost" size="sm" onClick={() => setAdding(true)}>+ Task</Button>
+      </div>
+      {q.isPending ? <Skeleton className="h-16" /> : q.isError ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : items.length === 0 ? <p className="py-1 text-sm text-text-3">Nothing due.</p> : <ul>{items.slice(0, 5).map((t) => <TaskRowItem key={t.id} t={t} />)}</ul>}
+      <NewTaskModal open={adding} onOpenChange={setAdding} defaults={{ area }} />
+    </div>
+  );
+}
+
+type Week = { weekStart: string; items: { deliverable: string; label: string; done: number; target: number }[] };
+/** Weekly marketing deliverables: one tap = one piece published. */
+export function MarketingWeek() {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["marketing-week"], queryFn: () => api<Week>("/api/marketing/week") });
+  const log = useMutation({
+    mutationFn: (deliverable: string) => api("/api/marketing/week", { body: { idempotency_key: crypto.randomUUID(), deliverable } }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["marketing-week"] }); toast("Published · counted"); },
+  });
+  if (q.isPending) return <Skeleton className="h-28" />;
+  if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
+  return (
+    <div>
+      <h3 className="mb-2 text-[13px] font-semibold text-text-2">This week&apos;s content (team)</h3>
+      <ul className="flex flex-col gap-2">
+        {q.data.items.map((i) => (
+          <li key={i.deliverable} className="grid grid-cols-[1fr_auto_auto] items-center gap-3">
+            <div className="min-w-0">
+              <p className="flex justify-between text-sm"><span>{i.label}</span><span className={cn("num", i.done >= i.target ? "font-semibold text-ink" : "text-text-2")}>{i.done}/{i.target}</span></p>
+              <div className="mt-1 flex gap-[3px]" aria-hidden>{Array.from({ length: Math.max(i.target, i.done) }, (_, k) => <span key={k} className={cn("h-2 flex-1 rounded-[2px]", k < i.done ? "bg-ink" : "hatch")} />)}</div>
+            </div>
+            <span />
+            <button type="button" onClick={() => log.mutate(i.deliverable)} disabled={log.isPending} aria-label={`Log one ${i.label}`} className="h-9 rounded-full border border-control px-3 text-[13px] font-medium hover:bg-subtle disabled:opacity-50">+1</button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -145,33 +195,3 @@ export function LateCorrections() {
   );
 }
 
-type Job = { id: string; version: number; company: string; role: string; status: string; next_step: string; next_step_due: string | null };
-export function JobSearch() {
-  const qc = useQueryClient();
-  const q = useQuery({ queryKey: ["jobs"], queryFn: () => api<{ configured: boolean; jobs: Job[] }>("/api/jobs") });
-  const [adding, setAdding] = React.useState(false);
-  const [id, setId] = React.useState(() => crypto.randomUUID());
-  const [v, setV] = React.useState({ company: "", role: "", next_step: "", next_step_due: "" });
-  const m = useMutation({ mutationFn: () => api("/api/jobs", { body: { id, ...v, status: "applied", applied_on: new Date().toLocaleDateString("en-CA") } }), onSuccess: () => { qc.invalidateQueries({ queryKey: ["jobs"] }); setId(crypto.randomUUID()); setV({ company: "", role: "", next_step: "", next_step_due: "" }); setAdding(false); } });
-  if (!q.data?.configured) return null;
-  return (
-    <Panel aria-labelledby="js-title">
-      <PanelTitle action={<Button variant="ghost" size="sm" onClick={() => setAdding((a) => !a)}>{adding ? "Cancel" : "Add"}</Button>}>
-        <span id="js-title" className="flex items-center gap-1.5"><Lock className="size-4" /> Job search (only you)</span>
-      </PanelTitle>
-      {adding ? (
-        <form className="mb-3 grid grid-cols-2 gap-2" onSubmit={(e) => { e.preventDefault(); if (v.company.trim()) m.mutate(); }}>
-          <Input aria-label="Company" placeholder="Company" value={v.company} onChange={(e) => setV({ ...v, company: e.target.value })} />
-          <Input aria-label="Role" placeholder="Role" value={v.role} onChange={(e) => setV({ ...v, role: e.target.value })} />
-          <Input aria-label="Next step" placeholder="Next step" value={v.next_step} onChange={(e) => setV({ ...v, next_step: e.target.value })} />
-          <Input aria-label="Next step due" type="date" value={v.next_step_due} onChange={(e) => setV({ ...v, next_step_due: e.target.value })} />
-          <Button type="submit" size="sm" variant="primary" className="col-span-2 justify-self-start" disabled={!v.company.trim() || m.isPending}>Save</Button>
-        </form>
-      ) : null}
-      {(q.data.jobs ?? []).length === 0 ? <p className="text-sm text-text-2">No application tracked.</p> : (
-        <ul className="text-sm">{q.data.jobs.slice(0, 5).map((j) => <li key={j.id} className="flex justify-between gap-2 border-t border-hairline py-2 first:border-t-0"><span className="min-w-0 truncate"><span className="font-medium">{j.company}</span>{j.role ? ` · ${j.role}` : ""}<span className="block text-[12px] text-text-2">{j.status}{j.next_step ? ` · ${j.next_step}` : ""}</span></span><span className="num shrink-0 text-[12px] text-text-3">{j.next_step_due ? fmtDay(j.next_step_due) : ""}</span></li>)}</ul>
-      )}
-      <p className="mt-2 text-[12px] text-text-3">Stored in your private spreadsheet. Never in team metrics, exports or your co-founder&apos;s views.</p>
-    </Panel>
-  );
-}

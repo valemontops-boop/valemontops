@@ -17,10 +17,10 @@ test("scenario 4: a P0 task for Pablo appears in his day; completing it syncs to
   await expect(theo.getByText("Saved", { exact: true })).toBeVisible();
 
   await signIn(pablo, "pablo");
-  const today = pablo.getByRole("region", { name: /Today's tasks/ });
-  await expect(today.getByText("Send Spanish price sheet (e2e)")).toBeVisible();
-  await today.getByRole("checkbox", { name: "Complete Send Spanish price sheet (e2e)" }).click();
-  await expect(today.getByText("Send Spanish price sheet (e2e)")).toHaveCount(0);
+  const sales = pablo.getByRole("region", { name: "Sales" });
+  await expect(sales.getByText("Send Spanish price sheet (e2e)")).toBeVisible();
+  await sales.getByRole("checkbox", { name: "Complete Send Spanish price sheet (e2e)" }).click();
+  await expect(sales.getByText("Send Spanish price sheet (e2e)")).toHaveCount(0);
 
   await theo.goto("/tasks");
   await theo.getByRole("radio", { name: "Assigned to Pablo" }).click();
@@ -81,4 +81,25 @@ test("scenario 23: Command Center Now shows exactly five primary numbers", async
     await expect(page.getByRole("radio", { name: tab })).toHaveAttribute("aria-checked", "true");
   }
   await expect(page.getByText("Audience, latest figures")).toBeVisible();
+});
+
+test("call mode: free dialling counts refusals by tap and puts the yes in the pipeline", async ({ page }) => {
+  await signIn(page, "theo");
+  await page.goto("/call");
+  await page.getByRole("button", { name: "Start free session" }).click();
+  await page.getByRole("button", { name: /^No answer/ }).click();
+  await expect(page.getByText("No answer", { exact: true }).last()).toBeVisible();
+  await page.getByRole("button", { name: /^Not interested/ }).click();
+  await page.getByRole("button", { name: "Too expensive" }).click();
+  await expect(page.getByText("Why? (one tap)")).toHaveCount(0); // saved
+  await expect(page.getByRole("button", { name: /^Meeting booked/ })).toBeEnabled();
+  await page.keyboard.press("7"); // Meeting booked
+  await page.getByLabel("Business name").fill("Carrosserie Rapide (e2e)");
+  await page.getByRole("button", { name: /^Save · Meeting booked/ }).click();
+  await expect(page.getByText("Meeting booked: added to your pipeline")).toBeVisible();
+  await page.getByRole("button", { name: "End session" }).click();
+  await expect(page.getByRole("heading", { name: "Session summary" })).toBeVisible();
+  await expect(page.getByText("Too expensive")).toBeVisible();
+  await page.goto("/crm");
+  await expect(page.getByRole("region", { name: "Meeting booked" })).toContainText("Carrosserie Rapide (e2e)");
 });

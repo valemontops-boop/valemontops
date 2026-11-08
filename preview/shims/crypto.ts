@@ -18,3 +18,9 @@ export function createHash() {
   };
   return api;
 }
+
+export function createHmac(_alg: string, key: string) {
+  const h = createHash();
+  h.update(key);
+  return h;
+}

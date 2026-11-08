@@ -9,13 +9,21 @@ import { settingValue } from "./common";
 export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 
 /** Read path (spec 4.8): the Valemont OS folder shared with the service account; no per-user token. */
-export async function listFolder(ctx: AppContext, folderId: string | null, search: string) {
+export async function listFolder(ctx: AppContext, folderId: string | null, search: string, view: "folder" | "recent" | "search" = "folder") {
   const root = await settingValue(ctx.repo, "drive_folder_id");
-  if (!ctx.drive || !root) return { configured: false as const, root: null, folderId: null, files: [], links: [] };
+  if (!ctx.drive || !root) return { configured: false as const, root: null, folderId: null, files: [], links: [], view };
   const id = folderId || root;
-  const files = await ctx.drive.list(id, search || undefined);
+  const files = view === "recent" ? await ctx.drive.recent(30) : view === "search" && search ? await ctx.drive.search(search) : await ctx.drive.list(id, search || undefined);
   const links = (await ctx.repo.list("FilesIndex")).rows.filter((l) => !l.is_archived);
-  return { configured: true as const, root, folderId: id, files, links };
+  return { configured: true as const, root, folderId: id, files, links, view };
+}
+
+export const folderSchema = z.object({ name: z.string().trim().min(1).max(120), parent_id: z.string().max(200).nullable().default(null) });
+/** New folder: created with the founder's own drive.file grant (never the service account). */
+export async function createFolder(ctx: AppContext, founder: FounderKey, grant: string | null, input: z.infer<typeof folderSchema>) {
+  const uploader = ctx.uploaderFor(founder, grant);
+  if (!uploader) throw new ConsentRequiredError("https://www.googleapis.com/auth/drive.file", "/api/auth/google/drive");
+  return uploader.createFolder(input.name, input.parent_id || (await settingValue(ctx.repo, "drive_folder_id")));
 }
 
 export const linkSchema = z.object({ file_id: z.string().min(1).max(200), record_type: z.enum(["account", "opportunity", "task", "idea"]), record_id: z.string().uuid() });
@@ -38,6 +46,7 @@ export const uploadSchema = z.object({
   data_base64: z.string().max(Math.ceil((MAX_UPLOAD_BYTES * 4) / 3) + 8),
   record_type: z.enum(["account", "opportunity", "task", "idea"]).nullable().default(null),
   record_id: z.union([z.literal(""), z.string().uuid()]).default(""),
+  parent_id: z.string().max(200).nullable().default(null),
 });
 
 /**
@@ -49,8 +58,8 @@ export async function uploadFile(ctx: AppContext, founder: FounderKey, grant: st
   if (!uploader) throw new ConsentRequiredError("https://www.googleapis.com/auth/drive.file", "/api/auth/google/drive");
   const bytes = Uint8Array.from(Buffer.from(input.data_base64, "base64"));
   if (bytes.length > MAX_UPLOAD_BYTES) throw new RuleError("File too large (max 8 MB).");
-  const root = await settingValue(ctx.repo, "drive_folder_id");
-  const f = await uploader.upload(input.name, input.mime_type, bytes, root);
+  const parent = input.parent_id || (await settingValue(ctx.repo, "drive_folder_id"));
+  const f = await uploader.upload(input.name, input.mime_type, bytes, parent);
   if (input.record_type && input.record_id) {
     await ctx.repo.insert("FilesIndex", [{ id: childId("filelink", f.id, input.record_type, input.record_id), file_id: f.id, name: f.name, mime_type: f.mimeType, url: f.webViewLink, record_type: input.record_type, record_id: input.record_id, linked_by: founder }], { founder });
   }

@@ -56,6 +56,12 @@ export class FakeGoogleStore {
   listFiles(folderId: string, search?: string) {
     return this.files.filter((f) => f.parents.includes(folderId) && (!search || f.name.toLowerCase().includes(search.toLowerCase())));
   }
+  searchFiles(q: string) {
+    return this.files.filter((f) => f.name.toLowerCase().includes(q.toLowerCase())).sort((a, b) => b.modifiedTime.localeCompare(a.modifiedTime));
+  }
+  recentFiles(limit: number) {
+    return this.files.filter((f) => f.mimeType !== "application/vnd.google-apps.folder").sort((a, b) => b.modifiedTime.localeCompare(a.modifiedTime)).slice(0, limit);
+  }
 }
 
 export class MemoryCalendar implements CalendarPort {
@@ -82,11 +88,21 @@ export class MemoryDrive implements DrivePort {
   async get(id: string) {
     return structuredClone(this.s.files.find((f) => f.id === id) ?? null);
   }
+  async search(q: string) {
+    return structuredClone(this.s.searchFiles(q));
+  }
+  async recent(limit: number) {
+    return structuredClone(this.s.recentFiles(limit));
+  }
 }
 export class MemoryDriveUploader implements DriveUploader {
   constructor(private readonly s: FakeGoogleStore, private readonly founder: string) {}
   async upload(name: string, mimeType: string, _bytes: Uint8Array, parentId: string | null) {
     this.s.writes.push({ kind: "drive.upload", by: this.founder });
     return this.s.addFile({ id: `upl-${crypto.randomUUID()}`, name, mimeType, parents: parentId ? [parentId] : [] }, this.founder);
+  }
+  async createFolder(name: string, parentId: string | null) {
+    this.s.writes.push({ kind: "drive.folder", by: this.founder });
+    return this.s.addFile({ id: `fld-${crypto.randomUUID()}`, name, mimeType: "application/vnd.google-apps.folder", parents: parentId ? [parentId] : [] }, this.founder);
   }
 }

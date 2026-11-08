@@ -7,27 +7,100 @@ import { ErrorState, Field, Input, Panel, PanelTitle, SegmentedSwitch, Skeleton,
 import { FOUNDERS, FOUNDER_NAMES, METRICS, METRIC_LABELS } from "@/domain/constants";
 import { addDays } from "@/domain/time";
 import { api } from "@/lib/api";
-import type { scorecard, weeklyReview } from "@/server/services/insights";
+import type { weeklyReview } from "@/server/services/insights";
 import type { streakSummary } from "@/server/services/results";
 import { DayDots } from "./bits";
-import { useMe } from "./providers";
+import { Bars, Kpi } from "./charts";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { OBJECTION_LABELS } from "@/domain/constants";
+import type { reportsDashboard as dashboard } from "@/server/services/dashboard";
 
 type Weekly = Awaited<ReturnType<typeof weeklyReview>>;
-type Score = Awaited<ReturnType<typeof scorecard>>;
 type Streaks = Awaited<ReturnType<typeof streakSummary>>;
-type Tab = "weekly" | "scorecard" | "consistency";
+type Tab = "dashboard" | "weekly";
+type Dash = Awaited<ReturnType<typeof dashboard>>;
 
 export function ReportsView() {
-  const [tab, setTab] = React.useState<Tab>("weekly");
+  const [tab, setTab] = React.useState<Tab>("dashboard");
   const [week, setWeek] = React.useState<string | undefined>(undefined);
   return (
-    <div className="flex max-w-5xl flex-col gap-5">
+    <div className="flex max-w-6xl flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold tracking-tight">Reports</h1>
-        <SegmentedSwitch label="Report" value={tab} onChange={setTab} options={[{ value: "weekly", label: "Weekly review" }, { value: "scorecard", label: "Scorecard" }, { value: "consistency", label: "Consistency" }]} />
+        <SegmentedSwitch label="Report" value={tab} onChange={setTab} options={[{ value: "dashboard", label: "Dashboard" }, { value: "weekly", label: "Weekly review" }]} />
       </div>
-      {tab === "weekly" ? <WeeklyReview week={week} setWeek={setWeek} /> : tab === "scorecard" ? <Scorecard week={week} setWeek={setWeek} /> : <Consistency />}
+      {tab === "dashboard" ? <Dashboard /> : <WeeklyReview week={week} setWeek={setWeek} />}
     </div>
+  );
+}
+
+const pctTxt = (n: number | null) => (n === null ? "—" : `${Math.round(n * 100)}%`);
+
+function Dashboard() {
+  const [days, setDays] = React.useState<"7" | "30" | "90">("30");
+  const [scope, setScope] = React.useState<"team" | "me">("team");
+  const q = useQuery({ queryKey: ["dashboard", days, scope], queryFn: () => api<Dash>(`/api/reports/dashboard?days=${days}&scope=${scope}`) });
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        <SegmentedSwitch size="sm" label="Period" value={days} onChange={setDays} options={[{ value: "7", label: "7 days" }, { value: "30", label: "30 days" }, { value: "90", label: "90 days" }]} />
+        <SegmentedSwitch size="sm" label="Scope" value={scope} onChange={setScope} options={[{ value: "team", label: "Team" }, { value: "me", label: "Me" }]} />
+        {q.data ? <span className="text-[13px] text-text-3">{q.data.from} → {q.data.to} · changes vs the previous {days} days</span> : null}
+        <Button asChild size="sm" variant="ghost" className="ml-auto"><a href="/api/reports/scorecard?format=csv">Export week (CSV)</a></Button>
+      </div>
+      {q.isPending ? <Skeleton className="h-[480px]" /> : q.isError ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : <DashboardBody d={q.data} />}
+      <Consistency />
+    </>
+  );
+}
+
+function DashboardBody({ d }: { d: Dash }) {
+  const k = d.kpis;
+  const best = d.byHour.filter((h) => h.dials >= 3).sort((a, b) => (b.pickupRate ?? 0) - (a.pickupRate ?? 0))[0];
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <Kpi label="Dials" value={String(k.dials.value ?? 0)} delta={k.dials.delta} note={`${k.newBusinesses.value ?? 0} new businesses`} />
+        <Kpi label="Pick-up rate" value={pctTxt(k.pickupRate.value)} delta={k.pickupRate.delta} note="picked up / dials" />
+        <Kpi label="Yes rate" value={pctTxt(k.yesRate.value)} delta={k.yesRate.delta} note={`${k.yes.value ?? 0} yes / picked up`} />
+        <Kpi label="Meetings booked" value={String(k.meetings.value ?? 0)} delta={k.meetings.delta} dark />
+        <Kpi label="Deals won" value={String(k.won.value ?? 0)} delta={k.won.delta} note={`${k.content.value ?? 0} content published`} />
+      </div>
+      <Panel>
+        <PanelTitle>Dials and yes per day</PanelTitle>
+        <div className="h-56" role="img" aria-label="Dials and yes per day">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={d.daily} margin={{ top: 4, right: 8, bottom: 0, left: -12 }} barGap={-14}>
+              <CartesianGrid stroke="var(--hairline)" vertical={false} />
+              <XAxis dataKey="date" tickFormatter={(x: string) => x.slice(8)} stroke="var(--text-3)" fontSize={11} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={10} />
+              <YAxis stroke="var(--text-3)" fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
+              <Tooltip cursor={{ fill: "var(--subtle)" }} contentStyle={{ borderRadius: 12, border: "none", background: "var(--ink)", color: "var(--panel)", fontSize: 12 }} labelFormatter={(x) => String(x)} />
+              <Bar dataKey="dials" name="Dials" fill="var(--control-border)" radius={[4, 4, 0, 0]} barSize={14} isAnimationActive={false} />
+              <Bar dataKey="yes" name="Yes" fill="var(--ink)" radius={[4, 4, 0, 0]} barSize={14} isAnimationActive={false} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <p className="mt-1 flex gap-4 text-[12px] text-text-3"><span className="flex items-center gap-1"><span className="size-2.5 rounded-sm bg-control" />Dials</span><span className="flex items-center gap-1"><span className="size-2.5 rounded-sm bg-ink" />Yes</span></p>
+      </Panel>
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <Panel><PanelTitle>Funnel</PanelTitle><Bars data={d.funnel} showShare /></Panel>
+        <Panel><PanelTitle>Why people say no</PanelTitle>{d.objections.length ? <Bars data={d.objections.map((o) => ({ label: OBJECTION_LABELS[o.key as keyof typeof OBJECTION_LABELS] ?? o.key, value: o.count }))} /> : <p className="text-sm text-text-2">No objection recorded in this period.</p>}</Panel>
+        <Panel>
+          <PanelTitle>Best hours to call</PanelTitle>
+          {d.byHour.length ? <Bars data={d.byHour.map((h) => ({ label: `${h.hour}:00`, value: Math.round((h.pickupRate ?? 0) * 100), sub: `${h.pickedUp}/${h.dials} picked up` }))} max={100} /> : <p className="text-sm text-text-2">No calls yet.</p>}
+          {best ? <p className="mt-3 text-[13px] text-text-2">Most pick-ups around <span className="font-semibold text-ink">{best.hour}:00</span> ({pctTxt(best.pickupRate)}). Bars show the pick-up rate in %.</p> : null}
+        </Panel>
+        <Panel><PanelTitle>Outreach by channel</PanelTitle><Bars data={d.channels.filter((c) => c.count > 0).map((c) => ({ label: METRIC_LABELS[c.metric], value: c.count }))} /></Panel>
+        <Panel>
+          <PanelTitle>By country</PanelTitle>
+          {d.byMarket.length ? <Bars data={d.byMarket.map((m) => ({ label: m.key, value: m.dials, hatched: undefined, sub: `${pctTxt(m.picked && m.dials ? m.picked / m.dials : null)} pick-up · ${pctTxt(m.yesRate)} yes` }))} /> : <p className="text-sm text-text-2">No calls yet.</p>}
+        </Panel>
+        <Panel>
+          <PanelTitle>By trade</PanelTitle>
+          {d.byNiche.length ? <Bars data={d.byNiche.map((m) => ({ label: m.key, value: m.dials, sub: `${pctTxt(m.yesRate)} yes when reached` }))} /> : <p className="text-sm text-text-2">No calls yet.</p>}
+        </Panel>
+      </div>
+    </>
   );
 }
 
@@ -89,39 +162,7 @@ function WeeklyForm({ d }: { d: Weekly }) {
   );
 }
 
-function Scorecard({ week, setWeek }: { week?: string; setWeek: (w: string) => void }) {
-  const q = useQuery({ queryKey: ["scorecard", week], queryFn: () => api<Score>(`/api/reports/scorecard${week ? `?week=${week}` : ""}`) });
-  if (q.isPending) return <Skeleton className="h-72" />;
-  if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
-  const d = q.data;
-  const rate = (r: { num: number; den: number; pct: number | null }) => (r.pct === null ? <span className="text-text-3">{r.num}/{r.den} · not enough data</span> : <>{Math.round(r.pct * 100)}% <span className="text-text-3">({r.num}/{r.den})</span></>);
-  return (
-    <>
-      <div className="flex flex-wrap items-center justify-between gap-2"><WeekPicker start={d.weekStart} setWeek={setWeek} /><Button asChild size="sm" variant="outline"><a href={`/api/reports/scorecard?format=csv${week ? `&week=${week}` : ""}`}>Download CSV</a></Button></div>
-      <Panel className="overflow-x-auto">
-        <PanelTitle>Outreach by channel</PanelTitle>
-        <table className="w-full min-w-[460px] text-sm">
-          <thead><tr className="text-left text-[12px] text-text-3"><th className="py-1.5 font-medium">Channel</th>{d.rows.map((r) => <th key={r.founder} className="text-right font-medium">{FOUNDER_NAMES[r.founder]}</th>)}</tr></thead>
-          <tbody>{d.rows[0].byChannel.map((c, i) => <tr key={c.channel} className="border-t border-hairline"><td className="py-1.5">{c.label}</td>{d.rows.map((r) => <td key={r.founder} className="num text-right">{r.byChannel[i].count}</td>)}</tr>)}</tbody>
-        </table>
-      </Panel>
-      <Panel className="overflow-x-auto">
-        <PanelTitle>Conversion (rates shown from {d.minSample} attempts)</PanelTitle>
-        <table className="w-full min-w-[460px] text-sm">
-          <thead><tr className="text-left text-[12px] text-text-3"><th className="py-1.5 font-medium">Step</th>{d.rows.map((r) => <th key={r.founder} className="text-right font-medium">{FOUNDER_NAMES[r.founder]}</th>)}</tr></thead>
-          <tbody>
-            {([["conversationsPerAttempt", "Conversations per attempt"], ["demosPerConversation", "Demos per conversation"], ["meetingsPerConversation", "Meetings per conversation"], ["salesPerProposal", "Sales per proposal"]] as const).map(([k, l]) => (
-              <tr key={k} className="border-t border-hairline"><td className="py-1.5">{l}</td>{d.rows.map((r) => <td key={r.founder} className="num text-right">{rate(r.conversion[k])}</td>)}</tr>
-            ))}
-          </tbody>
-        </table>
-      </Panel>
-    </>
-  );
-}
-
 function Consistency() {
-  const me = useMe();
   const q = useQuery({ queryKey: ["streaks"], queryFn: () => api<Streaks>("/api/streaks") });
   if (q.isPending) return <Skeleton className="h-40" />;
   if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
@@ -129,7 +170,7 @@ function Consistency() {
   const p = (c: { pct: number | null; passed: number; scheduled: number }) => (c.pct === null ? "no scheduled day" : `${Math.round(c.pct * 100)}% (${c.passed}/${c.scheduled})`);
   return (
     <Panel>
-      <PanelTitle>{FOUNDER_NAMES[me.founder]}: last 30 days</PanelTitle>
+      <PanelTitle>Your consistency, last 30 days</PanelTitle>
       <DayDots days={d.days} label="Daily results, last 30 days" />
       <p className="mt-4 text-sm"><span className="num font-semibold">{d.streak}</span> day streak · 7 days {p(d.c7)} · 30 days {p(d.c30)}</p>
       <p className="mt-1 text-[12px] text-text-3">Only your own days are shown. There is no founder-versus-founder ranking.</p>

@@ -22,20 +22,26 @@ describe("pipeline hygiene", () => {
   });
 });
 
-import { groupOf, nextGroup, stageForGroup, PIPELINE_GROUPS } from "./pipeline";
+import { groupOf, leadStatus, nextGroup, stageForGroup, PIPELINE_GROUPS } from "./pipeline";
 import { STAGES } from "./constants";
 
-describe("simple board groups", () => {
-  it("covers every open stage plus won exactly once; lost stays off the board", () => {
+describe("yes-only pipeline", () => {
+  it("covers every stage after first contact exactly once; targeted/contacted/lost stay off the board", () => {
     const all = PIPELINE_GROUPS.flatMap((g) => g.stages);
     expect(new Set(all).size).toBe(all.length);
-    expect(STAGES.filter((s) => !all.includes(s))).toEqual(["lost"]);
+    expect(STAGES.filter((s) => !all.includes(s))).toEqual(["targeted", "contacted", "lost"]);
   });
   it("moves to the column entry stage, keeps a stage already in the column", () => {
-    expect(stageForGroup("contacted", "talking")).toBe("replied");
-    expect(stageForGroup("qualified", "talking")).toBe("qualified");
-    expect(groupOf("negotiation")).toBe("demo");
-    expect(nextGroup("targeted")).toBe("contacted");
+    expect(stageForGroup("replied", "meeting")).toBe("discovery_scheduled");
+    expect(stageForGroup("demo_shown", "met")).toBe("demo_shown");
+    expect(groupOf("negotiation")).toBe("proposal");
+    expect(nextGroup("replied")).toBe("meeting");
     expect(nextGroup("won")).toBeNull();
+  });
+  it("derives a one-word status per business", () => {
+    expect(leadStatus({ blocked: false, stage: null, lastOutcome: null, called: false })).toBe("not_called");
+    expect(leadStatus({ blocked: false, stage: "contacted", lastOutcome: "not_interested", called: true })).toBe("refused");
+    expect(leadStatus({ blocked: false, stage: "replied", lastOutcome: "interested", called: true })).toBe("yes");
+    expect(leadStatus({ blocked: true, stage: "replied", lastOutcome: null, called: true })).toBe("opted_out");
   });
 });

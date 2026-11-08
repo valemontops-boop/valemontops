@@ -6,6 +6,7 @@ import { childId, newId } from "@/lib/ids";
 import { BRANDS, MARKETS, type FounderKey } from "@/domain/constants";
 import { AUDIENCE_METRICS, bestPerDay, mapSheet, mergeSheets, primaryMetricFor, seriesWithGaps, type AudienceMetric } from "@/domain/audience";
 import { addDays, localDate } from "@/domain/time";
+import { mapLocationSheet } from "@/domain/marketing";
 import { ForbiddenError, RuleError } from "../errors";
 import type { AppContext } from "../context";
 
@@ -91,7 +92,8 @@ export async function importLinkedIn(ctx: AppContext, founder: FounderKey, input
   if (a.platform === "instagram") throw new RuleError("Instagram data comes from the API or manual entry, not a LinkedIn export.");
   const grids = await readWorkbook(Uint8Array.from(Buffer.from(input.data_base64, "base64")));
   const sheets = grids.map(mapSheet).filter((s): s is NonNullable<typeof s> => s !== null);
-  if (!sheets.length) throw new RuleError("No sheet with a Date column was found in this file.");
+  const locations = grids.map(mapLocationSheet).filter((s): s is NonNullable<typeof s> => s !== null && s.length > 0);
+  if (!sheets.length && !locations.length) throw new RuleError("No sheet with a Date or Location column was found in this file.");
   const days = mergeSheets(sheets);
   const existing = new Set((await ctx.repo.list("SocialAccountDaily", { fresh: true })).rows.map((r) => r.id));
   const rows = days.map((d) => ({
@@ -101,12 +103,19 @@ export async function importLinkedIn(ctx: AppContext, founder: FounderKey, input
     source: "import" as const, captured_at: new Date().toISOString(), import_file: input.file_name,
   }));
   const fresh = rows.filter((r) => !existing.has(r.id));
+  const today = new Date().toISOString().slice(0, 10);
+  const breakdown = locations.flat().map((l) => ({ id: childId("breakdown", a.id, today, l.key, "import"), account_id: a.id, date: today, dimension: "country" as const, key: l.key, value: l.value, unit: "count" as const, source: "import" as const }));
   const preview = {
     mapped: Object.assign({}, ...sheets.map((s) => s.mapped)) as Record<string, string>,
     unrecognized: [...new Set(sheets.flatMap((s) => s.unrecognized))],
-    days: days.length, newRows: fresh.length, alreadyImported: rows.length - fresh.length,
+    days: days.length, newRows: fresh.length, alreadyImported: rows.length - fresh.length, countries: breakdown.length,
     range: days.length ? { from: days[0].date, to: days[days.length - 1].date } : null,
   };
+  if (input.commit && breakdown.length) {
+    const have = new Set((await ctx.repo.list("AudienceBreakdown", { fresh: true })).rows.map((r) => r.id));
+    const nb = breakdown.filter((b) => !have.has(b.id));
+    if (nb.length) await ctx.repo.insert("AudienceBreakdown", nb, { founder });
+  }
   if (input.commit && fresh.length) {
     await ctx.repo.insert("SocialAccountDaily", fresh, { founder });
     await ctx.repo.insert("AuditLog", [{ id: newId(), actor: founder, action: "audience.import", table_name: "SocialAccountDaily", record_id: a.id, fields: `rows:${fresh.length}`, correlation_id: "" }], { founder });

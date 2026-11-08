@@ -24,6 +24,7 @@ export const taskInput = z.object({
   opportunity_id: z.union([z.literal(""), z.string().uuid()]).default(""),
   dependency_ids: z.array(z.string().uuid()).max(20).default([]),
   private: z.boolean().default(false),
+  area: z.enum(["sales", "marketing", "ops"]).optional(),
 });
 export const createTaskSchema = z.object({ id: z.string().uuid(), task: taskInput, source: z.enum(["manual", "founder_point", "idea"]).default("manual"), source_id: z.string().max(40).default("") });
 
@@ -32,7 +33,7 @@ function toNew(id: string, founder: FounderKey, t: z.infer<typeof taskInput>, so
     id, title: t.title, description: t.description, owner: t.private ? founder : t.owner, created_by_founder: founder, account_id: t.account_id,
     opportunity_id: t.opportunity_id, project_id: "", client_id: "", priority: t.priority, status: "todo", estimated_minutes: t.estimated_minutes,
     due_at: t.due_at || null, recurrence: t.recurrence, recurrence_parent_id: "", dependency_ids: t.dependency_ids, completion_evidence: "",
-    completed_at: null, visibility: t.private ? "private" : "team", snoozed_until: null, snooze_reason: "", source: source as never, source_id: sourceId,
+    completed_at: null, visibility: t.private ? "private" : "team", snoozed_until: null, snooze_reason: "", area: t.area ?? "sales", source: source as never, source_id: sourceId,
   };
 }
 

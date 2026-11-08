@@ -6,13 +6,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { ErrorState, Field, Input, Panel, SegmentedSwitch, Select, Skeleton, Textarea } from "@/components/ui/form";
+import { EmptyState, ErrorState, Field, Input, Panel, SegmentedSwitch, Select, Skeleton, Textarea } from "@/components/ui/form";
 import { DetailPanel, Modal } from "@/components/ui/overlay";
 import {
   ACTIVITY_LABELS, BRANDS, BRAND_LABELS, CONTACT_TYPES, CONTACT_TYPE_LABELS, FOUNDERS, FOUNDER_NAMES, MARKETS, OUTCOME_LABELS, STAGES,
   STAGE_EXIT_CRITERIA, STAGE_LABELS, type Stage,
 } from "@/domain/constants";
-import { hygieneFlags, isOpen, nextGroup, PIPELINE_GROUPS, stageForGroup } from "@/domain/pipeline";
+import { isOpen, leadStatus, nextGroup, PIPELINE_GROUPS, PRE_PIPELINE, stageForGroup, type LeadStatus } from "@/domain/pipeline";
 import { addDays } from "@/domain/time";
 import { useMe } from "./providers";
 import { RecordFiles } from "./files-view";
@@ -34,7 +34,7 @@ export function CrmView() {
   const me = useMe();
   const params = useSearchParams();
   const router = useRouter();
-  const [view, setView] = React.useState<"board" | "list">("board");
+  const [tab, setTab] = React.useState<"pipeline" | "lists" | "contacts">("pipeline");
   const [scope, setScope] = React.useState<"mine" | "all">("all");
   const [search, setSearch] = React.useState("");
   const [showLost, setShowLost] = React.useState(false);
@@ -42,62 +42,77 @@ export function CrmView() {
   const selected = params.get("account");
   const select = (id: string | null) => router.replace(id ? `/crm?account=${id}` : "/crm", { scroll: false });
 
-  if (crm.isPending) return <div className="flex flex-col gap-4"><Skeleton className="h-20" /><Skeleton className="h-96" /></div>;
+  if (crm.isPending) return <div className="flex flex-col gap-4"><Skeleton className="h-28" /><Skeleton className="h-96" /></div>;
   if (crm.isError) return <ErrorState error={crm.error} onRetry={() => crm.refetch()} />;
   const data = crm.data;
   const today = new Date().toLocaleDateString("en-CA");
   const acc = new Map(data.accounts.map((a) => [a.id, a]));
   const s = search.trim().toLowerCase();
-  const opps = data.opportunities.filter((o) =>
-    (scope === "all" || o.owner_founder === me.founder) &&
-    (!s || o.name.toLowerCase().includes(s) || (acc.get(o.account_id)?.name ?? "").toLowerCase().includes(s) || (acc.get(o.account_id)?.phone ?? "").includes(s)));
-  const open = data.opportunities.filter(isOpen);
-  const missing = open.filter((o) => hygieneFlags(o, today).length > 0).length;
+  const match = (a?: CrmAccount, name = "") => !s || name.toLowerCase().includes(s) || (a?.name ?? "").toLowerCase().includes(s) || (a?.phone ?? "").replace(/\s/g, "").includes(s.replace(/\s/g, ""));
+  const opps = data.opportunities.filter((o) => (scope === "all" || o.owner_founder === me.founder) && match(acc.get(o.account_id), o.name));
 
   return (
     <div className="flex gap-6">
       <div className="flex min-w-0 flex-1 flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Sales CRM</h1>
-            <p className="text-sm text-text-2">
-              <span className="num">{open.length}</span> open deals
-              {missing ? <> · <span className="text-bad"><span className="num">{missing}</span> need a dated next step</span></> : " · every deal has a next step"}
-            </p>
+          <h1 className="text-2xl font-semibold tracking-tight">Sales CRM</h1>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setCreating(true)}><Plus /> Add a yes</Button>
+            <Button asChild variant="primary"><Link href="/call"><Phone /> Start calling</Link></Button>
           </div>
-          <Button variant="primary" onClick={() => setCreating(true)}><Plus /> New business</Button>
         </div>
-
+        <FunnelStrip m={data.month} />
         <div className="flex flex-wrap items-center gap-2">
-          <Input aria-label="Search" placeholder="Search business or phone" value={search} onChange={(e) => setSearch(e.target.value)} className="h-9 w-56" />
-          <SegmentedSwitch size="sm" label="Whose deals" value={scope} onChange={setScope} options={[{ value: "all", label: "Everyone" }, { value: "mine", label: "Mine" }]} />
-          <SegmentedSwitch size="sm" label="View" value={view} onChange={setView} options={[{ value: "board", label: "Board" }, { value: "list", label: "List" }]} />
+          <SegmentedSwitch label="View" value={tab} onChange={setTab} options={[{ value: "pipeline", label: "Pipeline" }, { value: "lists", label: "Call lists" }, { value: "contacts", label: "All businesses" }]} />
+          {tab !== "lists" ? <>
+            <Input aria-label="Search" placeholder="Search name or phone" value={search} onChange={(e) => setSearch(e.target.value)} className="h-9 w-52" />
+            <SegmentedSwitch size="sm" label="Whose" value={scope} onChange={setScope} options={[{ value: "all", label: "Everyone" }, { value: "mine", label: "Mine" }]} />
+          </> : null}
           <div className="ml-auto flex gap-1">
-            <Button asChild variant="ghost" size="sm"><Link href="/crm/import"><Upload /> Import</Link></Button>
+            <Button asChild variant="ghost" size="sm"><Link href="/crm/import"><Upload /> Import list</Link></Button>
             <Button asChild variant="ghost" size="sm"><a href="/api/crm/export"><Download /> Export</a></Button>
           </div>
         </div>
-
-        {view === "board" ? (
+        {tab === "pipeline" ? (
           <Board opps={opps} accounts={acc} today={today} selected={selected} onSelect={select} showLost={showLost} onToggleLost={() => setShowLost((v) => !v)} />
-        ) : (
-          <ListView data={data} opps={opps} acc={acc} today={today} selected={selected} onSelect={select} />
+        ) : tab === "lists" ? <CallListsTab /> : (
+          <ContactsTab accounts={data.accounts.filter((a) => (scope === "all" || !a.owner_founder || a.owner_founder === me.founder) && match(a))} opps={data.opportunities} selected={selected} onSelect={select} />
         )}
         {data.warnings.length ? <p className="text-[13px] text-text-2">{data.warnings.length} data-integrity warning(s) in the Sheet. See Settings › Diagnostics.</p> : null}
       </div>
-
       {selected && acc.get(selected) ? <AccountPanel key={selected} account={acc.get(selected)!} data={data} onClose={() => select(null)} /> : null}
       <NewBusinessModal open={creating} onOpenChange={setCreating} onCreated={(id) => { setCreating(false); select(id); }} />
     </div>
   );
 }
 
+/** This month, team: the conversion path from a dial to a won deal, with the rate between each step. */
+function FunnelStrip({ m }: { m: Crm["month"] }) {
+  const steps = [["Dials", m.dials], ["Picked up", m.pickedUp], ["Said yes", m.yes], ["Meetings", m.meetings], ["Won", m.won]] as const;
+  return (
+    <section aria-label="This month's funnel" className="grid grid-cols-5 overflow-hidden rounded-[20px] bg-panel">
+      {steps.map(([label, v], i) => {
+        const prev = i > 0 ? steps[i - 1][1] : null;
+        const rate = prev ? Math.round((v / prev) * 100) : null;
+        return (
+          <div key={label} className={cn("flex flex-col gap-0.5 px-3 py-3 sm:px-5", i > 0 && "border-l border-hairline", i === 4 && "bg-ink text-panel")}>
+            <span className={cn("text-[12px]", i === 4 ? "text-panel/80" : "text-text-2")}>{label}</span>
+            <span className="num text-[26px] font-semibold leading-none sm:text-[32px]">{v}</span>
+            <span className={cn("num text-[11px]", i === 4 ? "text-panel/75" : "text-text-3")}>{i === 0 ? "this month" : rate === null ? "—" : `${rate}% of previous`}</span>
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
 function dueLabel(due: string | null, today: string): { text: string; tone: "bad" | "normal" | "muted" } {
   if (!due) return { text: "No date", tone: "bad" };
-  if (due < today) return { text: `Overdue · ${shortDate(due)}`, tone: "bad" };
+  if (due < today) return { text: `Late · ${shortDate(due)}`, tone: "bad" };
   if (due === today) return { text: "Today", tone: "normal" };
   return { text: shortDate(due), tone: "muted" };
 }
+const daysSince = (iso: string | null) => (iso ? Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 86_400_000)) : null);
 
 function Board({ opps, accounts, today, selected, onSelect, showLost, onToggleLost }: { opps: CrmOpp[]; accounts: Map<string, CrmAccount>; today: string; selected: string | null; onSelect: (id: string) => void; showLost: boolean; onToggleLost: () => void }) {
   const qc = useQueryClient();
@@ -117,26 +132,36 @@ function Board({ opps, accounts, today, selected, onSelect, showLost, onToggleLo
     if (to !== opp.stage) move.mutate({ opp, to });
   };
   const sorted = [...opps].sort((a, b) => (a.next_action_due ?? "0000").localeCompare(b.next_action_due ?? "0000"));
-  const columns = [...PIPELINE_GROUPS.map((g) => ({ key: g.key, label: g.label, items: sorted.filter((o) => !o.is_archived && g.stages.includes(o.stage)) }))];
+  const columns = PIPELINE_GROUPS.map((g) => ({ ...g, items: sorted.filter((o) => g.stages.includes(o.stage)) }));
   const lost = sorted.filter((o) => o.stage === "lost");
+  const notYet = sorted.filter((o) => PRE_PIPELINE.includes(o.stage)).length;
   return (
     <>
       <div className="-mx-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0">
         <div className="grid min-w-[1000px] grid-cols-5 gap-3">
-          {columns.map((c) => (
-            <section key={c.key} aria-label={c.label}
-              onDragOver={(e) => { e.preventDefault(); setDragOver(c.key); }} onDragLeave={() => setDragOver((k) => (k === c.key ? null : k))}
-              onDrop={(e) => { e.preventDefault(); setDragOver(null); const id = e.dataTransfer.getData("text/plain"); const o = opps.find((x) => x.id === id); if (o) moveTo(o, c.key); }}
-              className={cn("flex min-h-40 flex-col gap-2 rounded-[20px] bg-subtle/60 p-2 transition-colors", dragOver === c.key && "bg-subtle")}>
-              <h2 className="flex items-baseline justify-between px-2 pt-1 text-[13px] font-semibold">{c.label}<span className="num font-normal text-text-3">{c.items.length}</span></h2>
-              {c.items.map((o) => <DealCard key={o.id} opp={o} account={accounts.get(o.account_id)} today={today} active={selected === o.account_id} onOpen={() => onSelect(o.account_id)}
-                onAdvance={nextGroup(o.stage) ? () => moveTo(o, nextGroup(o.stage)!) : undefined} busy={move.isPending && move.variables?.opp.id === o.id} />)}
-              {c.items.length === 0 ? <p className="px-2 py-3 text-[13px] text-text-3">{c.key === "to_contact" ? "Add or import businesses to start." : "Drag a card here."}</p> : null}
-            </section>
-          ))}
+          {columns.map((c) => {
+            const value = c.items.reduce((s, o) => s + (o.value_minor ?? 0), 0);
+            return (
+              <section key={c.key} aria-label={c.label}
+                onDragOver={(e) => { e.preventDefault(); setDragOver(c.key); }} onDragLeave={() => setDragOver((k) => (k === c.key ? null : k))}
+                onDrop={(e) => { e.preventDefault(); setDragOver(null); const id = e.dataTransfer.getData("text/plain"); const o = opps.find((x) => x.id === id); if (o) moveTo(o, c.key); }}
+                className={cn("flex min-h-48 flex-col gap-2 rounded-[20px] bg-subtle/60 p-2 transition-colors", dragOver === c.key && "bg-subtle", c.key === "won" && "bg-ink/[0.06]")}>
+                <header className="px-2 pt-1">
+                  <h2 className="flex items-baseline justify-between text-[13px] font-semibold">{c.label}<span className="num text-[20px] font-semibold">{c.items.length}</span></h2>
+                  <p className="num text-[11px] text-text-3">{value ? formatEur(value) : "no value yet"}</p>
+                </header>
+                {c.items.map((o) => <DealCard key={o.id} opp={o} account={accounts.get(o.account_id)} today={today} active={selected === o.account_id} onOpen={() => onSelect(o.account_id)}
+                  onAdvance={nextGroup(o.stage) ? () => moveTo(o, nextGroup(o.stage)!) : undefined} busy={move.isPending && move.variables?.opp.id === o.id} />)}
+                {c.items.length === 0 ? <p className="px-2 py-3 text-[12px] text-text-3">{c.key === "talk" ? "Yes from calls land here." : "Drag a card here."}</p> : null}
+              </section>
+            );
+          })}
         </div>
       </div>
-      <button type="button" onClick={onToggleLost} className="self-start text-[13px] text-text-2 underline underline-offset-2">{showLost ? "Hide" : "Show"} lost deals ({lost.length})</button>
+      <div className="flex flex-wrap gap-4 text-[13px] text-text-2">
+        <button type="button" onClick={onToggleLost} className="underline underline-offset-2">{showLost ? "Hide" : "Show"} lost ({lost.length})</button>
+        {notYet ? <span>{notYet} older lead(s) not yet qualified: see All businesses.</span> : null}
+      </div>
       {showLost && lost.length ? (
         <ul className="flex flex-wrap gap-2">{lost.map((o) => <li key={o.id}><button type="button" onClick={() => onSelect(o.account_id)} className="rounded-full border border-hairline px-3 py-1 text-[13px] text-text-2 hover:bg-subtle">{accounts.get(o.account_id)?.name ?? o.name}{o.lost_reason ? ` · ${o.lost_reason}` : ""}</button></li>)}</ul>
       ) : null}
@@ -148,18 +173,23 @@ function Board({ opps, accounts, today, selected, onSelect, showLost, onToggleLo
 function DealCard({ opp, account, today, active, onOpen, onAdvance, busy }: { opp: CrmOpp; account?: CrmAccount; today: string; active: boolean; onOpen: () => void; onAdvance?: () => void; busy: boolean }) {
   const qa = useQuickAction();
   const due = dueLabel(opp.next_action_due, today);
+  const idle = daysSince(opp.last_touch_at);
+  const inStage = daysSince(opp.stage_since);
   return (
     <article draggable onDragStart={(e) => e.dataTransfer.setData("text/plain", opp.id)}
-      className={cn("flex cursor-grab flex-col gap-2 rounded-[12px] border bg-panel p-3 active:cursor-grabbing", active ? "border-ink" : "border-hairline hover:border-control", busy && "opacity-60")}>
+      className={cn("flex cursor-grab flex-col gap-2 rounded-[12px] border bg-panel p-3 active:cursor-grabbing", active ? "border-ink" : "border-hairline hover:border-control", busy && "opacity-60", due.tone === "bad" && "border-l-0 shadow-[inset_3px_0_0_var(--bad)]")}>
       <button type="button" onClick={onOpen} className="text-left">
-        <p className="font-medium leading-snug">{account?.name ?? opp.name}</p>
+        <p className="font-semibold leading-snug">{account?.name ?? opp.name}</p>
         <p className={cn("mt-0.5 text-[13px] leading-snug", opp.next_action ? "text-text-2" : "text-bad")}>{opp.next_action || "Add a next step"}</p>
       </button>
-      <div className="flex items-center justify-between gap-2 text-[12px]">
-        <span className={cn("num", due.tone === "bad" ? "font-medium text-bad" : due.tone === "normal" ? "font-medium text-ink" : "text-text-3")}>{due.text}</span>
-        <span className="text-text-3">{opp.owner_founder ? FOUNDER_NAMES[opp.owner_founder] : "Unassigned"}{opp.value_minor ? ` · ${formatEur(opp.value_minor)}` : ""}</span>
+      <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+        <span className={cn("num rounded-full px-2 py-0.5 font-medium", due.tone === "bad" ? "bg-[#fbeceb] text-bad" : due.tone === "normal" ? "bg-ink text-panel" : "bg-subtle text-text-2")}>{due.text}</span>
+        {inStage !== null ? <span className="num text-text-3">{inStage}d here</span> : null}
+        {idle !== null && idle >= 7 ? <span className="num text-text-3">· no touch {idle}d</span> : null}
+        <span className="ml-auto text-text-3">{opp.owner_founder ? FOUNDER_NAMES[opp.owner_founder] : "—"}{opp.value_minor ? ` · ${formatEur(opp.value_minor)}` : ""}</span>
       </div>
       <div className="flex gap-1.5">
+        {account?.phone ? <a href={`tel:${account.phone}`} aria-label={`Call ${account.name}`} className="flex h-8 w-9 items-center justify-center rounded-full border border-control hover:bg-subtle"><Phone className="size-3.5" /></a> : null}
         <button type="button" disabled={Boolean(account?.blocked_reason)} onClick={() => qa.open({ accountId: opp.account_id, opportunityId: opp.id })}
           className="h-8 flex-1 rounded-full border border-control text-[13px] font-medium hover:bg-subtle disabled:opacity-40" title={account?.blocked_reason ?? undefined}>Log</button>
         {onAdvance ? <button type="button" onClick={onAdvance} aria-label={`Move ${account?.name ?? opp.name} to the next column`} className="h-8 rounded-full border border-control px-3 text-[13px] font-medium hover:bg-subtle">→</button> : null}
@@ -177,7 +207,7 @@ function QualifyModal({ opp, to, onClose }: { opp: CrmOpp; to: Stage; onClose: (
   });
   const labels = { anum_authority: "Who decides?", anum_need: "What do they need?", anum_urgency: "Why now?", anum_money: "Budget" } as const;
   return (
-    <Modal open onOpenChange={(o) => !o && onClose()} title="Qualify before the demo" description="Four short notes, so the next step is a real opportunity.">
+    <Modal open onOpenChange={(o) => !o && onClose()} title="What did you learn at the meeting?" description="Four short notes, so the deal is real.">
       <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); m.mutate(); }}>
         {(Object.keys(labels) as (keyof typeof labels)[]).map((k) => (
           <Field key={k} label={labels[k]} htmlFor={`q-${k}`}><Input id={`q-${k}`} required value={v[k]} onChange={(e) => setV({ ...v, [k]: e.target.value })} /></Field>
@@ -189,45 +219,72 @@ function QualifyModal({ opp, to, onClose }: { opp: CrmOpp; to: Stage; onClose: (
   );
 }
 
-function ListView({ data, opps, acc, today, selected, onSelect }: { data: Crm; opps: CrmOpp[]; acc: Map<string, CrmAccount>; today: string; selected: string | null; onSelect: (id: string) => void }) {
-  const [what, setWhat] = React.useState<"deals" | "businesses">("deals");
-  const accounts = data.accounts;
+type ListRow = { list: { id: string; name: string; niche: string; market: string | null; source: string }; total: number; called: number; reached: number; positive: number; meetings: number; remaining: number };
+function CallListsTab() {
+  const q = useQuery({ queryKey: ["call-lists"], queryFn: () => api<ListRow[]>("/api/call-lists") });
+  if (q.isPending) return <Skeleton className="h-40" />;
+  if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
+  if (!q.data.length) return <EmptyState title="No call list yet" action={<Button asChild size="sm" variant="primary"><Link href="/crm/import">Import a list</Link></Button>}>Import the businesses you want to call. Each import becomes a list with its own progress.</EmptyState>;
   return (
-    <Panel className="overflow-x-auto p-0 sm:p-0">
-      <div className="border-b border-hairline px-5 py-3"><SegmentedSwitch size="sm" label="List" value={what} onChange={setWhat} options={[{ value: "deals", label: "Deals" }, { value: "businesses", label: "All businesses" }]} /></div>
-      {what === "deals" ? (
-        <table className="w-full min-w-[640px] text-sm">
-          <thead><tr className="border-b border-hairline text-left text-[12px] text-text-3"><th className="px-5 py-2.5 font-medium">Business</th><th className="pr-4 font-medium">Stage</th><th className="pr-4 font-medium">Next step</th><th className="pr-5 font-medium">Due</th></tr></thead>
+    <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+      {q.data.map((l) => {
+        const pct = (n: number, d: number) => (d ? Math.round((n / d) * 100) : 0);
+        return (
+          <Panel key={l.list.id} className="flex flex-col gap-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0"><p className="truncate font-semibold">{l.list.name}</p><p className="text-[12px] text-text-3">{[l.list.market, l.list.niche, l.list.source].filter(Boolean).join(" · ")}</p></div>
+              <Button asChild size="sm" variant={l.remaining ? "primary" : "outline"}><Link href="/call">{l.remaining ? "Call" : "Done"}</Link></Button>
+            </div>
+            <div className="flex h-3 overflow-hidden rounded-full bg-subtle" role="img" aria-label={`${l.called} of ${l.total} called`}>
+              <div className="bg-ink" style={{ width: `${pct(l.meetings, l.total)}%` }} />
+              <div className="bg-ink/60" style={{ width: `${pct(l.positive - l.meetings, l.total)}%` }} />
+              <div className="bg-control" style={{ width: `${pct(l.called - l.positive, l.total)}%` }} />
+            </div>
+            <dl className="grid grid-cols-5 text-center">
+              {[["Total", l.total], ["Called", l.called], ["Reached", l.reached], ["Yes", l.positive], ["Meetings", l.meetings]].map(([k, v]) => <div key={String(k)}><dd className="num text-lg font-semibold">{v}</dd><dt className="text-[11px] text-text-3">{k}</dt></div>)}
+            </dl>
+          </Panel>
+        );
+      })}
+    </div>
+  );
+}
+
+const STATUS_LABEL: Record<LeadStatus, string> = { not_called: "Not called", no_answer: "No answer", refused: "Refused", yes: "In pipeline", won: "Won", lost: "Lost", opted_out: "Opted out" };
+function ContactsTab({ accounts, opps, selected, onSelect }: { accounts: CrmAccount[]; opps: CrmOpp[]; selected: string | null; onSelect: (id: string) => void }) {
+  const [filter, setFilter] = React.useState<LeadStatus | "all">("all");
+  const rows = accounts.map((a) => {
+    const o = opps.find((x) => x.account_id === a.id && x.stage !== "lost") ?? opps.find((x) => x.account_id === a.id) ?? null;
+    return { a, status: leadStatus({ blocked: Boolean(a.blocked_reason), stage: o?.stage ?? null, lastOutcome: a.last_call_outcome, called: a.called }) };
+  });
+  const counts = rows.reduce((m, r) => ({ ...m, [r.status]: (m[r.status] ?? 0) + 1 }), {} as Record<string, number>);
+  const shown = rows.filter((r) => filter === "all" || r.status === filter);
+  return (
+    <>
+      <div className="flex flex-wrap gap-1.5">
+        {(["all", "not_called", "no_answer", "refused", "yes", "won", "opted_out"] as const).map((k) => (
+          <button key={k} type="button" aria-pressed={filter === k} onClick={() => setFilter(k)} className={cn("h-8 rounded-full border px-3 text-[13px]", filter === k ? "border-ink bg-ink text-panel" : "border-hairline text-text-2 hover:bg-subtle")}>
+            {k === "all" ? "All" : STATUS_LABEL[k]} <span className="num opacity-70">{k === "all" ? rows.length : counts[k] ?? 0}</span>
+          </button>
+        ))}
+      </div>
+      <Panel className="overflow-x-auto p-0 sm:p-0">
+        <table className="w-full min-w-[560px] text-sm">
+          <thead><tr className="border-b border-hairline text-left text-[12px] text-text-3"><th className="px-5 py-2.5 font-medium">Business</th><th className="pr-4 font-medium">Phone</th><th className="pr-4 font-medium">Status</th><th className="pr-5 font-medium">Last touch</th></tr></thead>
           <tbody>
-            {opps.map((o) => {
-              const due = dueLabel(o.next_action_due, today);
-              return (
-                <tr key={o.id} onClick={() => onSelect(o.account_id)} className={cn("cursor-pointer border-b border-hairline last:border-0 hover:bg-subtle", selected === o.account_id && "bg-subtle")}>
-                  <td className="px-5 py-2.5 font-medium">{acc.get(o.account_id)?.name ?? o.name}</td>
-                  <td className="whitespace-nowrap pr-4">{STAGE_LABELS[o.stage]}</td>
-                  <td className={cn("max-w-72 truncate pr-4", !o.next_action && "text-bad")}>{o.next_action || "Add a next step"}</td>
-                  <td className={cn("num whitespace-nowrap pr-5", due.tone === "bad" && "text-bad")}>{due.text}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      ) : (
-        <table className="w-full min-w-[640px] text-sm">
-          <thead><tr className="border-b border-hairline text-left text-[12px] text-text-3"><th className="px-5 py-2.5 font-medium">Business</th><th className="pr-4 font-medium">Phone</th><th className="pr-4 font-medium">Owner</th><th className="pr-5 font-medium">Last activity</th></tr></thead>
-          <tbody>
-            {accounts.map((a) => (
+            {shown.slice(0, 300).map(({ a, status }) => (
               <tr key={a.id} onClick={() => onSelect(a.id)} className={cn("cursor-pointer border-b border-hairline last:border-0 hover:bg-subtle", selected === a.id && "bg-subtle")}>
-                <td className="px-5 py-2.5"><button type="button" className="text-left font-medium" onClick={(e) => { e.stopPropagation(); onSelect(a.id); }}>{a.name}</button>{a.blocked_reason ? <span className="ml-2 text-[12px] text-bad">opted out</span> : null}</td>
+                <td className="px-5 py-2.5"><button type="button" className="text-left font-medium" onClick={(e) => { e.stopPropagation(); onSelect(a.id); }}>{a.name}</button></td>
                 <td className="num whitespace-nowrap pr-4">{a.phone || "—"}</td>
-                <td className="pr-4">{a.owner_founder ? FOUNDER_NAMES[a.owner_founder] : "—"}</td>
+                <td className="pr-4"><span className={cn("rounded-full px-2 py-0.5 text-[12px] font-medium", status === "yes" || status === "won" ? "bg-ink text-panel" : status === "refused" || status === "opted_out" ? "bg-[#fbeceb] text-bad" : "bg-subtle text-text-2")}>{STATUS_LABEL[status]}</span></td>
                 <td className="pr-5 text-text-2">{relTime(a.last_activity_at)}</td>
               </tr>
             ))}
           </tbody>
         </table>
-      )}
-    </Panel>
+        {shown.length > 300 ? <p className="px-5 py-2 text-[12px] text-text-3">Showing 300 of {shown.length}. Use search.</p> : null}
+      </Panel>
+    </>
   );
 }
 
@@ -480,7 +537,7 @@ function NewBusinessModal({ open, onOpenChange, onCreated }: { open: boolean; on
   const qc = useQueryClient();
   const me = useMe();
   const [id, setId] = React.useState(() => crypto.randomUUID());
-  const blank = { name: "", country: "FR" as "FR" | "ES", phone: "", next_action: "First call", email: "", website: "", niche: "", contact_name: "", brand: "local", owner_founder: me.founder as string };
+  const blank = { name: "", country: "FR" as "FR" | "ES", phone: "", next_action: "Call back", due: "", meeting: false, email: "", website: "", niche: "", contact_name: "", brand: "local", owner_founder: me.founder as string };
   const [v, setV] = React.useState(blank);
   const [more, setMore] = React.useState(false);
   const today = new Date().toLocaleDateString("en-CA");
@@ -490,20 +547,24 @@ function NewBusinessModal({ open, onOpenChange, onCreated }: { open: boolean; on
         id,
         account: { name: v.name, country: v.country, niche: v.niche, phone: v.phone, email: v.email, website: v.website, brand: v.brand, owner_founder: v.owner_founder || null, lead_type: "outbound", lead_status: "new" },
         contact: v.contact_name || v.email ? { full_name: v.contact_name, phone: v.phone, email: v.email } : null,
-        opportunity: { name: `${v.name} · ${BRAND_LABELS[v.brand as "local"]}`, brand: v.brand, owner_founder: v.owner_founder || null, next_action: v.next_action, next_action_due: v.next_action ? today : "" },
+        opportunity: { name: `${v.name} · ${BRAND_LABELS[v.brand as "local"]}`, brand: v.brand, stage: v.meeting ? "discovery_scheduled" : "replied", owner_founder: v.owner_founder || null, next_action: v.next_action, next_action_due: v.next_action ? (v.due || today) : "" },
       },
     }),
     onSuccess: () => { qc.invalidateQueries(); toast("Saved"); const created = id; setId(crypto.randomUUID()); setV(blank); setMore(false); onCreated(created); },
   });
   return (
-    <Modal open={open} onOpenChange={onOpenChange} title="New business" description="Name and phone are enough. Add the rest later.">
+    <Modal open={open} onOpenChange={onOpenChange} title="Add someone who said yes" description="Only people who want to talk again or booked a meeting go in the pipeline.">
       <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); if (v.name.trim()) m.mutate(); }}>
         <Field label="Business name" htmlFor="nb-name"><Input id="nb-name" required autoFocus value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} /></Field>
         <div className="grid grid-cols-[1fr_auto] items-end gap-3">
           <Field label="Phone" htmlFor="nb-phone"><Input id="nb-phone" type="tel" inputMode="tel" value={v.phone} onChange={(e) => setV({ ...v, phone: e.target.value })} /></Field>
           <SegmentedSwitch label="Country" value={v.country} onChange={(c) => setV({ ...v, country: c })} options={[{ value: "FR", label: "FR" }, { value: "ES", label: "ES" }]} />
         </div>
-        <Field label="Next step (due today)" htmlFor="nb-next"><Input id="nb-next" value={v.next_action} onChange={(e) => setV({ ...v, next_action: e.target.value })} /></Field>
+        <SegmentedSwitch label="What they said" value={v.meeting ? "meeting" : "talk"} onChange={(x) => setV({ ...v, meeting: x === "meeting", next_action: x === "meeting" ? "Meeting" : "Call back" })} options={[{ value: "talk", label: "Talk again" }, { value: "meeting", label: "Meeting booked" }]} />
+        <div className="grid grid-cols-[1fr_auto] gap-3">
+          <Field label="Next step" htmlFor="nb-next"><Input id="nb-next" value={v.next_action} onChange={(e) => setV({ ...v, next_action: e.target.value })} /></Field>
+          <Field label="When" htmlFor="nb-due"><Input id="nb-due" type="date" value={v.due || today} onChange={(e) => setV({ ...v, due: e.target.value })} /></Field>
+        </div>
         <button type="button" onClick={() => setMore((x) => !x)} aria-expanded={more} className="self-start text-sm text-text-2 underline underline-offset-2">{more ? "Fewer fields" : "More fields"}</button>
         {more ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

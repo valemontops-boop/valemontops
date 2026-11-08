@@ -10,6 +10,8 @@ import { dedupeEvents, isOutreach } from "@/domain/activity";
 import { outreachBlock } from "@/domain/suppression";
 import { normalizeDomain } from "@/domain/normalize";
 import { isLateLogged, localDate } from "@/domain/time";
+import { normalizePhone } from "@/domain/normalize";
+import { targetKey } from "../target-key";
 import { BlockedError, RuleError } from "../errors";
 import { userRow } from "./common";
 
@@ -42,6 +44,11 @@ export const logActivitySchema = z.object({
   next_action: z.string().trim().max(300).default(""),
   next_action_due: z.union([z.literal(""), z.string().regex(/^\d{4}-\d{2}-\d{2}$/)]).default(""),
   occurred_at: z.string().datetime({ offset: true }).optional(),
+  call_session_id: z.union([z.literal(""), z.string().uuid()]).default(""),
+  list_id: z.string().max(40).default(""),
+  /** Free dialling only: used to match the CRM, check suppression and hash; never stored. */
+  phone_dialled: z.string().trim().max(40).default(""),
+  market: z.enum(MARKETS).nullable().default(null),
 });
 export type LogActivityInput = z.infer<typeof logActivitySchema>;
 
@@ -132,7 +139,21 @@ export async function logActivity(repo: DataRepository, founder: FounderKey, inp
     created.contactId = conId;
   }
 
-  if (isOutreach(input.activity_type) && !accountId) throw new RuleError("Choose a business or add one before logging outreach.");
+  // Call mode, free dialling: a number already in the CRM is attached to its business.
+  let tKey = "";
+  if (!accountId && input.call_session_id && input.phone_dialled) {
+    const n = normalizePhone(input.phone_dialled, input.market);
+    const match = n ? t.Accounts.rows.find((a) => normalizePhone(a.phone, a.country) === n) ?? null : null;
+    if (match) {
+      account = match;
+      accountId = match.id;
+    } else {
+      tKey = targetKey(input.phone_dialled, input.market);
+      const supp = await repo.list("SuppressionList", { fresh: true });
+      if (n && supp.rows.some((e) => !e.is_archived && e.kind === "phone" && e.value_normalized === n)) throw new BlockedError("This phone number is on the suppression list.");
+    }
+  }
+  if (isOutreach(input.activity_type) && !accountId && !input.call_session_id) throw new RuleError("Choose a business or add one before logging outreach.");
 
   // Hard block across founders and channels (spec 5.5). Checked on fresh suppression data.
   const warnings: string[] = [];
@@ -163,7 +184,7 @@ export async function logActivity(repo: DataRepository, founder: FounderKey, inp
     opportunity_id: input.opportunity_id || "",
     campaign_id: "",
     brand: input.brand ?? opp?.brand ?? account?.brand ?? null,
-    market: account?.country ?? null,
+    market: account?.country ?? input.market ?? null,
     outcome: input.outcome,
     objection: input.objection,
     objection_note: input.objection_note,
@@ -178,6 +199,10 @@ export async function logActivity(repo: DataRepository, founder: FounderKey, inp
     late_logged: isLateLogged(occurredAt.toISOString(), loggedAt, tz),
     source: "manual",
     corrects_event_id: "",
+    call_session_id: input.call_session_id,
+    list_id: input.list_id || account?.list_id || "",
+    target_key: tKey,
+    duration_sec: null,
   };
   const [row] = await repo.insert("ActivityEvents", [event], actor);
 

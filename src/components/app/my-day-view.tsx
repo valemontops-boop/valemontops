@@ -1,6 +1,7 @@
 "use client";
-import { useMutation, useMutationState } from "@tanstack/react-query";
-import { Clock, Copy, Phone } from "lucide-react";
+import { useMutation, useMutationState, useQueryClient } from "@tanstack/react-query";
+import { Clock, Copy, Phone, PhoneCall } from "lucide-react";
+import Link from "next/link";
 import * as React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -11,11 +12,10 @@ import { METRIC_OF_TYPE } from "@/domain/activity";
 import { api } from "@/lib/api";
 import { cn, timeOfDay } from "@/lib/utils";
 import { ActionMeter } from "./action-meter";
-import { QUICK_KINDS, useQuickAction, type QuickKind } from "./quick-action";
+import { useQuickAction, type QuickKind } from "./quick-action";
 import { TargetsEditor } from "./targets-editor";
 import { useMyDay, type MyDayData } from "./use-crm";
-import { CloseDayButton, JobSearch, LateCorrections, NextBestActions, NextMeetings, StreakLine, TodaysTasks } from "./my-day-extras";
-import { useQueryClient } from "@tanstack/react-query";
+import { CloseDayButton, LateCorrections, MarketingWeek, NextBestActions, NextMeetings, StreakStrip, TasksFor } from "./my-day-extras";
 
 const METRIC_KIND: Partial<Record<Metric, QuickKind>> = {
   calls: "call", field_visits: "visit", dms: "dm", invitations: "invitation", inmails: "inmail", cold_emails: "email", follow_ups: "follow_up", comments: "comment",
@@ -27,20 +27,21 @@ export function MyDayView() {
   const [focus, setFocus] = React.useState(() => {
     try { return typeof window !== "undefined" && localStorage.getItem("vos-focus") === "1"; } catch { return false; } // per-viewer convenience only
   });
+  const toggleFocus = () => setFocus((f) => { try { localStorage.setItem("vos-focus", f ? "0" : "1"); } catch { /* ignore */ } return !f; });
   const [editor, setEditor] = React.useState(false);
   const [report, setReport] = React.useState(false);
   const [allLog, setAllLog] = React.useState(false);
-  const toggleFocus = () => setFocus((f) => { try { localStorage.setItem("vos-focus", f ? "0" : "1"); } catch { /* ignore */ } return !f; });
 
   // Pending ticks: activities being saved right now (hollow until the server confirms).
   const pendingTypes = useMutationState({ filters: { mutationKey: ["log-activity"], status: "pending" }, select: (m) => (m.state.variables as { activity_type?: ActivityType } | undefined)?.activity_type });
   const pendingByMetric: Partial<Record<Metric, number>> = {};
   for (const t of pendingTypes) { const m = t ? METRIC_OF_TYPE[t] : undefined; if (m) pendingByMetric[m] = (pendingByMetric[m] ?? 0) + 1; }
 
-  if (q.isPending) return <div className="flex flex-col gap-4"><Skeleton className="h-36" /><Skeleton className="h-72" /></div>;
+  if (q.isPending) return <div className="flex flex-col gap-4"><Skeleton className="h-24" /><Skeleton className="h-36" /><Skeleton className="h-72" /></div>;
   if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
   const d = q.data;
   const active = d.targets ? METRICS.filter((m) => d.targets![m].target > 0) : [];
+  const c = d.calls;
 
   return (
     <div className="flex gap-6">
@@ -48,77 +49,80 @@ export function MyDayView() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">My Day</h1>
-            <p className="text-sm text-text-2">
-              {d.today} · {d.mode ? WORK_MODE_LABELS[d.mode] : "No mode set"} · day closes at {timeOfDay(d.cutoffAt, d.timezone)} ({d.timezone})
-            </p>
+            <p className="text-sm text-text-2">{d.today} · {d.mode ? WORK_MODE_LABELS[d.mode] : "No mode set"} · closes {timeOfDay(d.cutoffAt, d.timezone)}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={() => setReport(true)} className={focus ? "hidden" : ""}><Copy /> WhatsApp report</Button>
-            <Button variant="ghost" size="sm" onClick={() => setEditor(true)} className={focus ? "hidden" : ""}>Mode & targets</Button>
-            {!focus ? <CloseDayButton /> : null}
+            {!focus ? <>
+              <Button variant="ghost" size="sm" onClick={() => setReport(true)}><Copy /> WhatsApp</Button>
+              <Button variant="ghost" size="sm" onClick={() => setEditor(true)}>Targets</Button>
+              <CloseDayButton />
+            </> : null}
             <Button variant="outline" size="sm" aria-pressed={focus} onClick={toggleFocus}>{focus ? "Exit focus" : "Focus"}</Button>
           </div>
         </div>
 
+        {!focus ? <StreakStrip /> : null}
         {!focus ? <NextMeetings /> : null}
         <NextActionCard d={d} onOnboard={() => setEditor(true)} />
+        {!focus ? <LateCorrections /> : null}
 
         {d.mode ? (
-          <Panel aria-labelledby="meters-title">
-            <PanelTitle action={d.attainment !== null && !focus ? (
-              <div className="rounded-[12px] bg-ink px-4 py-2 text-panel" title="Weighted attainment: each target is capped at 100% so one channel cannot compensate for another.">
-                <span className="num text-[28px] font-semibold leading-none tracking-tight">{Math.round(d.attainment * 100)}%</span>
-                <span className="ml-2 text-[12px] text-panel/80">of target, weighted</span>
-              </div>
-            ) : null}>
-              <span id="meters-title">Today&apos;s targets</span>
-            </PanelTitle>
-            {!focus ? <div className="-mt-2 mb-2"><StreakLine /></div> : null}
+          <Panel aria-labelledby="sales-title">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <h2 id="sales-title" className="text-lg font-semibold">Sales</h2>
+              <Button asChild variant="primary" size="lg"><Link href="/call"><PhoneCall /> Start calling</Link></Button>
+            </div>
+            <div className="mb-4 grid grid-cols-4 gap-2 rounded-[12px] bg-subtle/70 p-3 text-center" aria-label="Calls today">
+              {[["Dials", c.dials], ["Picked up", c.pickedUp], ["Yes", c.interested + c.callBacks + c.meetings], ["Meetings", c.meetings]].map(([l, v]) => (
+                <div key={String(l)}><p className="num text-[24px] font-semibold leading-none">{v}</p><p className="mt-1 text-[11px] text-text-2">{l}</p></div>
+              ))}
+            </div>
             {!d.isWorkday ? (
-              <EmptyState title="Not a scheduled workday">Nothing is expected today and nothing counts against you. Logged activity still updates the CRM.</EmptyState>
+              <EmptyState title="Not a scheduled workday">Nothing is expected today. Anything you log still counts in the CRM.</EmptyState>
             ) : active.length === 0 ? (
-              <EmptyState title="No targets in this mode" action={<Button size="sm" onClick={() => setEditor(true)}>Set targets</Button>}>Targets are optional. Without targets no day is marked missed.</EmptyState>
+              <EmptyState title="No targets in this mode" action={<Button size="sm" onClick={() => setEditor(true)}>Set targets</Button>}>Without targets no day is marked missed.</EmptyState>
             ) : (
               <div className="grid grid-cols-1 gap-x-10 lg:grid-cols-2 [&>*]:border-b [&>*]:border-hairline">
                 {active.map((m) => (
                   <ActionMeter key={m} label={METRIC_LABELS[m]} actual={d.tally[m]} target={d.targets![m].target} pending={pendingByMetric[m] ?? 0}
-                    onLog={METRIC_KIND[m] ? () => qa.open({ kind: METRIC_KIND[m] }) : m === "new_businesses" ? () => qa.open({ kind: "visit" }) : undefined} />
+                    onLog={m === "calls" ? undefined : METRIC_KIND[m] ? () => qa.open({ kind: METRIC_KIND[m] }) : m === "new_businesses" ? () => qa.open({ kind: "visit" }) : undefined} />
                 ))}
               </div>
             )}
-            {d.feasibility && !focus ? (
-              <p className={cn("mt-3 text-[13px]", d.feasibility.feasible ? "text-text-2" : "text-bad")}>
-                <Clock className="mr-1.5 inline size-3.5 align-[-2px]" />
-                Planned <span className="num">{d.feasibility.plannedMinutes}</span> min of outreach against <span className="num">{d.feasibility.capacityMinutes}</span> min capacity
-                {d.feasibility.feasible ? "" : ` (${d.feasibility.overBy} min over: lower a target for tomorrow)`}
-              </p>
+            {d.feasibility && !d.feasibility.feasible && !focus ? (
+              <p className="mt-3 text-[13px] text-bad"><Clock className="mr-1.5 inline size-3.5 align-[-2px]" />Planned {d.feasibility.plannedMinutes} min of outreach for {d.feasibility.capacityMinutes} min available: lower a target for tomorrow.</p>
             ) : null}
+            {!focus ? <div className="mt-5 border-t border-hairline pt-4"><TasksFor area="sales" /></div> : null}
           </Panel>
         ) : null}
 
-        {!focus ? <LateCorrections /> : null}
         {!focus ? (
           <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
             <NextBestActions />
-            <TodaysTasks />
+            <Panel aria-labelledby="mk-title" className="flex flex-col gap-5">
+              <h2 id="mk-title" className="text-lg font-semibold">Marketing</h2>
+              <MarketingWeek />
+              <TasksFor area="marketing" />
+            </Panel>
+            <Panel aria-labelledby="ops-title">
+              <h2 id="ops-title" className="mb-3 text-lg font-semibold">Ops</h2>
+              <TasksFor area="ops" />
+            </Panel>
             <Panel aria-labelledby="log-title">
               <PanelTitle action={d.todayEvents.length > 5 ? <Button variant="ghost" size="sm" onClick={() => setAllLog((v) => !v)}>{allLog ? "Show fewer" : `See all ${d.todayEvents.length}`}</Button> : null}>
                 <span id="log-title">Logged today <span className="num text-text-3">{d.todayEvents.length}</span></span>
               </PanelTitle>
-              {d.todayEvents.length === 0 ? (
-                <EmptyState title="Nothing logged yet" action={<Button size="sm" onClick={() => qa.open()}>Log your first action</Button>}>Shortcuts: {QUICK_KINDS.slice(0, 4).map((k) => `${k.key.toUpperCase()} ${k.label.toLowerCase()}`).join(" · ")}</EmptyState>
-              ) : (
+              {d.todayEvents.length === 0 ? <p className="text-sm text-text-2">Nothing yet. Start a call session or press C to log a call.</p> : (
                 <ul className="flex flex-col">
                   {(allLog ? d.todayEvents : d.todayEvents.slice(0, 5)).map((e) => (
-                    <li key={e.id} className="flex items-baseline justify-between gap-3 border-t border-hairline py-2.5 first:border-t-0">
+                    <li key={e.id} className="flex items-baseline justify-between gap-3 border-t border-hairline py-2 first:border-t-0 text-sm">
                       <span className="min-w-0 truncate"><span className="font-medium">{e.label}</span>{e.accountName ? <span className="text-text-2"> · {e.accountName}</span> : null}</span>
-                      <span className="num shrink-0 text-[13px] text-text-3">{timeOfDay(e.occurredAt, d.timezone)}{e.lateLogged ? " · late" : ""}</span>
+                      <span className="num shrink-0 text-[12px] text-text-3">{timeOfDay(e.occurredAt, d.timezone)}{e.lateLogged ? " · late" : ""}</span>
                     </li>
                   ))}
                 </ul>
               )}
             </Panel>
-            <JobSearch />
           </div>
         ) : null}
       </div>
@@ -135,19 +139,14 @@ function NextActionCard({ d, onOnboard }: { d: MyDayData; onOnboard: () => void 
   const qa = useQuickAction();
   const n = d.nextAction;
   const qc = useQueryClient();
-  const setMode = useMutation({
-    mutationFn: (mode: string) => api("/api/settings/mode", { body: { mode } }),
-    onSuccess: () => qc.invalidateQueries(),
-  });
+  const setMode = useMutation({ mutationFn: (mode: string) => api("/api/settings/mode", { body: { mode } }), onSuccess: () => qc.invalidateQueries() });
   if (n.kind === "onboarding") {
     return (
       <Panel aria-labelledby="onb">
         <h2 id="onb" className="text-lg font-semibold">Which mode are you working in?</h2>
         <p className="mt-1 text-sm text-text-2">Targets come from your mode and stay editable. Nothing is counted against you until you choose.</p>
         <div className="mt-4 flex flex-wrap gap-2">
-          {WORK_MODES.map((m) => (
-            <Button key={m} variant="outline" disabled={setMode.isPending} onClick={() => setMode.mutate(m)}>{WORK_MODE_LABELS[m]}</Button>
-          ))}
+          {WORK_MODES.map((m) => <Button key={m} variant="outline" disabled={setMode.isPending} onClick={() => setMode.mutate(m)}>{WORK_MODE_LABELS[m]}</Button>)}
           <Button variant="ghost" onClick={onOnboard}>Review targets first</Button>
         </div>
         {setMode.isError ? <div className="mt-3"><ErrorState error={setMode.error} onRetry={() => setMode.reset()} /></div> : null}
@@ -166,6 +165,8 @@ function NextActionCard({ d, onOnboard }: { d: MyDayData; onOnboard: () => void 
           {n.followUp.phone ? <Button asChild variant="outline" size="lg"><a href={`tel:${n.followUp.phone}`}><Phone /> Call</a></Button> : null}
           <Button variant="dark" size="lg" onClick={() => qa.open({ kind: "follow_up", accountId: n.followUp!.accountId, opportunityId: n.followUp!.opportunityId ?? undefined })}>Log outcome</Button>
         </div>
+      ) : n.kind === "metric" && n.metric === "calls" ? (
+        <Button asChild variant="dark" size="lg"><Link href="/call">Start calling</Link></Button>
       ) : n.kind === "metric" && n.metric ? (
         <Button variant="dark" size="lg" onClick={() => qa.open({ kind: METRIC_KIND[n.metric!] ?? "visit" })}>Log {METRIC_LABELS[n.metric].toLowerCase()}</Button>
       ) : null}
@@ -177,12 +178,7 @@ function ReportModal({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
   const [priority, setPriority] = React.useState("");
   const gen = useMutation({ mutationFn: () => api<{ text: string }>("/api/report", { body: { next_day_priority: priority } }) });
   const copy = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast("Copied. Paste it in WhatsApp.");
-    } catch {
-      toast("Copy failed. Select the text and copy it manually.");
-    }
+    try { await navigator.clipboard.writeText(text); toast("Copied. Paste it in WhatsApp."); } catch { toast("Copy failed. Select the text and copy it manually."); }
   };
   return (
     <Modal open={open} onOpenChange={(o) => { onOpenChange(o); if (!o) gen.reset(); }} title="WhatsApp daily report" description="Exactly what was logged today, open opportunities and tomorrow's priority.">
@@ -192,7 +188,7 @@ function ReportModal({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
         {gen.isError ? <ErrorState error={gen.error} onRetry={() => gen.mutate()} /> : null}
         {gen.data ? (
           <>
-            <Textarea aria-label="Report text" readOnly value={gen.data.text} className="num min-h-64 font-mono text-[13px]" />
+            <Textarea aria-label="Report text" readOnly value={gen.data.text} className={cn("num min-h-64 font-mono text-[13px]")} />
             <Button type="button" variant="primary" onClick={() => copy(gen.data!.text)}><Copy /> Copy report</Button>
           </>
         ) : null}

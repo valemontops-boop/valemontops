@@ -36,16 +36,22 @@ export interface DriveFile {
   webViewLink: string;
   parents: string[];
   ownedByMe?: boolean;
+  size?: string;
+  iconLink?: string;
 }
 
 export interface DrivePort {
   list(folderId: string, search?: string): Promise<DriveFile[]>;
   get(fileId: string): Promise<DriveFile | null>;
+  /** Everything the service account can see (the shared folder tree): name search or most recent. */
+  search(query: string): Promise<DriveFile[]>;
+  recent(limit: number): Promise<DriveFile[]>;
 }
 
 /** Writes always use the signed-in founder's own drive.file grant, never the service account (spec 4.8). */
 export interface DriveUploader {
   upload(name: string, mimeType: string, bytes: Uint8Array, parentId: string | null): Promise<DriveFile>;
+  createFolder(name: string, parentId: string | null): Promise<DriveFile>;
 }
 
 export class ConsentRequiredError extends Error {

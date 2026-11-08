@@ -12,7 +12,8 @@ Spec: `docs/VALEMONT_OS_CLAUDE_CODE_MASTER_PROMPT.md` (binding). Resume from `do
 - Row identity is a UUID, never a row number. Columns are resolved by header name.
 - LIVE without credentials → setup error. NEVER fall back to DEMO. DEMO is always bannered and never touches live data.
 - Opt-out / suppression = hard block on the server for both founders.
-- Private data (JobApplications, PrivateTasks) only in each founder's own spreadsheet (`ctx.privateRepo`). The other founder's
+- Call mode: one tap = one event; refusals from free dialling store only `target_key` (HMAC), never the number.
+- Private data (PrivateTasks) only in each founder's own spreadsheet (`ctx.privateRepo`). The other founder's
   calendar is read as free/busy only. Partial updates use `patchOf()` (zod v4 `.partial()` keeps defaults!).
 - Server-side auth + Zod on every route (`src/server/http.ts` `route()`), same-origin check on mutations.
 - No real emails, IDs, handles or tokens in code/fixtures (`tests/integration/build-separation.test.ts`). Fixtures use example.com.

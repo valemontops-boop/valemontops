@@ -19,7 +19,7 @@ test("scenario 13: field visit on a phone with touch only counts one new busines
   expect(day.tally.field_visits).toBe(1);
   expect(day.tally.new_businesses).toBe(1);
 
-  await page.getByRole("button", { name: "WhatsApp report" }).tap();
+  await page.getByRole("button", { name: "WhatsApp" }).tap();
   await page.getByRole("button", { name: "Build report" }).tap();
   await expect(page.getByLabel("Report text")).toHaveValue(/- Field visit: 1/);
   await expect(page.getByLabel("Report text")).toHaveValue(/- New businesses contacted: 1/);

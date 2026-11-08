@@ -10,7 +10,7 @@ export function ActionMeter({ label, actual, target, pending = 0, onLog }: { lab
   const extra = Math.max(0, actual - target);
   const pend = Math.min(pending, Math.max(0, target - done));
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 py-3">
+    <div className={cn("grid items-center gap-x-4 gap-y-2 py-3", onLog ? "grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-1")}>
       <div className="flex items-baseline gap-2">
         <span className="font-medium">{label}</span>
         <span className="num text-sm text-text-2">

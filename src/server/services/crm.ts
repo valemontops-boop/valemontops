@@ -8,6 +8,7 @@ import {
 import { dedupeEvents } from "@/domain/activity";
 import { normalizeDomain, normalizeEmail, normalizePhone } from "@/domain/normalize";
 import { stageChangeErrors } from "@/domain/pipeline";
+import { localDate } from "@/domain/time";
 import { outreachBlock } from "@/domain/suppression";
 import { RuleError } from "../errors";
 import { patchOf } from "@/lib/zod";
@@ -224,21 +225,48 @@ export async function addSuppression(repo: DataRepository, founder: FounderKey, 
 
 /** Everything the CRM screens need in one batched read. */
 export async function crmSnapshot(repo: DataRepository) {
-  const t = await repo.listMany(["Accounts", "Contacts", "Opportunities", "SuppressionList", "ChannelRules", "ActivityEvents"]);
+  const t = await repo.listMany(["Accounts", "Contacts", "Opportunities", "SuppressionList", "ChannelRules", "ActivityEvents", "OpportunityStageEvents"]);
   const probs = await stageProbabilities(repo);
   const events = dedupeEvents(t.ActivityEvents.rows);
   const last = new Map<string, string>();
-  for (const e of events) if (e.account_id) last.set(e.account_id, e.occurred_at);
+  const lastOutcome = new Map<string, string | null>();
+  const calledAccounts = new Set<string>();
+  for (const e of events) {
+    if (!e.account_id) continue;
+    last.set(e.account_id, e.occurred_at);
+    if (["cold_call", "connected_call", "voicemail", "field_visit"].includes(e.activity_type)) {
+      calledAccounts.add(e.account_id);
+      lastOutcome.set(e.account_id, e.outcome);
+    }
+  }
+  const stageSince = new Map<string, string>();
+  for (const s of [...t.OpportunityStageEvents.rows].sort((a, b) => a.changed_at.localeCompare(b.changed_at))) stageSince.set(s.opportunity_id, s.changed_at);
   const blocked = Object.fromEntries(
     t.Contacts.rows.map((c) => [c.id, outreachBlock(c, t.Accounts.rows.find((a) => a.id === c.account_id) ?? null, t.SuppressionList.rows).reason]),
   );
   const accountBlocked = Object.fromEntries(t.Accounts.rows.map((a) => [a.id, outreachBlock(null, a, t.SuppressionList.rows).reason]));
   return {
-    accounts: t.Accounts.rows.filter((a) => !a.is_archived).map((a) => ({ ...a, last_activity_at: last.get(a.id) ?? null, blocked_reason: accountBlocked[a.id] })),
+    accounts: t.Accounts.rows.filter((a) => !a.is_archived).map((a) => ({ ...a, last_activity_at: last.get(a.id) ?? null, blocked_reason: accountBlocked[a.id], last_call_outcome: lastOutcome.get(a.id) ?? null, called: calledAccounts.has(a.id) })),
     contacts: t.Contacts.rows.filter((c) => !c.is_archived).map((c) => ({ ...c, blocked_reason: blocked[c.id] })),
-    opportunities: t.Opportunities.rows.filter((o) => !o.is_archived),
+    opportunities: t.Opportunities.rows.filter((o) => !o.is_archived).map((o) => ({ ...o, stage_since: stageSince.get(o.id) ?? o.created_at, last_touch_at: last.get(o.account_id) ?? null })),
     channelRules: t.ChannelRules.rows,
     stageProbabilities: probs,
+    month: (() => {
+      // Local date (both founders are on Central European time); UTC would drop late-evening calls.
+      const today = localDate(new Date(), "Europe/Paris");
+      const from = today.slice(0, 8) + "01";
+      const inMonth = events.filter((e) => e.local_date >= from && e.local_date <= today);
+      const calls = inMonth.filter((e) => ["cold_call", "connected_call", "voicemail"].includes(e.activity_type));
+      const won = t.OpportunityStageEvents.rows.filter((x) => x.to_stage === "won" && x.changed_at.slice(0, 10) >= from).length;
+      return {
+        from,
+        dials: calls.length,
+        pickedUp: calls.filter((e) => e.activity_type === "connected_call").length,
+        yes: calls.filter((e) => ["interested", "callback_requested", "meeting_booked"].includes(e.outcome ?? "")).length,
+        meetings: inMonth.filter((e) => e.outcome === "meeting_booked" || e.activity_type === "meeting_booked").length,
+        won,
+      };
+    })(),
     suppressionCount: t.SuppressionList.rows.filter((s) => !s.is_archived).length,
     warnings: [...t.Accounts.warnings, ...t.Contacts.warnings, ...t.Opportunities.warnings],
     fetchedAt: t.Accounts.fetchedAt,

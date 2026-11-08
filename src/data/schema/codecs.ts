@@ -69,3 +69,7 @@ export function serializeCell(value: unknown): string {
   if (typeof value === "string") return value;
   return JSON.stringify(value);
 }
+
+/** Enum with a fallback for empty cells (columns added after rows already existed). */
+export const oneOfOr = <T extends readonly [string, ...string[]]>(values: T, fallback: T[number]) =>
+  z.preprocess((v) => (toStr(v).trim() === "" ? fallback : toStr(v).trim()), z.enum(values));

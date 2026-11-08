@@ -35,6 +35,7 @@ export const commitSchema = z.object({
   brand: z.enum(["consulting", "local", "thirty"]).default("local"),
   owner_founder: z.enum(["theo", "pablo"]).nullable().default(null),
   lead_source: z.string().trim().max(120).default("CSV import"),
+  list_name: z.string().trim().max(160).default(""),
 });
 
 /**
@@ -70,6 +71,12 @@ export async function commit(repo: DataRepository, founder: FounderKey, input: z
       });
     }
   }
+  // Every import is a call list you can work through in call mode (id = import id, so a retry adds nothing).
+  if (accounts.length && !(await repo.get("CallLists", input.import_id, { fresh: true }))) {
+    const first = accounts[0];
+    await repo.insert("CallLists", [{ id: input.import_id, name: input.list_name || `${input.lead_source} · ${new Date().toISOString().slice(0, 10)}`, source: input.lead_source, market: first.country, niche: first.niche, brand: input.brand, owner_founder: input.owner_founder, notes: "" }], { founder });
+  }
+  for (const a of accounts) (a as Record<string, unknown>).list_id = input.import_id;
   if (accounts.length) await repo.insert("Accounts", accounts, { founder });
   if (contacts.length) await repo.insert("Contacts", contacts, { founder });
   return { imported: accounts.length, contacts: contacts.length, skipped: p.rows.length - accounts.length };

@@ -1,14 +1,25 @@
 # Status
 
-Updated: 2026-11-08 · Stage: **1B complete (fake-verified)** · Next: Stage 2 (revenue operations).
+Updated: 2026-11-09 · Stage: **1B complete + founder feedback round 2 (fake-verified)** · Next: Stage 2 (revenue operations).
+
+## Feedback round 2 (2026-11-09)
+| Change | Status |
+|---|---|
+| Call mode: sessions, one-tap outcomes (keys 1–7), objection in one tap, live counters, session summary vs your average | VERIFIED_FAKE (calls.test.ts, e2e) |
+| CRM: yes-only pipeline, month funnel strip, call lists with progress, status per business | VERIFIED_FAKE |
+| My Day: 14-day streak strip, Sales / Marketing / Ops areas, weekly content ticks; job search removed | VERIFIED_FAKE |
+| Tasks: sales / marketing / ops areas | VERIFIED_FAKE |
+| Reports: visual dashboard (KPIs + deltas, daily chart, funnel, objections, best hours, country, trade) | VERIFIED_FAKE (dashboard.test.ts) |
+| Marketing: overview with recommendations, funnels per brand, traffic sources (GA4 CSV/manual), audience countries vs target | VERIFIED_FAKE (marketing.test.ts) |
+| Files: Drive explorer (grid/list, folders, search, recent, new folder, drag-and-drop upload) | VERIFIED_FAKE (fake Drive HTTP) |
 No Google credentials exist in the build environment, so nothing is `VERIFIED_LIVE`.
 
 ## Gate results
 | Check | Result |
 |---|---|
 | `npm run lint` / `npm run typecheck` | pass |
-| `npm test` (vitest: unit, contract, integration on fake Sheets + fake Calendar/Drive HTTP servers) | 107/107 pass |
-| `npm run test:e2e` (Playwright, production build, DEMO on fake Sheets + LIVE-without-credentials server) | 16/16 pass |
+| `npm test` (vitest: unit, contract, integration on fake Sheets + fake Calendar/Drive HTTP servers) | 121/121 pass |
+| `npm run test:e2e` (Playwright, production build, DEMO on fake Sheets + LIVE-without-credentials server) | 17/17 pass |
 | `npm run test:live` | NOT RUN (no credentials) |
 | Browser preview artifact (all pages load, no console errors, Théo→Pablo task, agenda privacy) | pass |
 
@@ -25,7 +36,7 @@ No Google credentials exist in the build environment, so nothing is `VERIFIED_LI
 | 13 | Field visit by touch on a phone | VERIFIED_FAKE | e2e mobile |
 | 14 | Opt-out blocked for both founders | VERIFIED_FAKE | scenarios.test.ts, e2e |
 | 15 | `+33…`, `-12.00`, `=SUM(A1)` round-trip; CSV neutralised | VERIFIED_FAKE | contract, adapter, csv, e2e |
-| 16 | Private job data unreachable; dedupe; mid-day goal change | VERIFIED_FAKE | stage1b.test.ts, scenarios.test.ts |
+| 16 | Private data unreachable (private tasks; job search removed, D031); dedupe; mid-day goal change | VERIFIED_FAKE | stage1b.test.ts, scenarios.test.ts |
 | 17 | Agenda merge; other founder's event only "Busy", title absent | VERIFIED_FAKE | stage1b.test.ts (HTTP fake), e2e |
 | 18 | 3 mutual slots, one event, retry-safe, move followed, actions → tasks | VERIFIED_FAKE | stage1b.test.ts, e2e |
 | 19 | Idea adds nothing to targets; 3rd Testing → park prompt; conversion linked | VERIFIED_FAKE | ideas.test.ts, stage1b.test.ts, e2e |
@@ -40,7 +51,7 @@ No Google credentials exist in the build environment, so nothing is `VERIFIED_LI
 | Simple CRM board (5 columns, next step first, drag or →, qualify prompt), list view, details under "More" | VERIFIED_FAKE | D018 |
 | Accent changed from orange to ink | VERIFIED_FAKE | D017, contrast test |
 | Tasks: P0–P3, owner, due, recurrence, dependencies, snooze with reason, comments, list/board/week, private tasks | VERIFIED_FAKE | |
-| Private founder spreadsheets (job applications, private tasks) | VERIFIED_FAKE | needs PRIVATE_SHEET_ID_* in LIVE |
+| Private founder spreadsheets (private tasks) | VERIFIED_FAKE | needs PRIVATE_SHEET_ID_* in LIVE; job search removed (D031) |
 | Daily results, streaks, 7/30-day consistency, end-of-day review, audited late correction | VERIFIED_FAKE | D021 |
 | Sprints (targets per founder, brand split, niche) | VERIFIED_FAKE | |
 | Command Center (Now / Sales / Money / Content) | VERIFIED_FAKE | cash & MRR "Not tracked yet" until Stage 3 (D022) |
