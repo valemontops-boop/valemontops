@@ -10,7 +10,7 @@ import { dedupeEvents, isOutreach } from "@/domain/activity";
 import { outreachBlock } from "@/domain/suppression";
 import { normalizeDomain } from "@/domain/normalize";
 import { isLateLogged, localDate } from "@/domain/time";
-import { BlockedError, RuleError } from "../http";
+import { BlockedError, RuleError } from "../errors";
 import { userRow } from "./common";
 
 const optUuid = z.union([z.literal(""), z.string().uuid()]).default("");

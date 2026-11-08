@@ -7,18 +7,8 @@ import { getConfig } from "./config";
 import { getRepo, SetupRequiredError } from "./repo";
 import { SESSION_COOKIE, readSessionToken, type Session } from "./session";
 
-export class BlockedError extends Error {
-  readonly code = "blocked";
-}
-export class ForbiddenError extends Error {
-  readonly code = "forbidden";
-}
-export class RuleError extends Error {
-  readonly code = "rule";
-  constructor(message: string, readonly details: string[] = []) {
-    super(message);
-  }
-}
+import { BlockedError, ForbiddenError, RuleError } from "./errors";
+export { BlockedError, ForbiddenError, RuleError };
 
 const MAX_BODY = 1_200_000;
 

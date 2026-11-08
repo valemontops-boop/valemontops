@@ -9,7 +9,7 @@ import { dedupeEvents } from "@/domain/activity";
 import { normalizeDomain, normalizeEmail, normalizePhone } from "@/domain/normalize";
 import { stageChangeErrors } from "@/domain/pipeline";
 import { outreachBlock } from "@/domain/suppression";
-import { RuleError } from "../http";
+import { RuleError } from "../errors";
 import { stageProbabilities } from "./common";
 
 const t200 = z.string().trim().max(200).default("");

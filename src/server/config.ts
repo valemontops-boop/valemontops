@@ -102,7 +102,7 @@ export function getConfig(): AppConfig {
 }
 
 /** Safe subset for the browser. */
-export function publicConfig(cfg = getConfig()) {
+export function publicConfig(cfg = getConfig()): PublicConfig {
   return {
     mode: cfg.mode,
     pollSeconds: cfg.pollSeconds,
@@ -114,6 +114,11 @@ export function publicConfig(cfg = getConfig()) {
         : cfg.demo.backend === "fake-sheets"
           ? "fake-sheets"
           : "memory",
-  } as const;
+  };
 }
-export type PublicConfig = ReturnType<typeof publicConfig>;
+export interface PublicConfig {
+  mode: AppMode | null;
+  pollSeconds: number;
+  /** "browser" is used only by the static feedback preview (preview/), never by the server. */
+  backend: "google-sheets" | "fake-sheets" | "memory" | "browser";
+}

@@ -8,7 +8,7 @@ import { logActivity, logActivitySchema } from "@/server/services/activities";
 import { getMyDay, setMode, setTargets, whatsappReport } from "@/server/services/myday";
 import { createAccount, createAccountSchema, crmSnapshot, optOutContact, updateOpportunity, updateOpportunitySchema, accountTimeline } from "@/server/services/crm";
 import { readConfig } from "@/server/config";
-import { BlockedError } from "@/server/http";
+import { BlockedError } from "@/server/errors";
 import { TEST_SHEET_ID, freshSheetsRepo, makeRepo } from "../helpers";
 
 let fake: FakeSheetsServer;

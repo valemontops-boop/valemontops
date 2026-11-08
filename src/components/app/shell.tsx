@@ -30,6 +30,7 @@ export function AppShell({ me, children }: { me: Me; children: React.ReactNode }
 function ModeBanner() {
   const me = useMe();
   if (me.config.mode === "live" && me.config.backend === "google-sheets") return null;
+  if (me.config.backend === "browser") return null; // the preview renders its own banner with a founder switch
   const text =
     me.config.mode === "demo"
       ? me.config.backend === "fake-sheets"
