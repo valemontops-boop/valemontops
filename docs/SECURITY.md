@@ -20,3 +20,11 @@ Full STRIDE threat model, security review and hardening are Stage 4. Controls in
 
 Residual risks to address in Stage 4: rate limiting of API routes, CSP, audit of all mutations (activity events are
 their own trail), GDPR export/delete tooling, dependency audit (`npm audit` reports advisories in dev dependencies).
+
+## Stage 1B additions
+- Private founder data lives in separate spreadsheets; the other founder's calendar is read with free/busy only (no titles).
+- Drive writes use the founder's own `drive.file` token in an encrypted httpOnly cookie, never the service account.
+- `npm audit --omit=dev` (2026-11-08): `xlsx` 0.18.5 (high: prototype pollution / ReDoS on crafted files), used only to read
+  legacy `.xls` LinkedIn exports uploaded by a signed-in founder, capped at 2 MB and 5,000 rows (D020); `uuid` nested in
+  `exceljs` (moderate: buffer bounds in v3/v5/v6 with a caller-supplied buffer, a path exceljs does not take with our input).
+  Action: replace with the current SheetJS build from cdn.sheetjs.com once that host is reachable.
