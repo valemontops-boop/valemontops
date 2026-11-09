@@ -96,8 +96,8 @@ export class SheetsClient {
       const msg = safeMessage(detail);
       if (RETRYABLE.has(res.status)) {
         lastErr = new StorageError(`Google Sheets returned ${res.status}${msg ? `: ${msg}` : ""}`, res.status, true);
-        // Per-minute quota: retrying within the same minute only burns more of it. One retry at most; callers serve cached data.
-        if (res.status === 429 && attempt >= 1) break;
+        // Per-minute quota: retrying within the same minute only burns more of it. Two retries at most; callers serve cached data.
+        if (res.status === 429 && attempt >= 2) break;
         continue;
       }
       lastErr = new StorageError(`Google Sheets returned ${res.status}${msg ? `: ${msg}` : ""}`, res.status, false);
