@@ -6,7 +6,7 @@ import { SheetsClient } from "@/data/sheets/client";
 import { GoogleSheetsRepository } from "@/data/sheets/repository";
 import { setupSpreadsheet } from "@/data/sheets/setup";
 import { getConfig, type AppConfig } from "./config";
-import { seedBaseline } from "./services/baseline";
+import { applySettingsFromEnv, seedBaseline } from "./services/baseline";
 import { seedDemo } from "./services/demo-seed";
 import { seedDemoLinkedIn } from "./services/demo-linkedin";
 import { seedDemoContent } from "./services/demo-content";
@@ -69,7 +69,10 @@ async function build(cfg: AppConfig): Promise<DataRepository> {
   // LIVE: never seeds demo data and never creates the spreadsheet; setup:sheets prepares it.
   const key = decodeServiceAccountKey(cfg.sheets.serviceAccountB64);
   const client = new SheetsClient({ baseUrl: cfg.sheets.baseUrl, spreadsheetId: cfg.sheets.spreadsheetId, getToken: sheetsTokenFor(cfg, key) });
-  return new GoogleSheetsRepository(client);
+  const repo = new GoogleSheetsRepository(client);
+  // Best effort, once per server start: setup values given in the hosting environment (never blocks, never overwrites).
+  void applySettingsFromEnv(repo).catch(() => undefined);
+  return repo;
 }
 
 /**
