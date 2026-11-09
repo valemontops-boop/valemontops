@@ -1,3 +1,5 @@
+English version: docs/SETUP_GUIDE.en.md
+
 # Valemont OS : le plan et le tuto de toutes les intégrations
 
 Pour Théo et Pablo. Ce guide te dit **dans quel ordre** brancher chaque service, **où cliquer**, **quelle

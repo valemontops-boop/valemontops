@@ -1,6 +1,6 @@
 # Financial definitions (managerial, not statutory)
 
-Valemont OS is a management dashboard. It is not bookkeeping, certified invoicing or tax advice, and claims no compliance with French or Spanish e-invoicing. Pure functions: `src/domain/finance.ts` (tests next to it; scenario 8 and the EUR-only rules in `tests/integration/finance.test.ts`). Decisions: D078, D082 (everything in EUR, no exchange rates).
+Valemont OS is a management dashboard. It is not bookkeeping, certified invoicing or tax advice, and claims no compliance with French or Spanish e-invoicing. Pure functions: `src/domain/finance.ts` (tests next to it; scenario 8 and the EUR-only rules in `tests/integration/finance.test.ts`). Decisions: D078, D082 (everything in EUR, no ECB rates), D085 (USD only to pay contractors).
 
 | Term | Definition |
 |---|---|
@@ -18,7 +18,7 @@ Valemont OS is a management dashboard. It is not bookkeeping, certified invoicin
 | ARR | MRR × 12, a run rate: not booked annual revenue and not a forecast. |
 | Runway | Cash (Wise + Stripe balances in EUR; balances in another currency are not converted and not counted) ÷ average net operating cash burn of the last 3 complete months; not shown when the business does not burn cash. |
 | Set-up fees | Never in MRR. Recognized on payment (setting `finance_setup_fee_recognition`), to confirm with the accountant. |
-| Currency | Everything is EUR (D082: the founders dropped EUR/USD and ECB rates). Manual entries and contracts are EUR only. A bank movement or balance in another currency is shown in its own currency with "hors EUR, non converti", counted, and left out of every EUR total; no rate is ever used or invented. |
+| Currency | Everything is EUR (D082), with one exception (D085): contractors and supplier costs can be priced and paid in USD. Rate for a USD amount, in this order, never invented: (1) the real rate of the matching Wise payment (EUR actually debited ÷ USD sent, when a project cost or manual entry is linked to it), (2) today's Wise rate (LIVE, `GET /v1/rates`, cached once per day in UsdRates), (3) the founders' manual rate with its date (setting `usd_eur_rate_manual`), (4) DEMO/preview only: the stored demo rate, labelled "démo". Shown as "1 200 $US ≈ 1 104 € (taux Wise du 12/11)". Conversion: rate kept in millionths, integer maths, half away from zero. Manual USD entries (expenses only) lock rate, date, source and EUR amounts at entry; project costs and assignment rates convert at read (the bank rate once linked, else the current rate). No rate → the USD amount is shown with "taux manquant", counted, and left out of every EUR total. P&L, cash, MRR and project margins are in EUR. Any other currency, and any USD bank movement or balance itself, stays "hors EUR, non converti" as in D082. A Wise USD payment from the EUR balance is already an EUR movement: the P&L counts the EUR debited, the USD side is information. |
 | Corrections | Manual entries are never edited or deleted: a reversing entry (opposite amounts) cancels one. |
 
 Accountant exports: Money › Export (team) includes "Managerial P&L by month" next to bank movements by category.
