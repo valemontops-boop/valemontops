@@ -317,7 +317,7 @@ export class FakeSheetsServer {
       s.protectedRanges.push(pr);
       return { addProtectedRange: { protectedRange: pr } };
     }
-    if (req.repeatCell || req.updateDimensionProperties || req.deleteDimension) return {};
+    if (req.repeatCell || req.updateDimensionProperties || req.deleteDimension || req.appendDimension) return {};
     throw new Error(`Unsupported batchUpdate request: ${Object.keys(req).join(",")}`);
   }
 }
@@ -327,6 +327,7 @@ interface StructuralRequest {
   updateSheetProperties?: { properties: { sheetId: number; gridProperties?: { frozenRowCount?: number } } };
   addProtectedRange?: { protectedRange: { range?: { sheetId?: number }; warningOnly?: boolean; description?: string } };
   repeatCell?: unknown;
+  appendDimension?: unknown;
   updateDimensionProperties?: unknown;
   deleteDimension?: unknown;
 }

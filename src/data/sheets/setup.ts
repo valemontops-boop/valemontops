@@ -70,6 +70,17 @@ export async function setupSpreadsheet(client: SheetsClient, kind: "shared" | "p
       report.columnsAdded.push({ tab, columns: missing });
     }
   }
+  // Google refuses writes beyond a tab's grid: a tab created with exactly N columns must grow before a column N+1
+  // is added. Grow every tab that is short, with some headroom for future columns, in one structural request.
+  const grow: unknown[] = [];
+  for (const s of meta.sheets) {
+    const tab = s.properties.title;
+    if (!(tab in wanted)) continue;
+    const have = s.properties.gridProperties?.columnCount ?? 0;
+    const need = Math.max(wanted[tab].length, ((headers[titles.indexOf(tab)]?.[0] ?? []) as unknown[]).length) + 10;
+    if (have < need) grow.push({ appendDimension: { sheetId: s.properties.sheetId, dimension: "COLUMNS", length: need - have } });
+  }
+  if (grow.length) await client.batchUpdate(grow);
   await client.updateMany(headerWrites);
 
   const structural: unknown[] = [];
