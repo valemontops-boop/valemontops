@@ -145,7 +145,7 @@ export async function commandCenter(ctx: AppContext, founder: FounderKey, now = 
 
 /* ---------------- weekly review ---------------- */
 
-export const weeklySchema = z.object({ week_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), decisions: z.string().trim().max(4_000).default(""), notes: z.string().trim().max(4_000).default(""), priority_theo: z.string().trim().max(300).default(""), priority_pablo: z.string().trim().max(300).default("") });
+export const weeklySchema = z.object({ week_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), decisions: z.string().trim().max(4_000).default(""), notes: z.string().trim().max(4_000).default(""), priority_theo: z.string().trim().max(300).default(""), priority_pablo: z.string().trim().max(300).default(""), worked: z.string().trim().max(4_000).default(""), blocked: z.string().trim().max(4_000).default("") });
 
 export async function weeklyReview(ctx: AppContext, founder: FounderKey, weekStart?: string, now = new Date()) {
   const td = await today(ctx, founder, now);

@@ -11,6 +11,8 @@ import { ApiError, api } from "@/lib/api";
 import { relTime } from "@/lib/utils";
 import { useMe } from "./providers";
 import { TargetsEditor } from "./targets-editor";
+import { NewTaskModal, useRecurrenceText, useTasks } from "./tasks-view";
+import { fmtDay } from "./bits";
 import { useMyDay } from "./use-crm";
 import { ConflictNotice } from "./conflict";
 import Link from "next/link";
@@ -44,7 +46,39 @@ export function SettingsView() {
 
 function TargetsTab() {
   const d = useMyDay();
-  return <Panel>{d.isPending ? <Skeleton className="h-40" /> : <TargetsEditor initialMode={d.data?.mode ?? null} />}</Panel>;
+  return (
+    <div className="flex flex-col gap-5">
+      <Panel>{d.isPending ? <Skeleton className="h-40" /> : <TargetsEditor initialMode={d.data?.mode ?? null} />}</Panel>
+      <Routines />
+    </div>
+  );
+}
+
+/** Recurring tasks of the founder (every day, every Tuesday…): the next open instance of each routine. */
+function Routines() {
+  const t = useT();
+  const q = useTasks("mine");
+  const repeats = useRecurrenceText();
+  const [adding, setAdding] = React.useState(false);
+  const rows = (q.data ?? []).filter((x) => x.recurrence !== "none" && (x.status === "todo" || x.status === "in_progress"));
+  return (
+    <Panel>
+      <PanelTitle action={<Button size="sm" variant="primary" onClick={() => setAdding(true)}>{t("Add a routine")}</Button>}>{t("Routines")}</PanelTitle>
+      {q.isPending ? <Skeleton className="h-24" /> : q.isError ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : rows.length === 0 ? (
+        <p className="text-sm text-text-2">{t("No routine yet. A routine is a task that comes back on its own, for example every Tuesday.")}</p>
+      ) : (
+        <ul className="text-sm">
+          {rows.map((r) => (
+            <li key={r.id} className="flex flex-wrap items-baseline justify-between gap-x-3 border-t border-hairline py-2 first:border-t-0">
+              <span className="font-medium">{r.title}</span>
+              <span className="text-[13px] text-text-2">{repeats(r)}{r.due_at ? ` · ${t("next one on {date}", { date: fmtDay(r.due_at) })}` : ""}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <NewTaskModal open={adding} onOpenChange={setAdding} defaults={{ recurrence: "weekly" }} />
+    </Panel>
+  );
 }
 
 type UserRow = { id: string; version: number; timezone: string; workdays: number[]; capacity_minutes: number; display_name: string; avail_start: string; avail_end: string };
@@ -289,6 +323,7 @@ function SprintTab() {
 
 function Workspace() {
   const t = useT();
+  const me = useMe();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["system-settings"], queryFn: () => api<Record<string, string>>("/api/settings/system") });
   const save = useMutation({ mutationFn: (b: { key: string; value: string }) => api("/api/settings/system", { body: b }), onSuccess: () => { qc.invalidateQueries(); toast(t("Saved")); } });
@@ -303,6 +338,7 @@ function Workspace() {
     calendly_url_pablo: ["Pablo's Calendly link", "Inserted in call follow-ups (email and WhatsApp)."],
     deck_url_fr: ["Commercial deck, French", "A Drive or PDF link shared “anyone with the link”."],
     deck_url_es: ["Commercial deck, Spanish", "A Drive or PDF link shared “anyone with the link”."],
+    [`signature_${me.founder}`]: ["Email signature", me.founder === "theo" ? "Théo's email signature (several lines allowed)." : "Pablo's email signature (several lines allowed)."],
   };
   if (q.isPending) return <Skeleton className="h-64" />;
   if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
@@ -321,7 +357,7 @@ function SettingField({ k, label, hint, initial, onSave }: { k: string; label: s
   const [v, setV] = React.useState(initial);
   return (
     <form className="flex items-end gap-2" onSubmit={(e) => { e.preventDefault(); onSave(v); }}>
-      <Field label={label} htmlFor={`ws-${k}`} hint={hint} className="flex-1"><Input id={`ws-${k}`} value={v} onChange={(e) => setV(e.target.value)} /></Field>
+      <Field label={label} htmlFor={`ws-${k}`} hint={hint} className="flex-1">{k.startsWith("signature_") ? <Textarea id={`ws-${k}`} rows={4} value={v} onChange={(e) => setV(e.target.value)} placeholder={"…\nValemont"} /> : <Input id={`ws-${k}`} value={v} onChange={(e) => setV(e.target.value)} />}</Field>
       <Button type="submit" variant="outline" disabled={v === initial} className="mb-6">{t("Save")}</Button>
     </form>
   );

@@ -4,7 +4,7 @@ import type { FakeSheetsServer } from "@/fake-sheets/server";
 import type { AppContext } from "@/server/context";
 import { seedBaseline } from "@/server/services/baseline";
 import { commit } from "@/server/services/imports";
-import { callLists, callQueue, endSession, logCall, sessionSummary, startSession } from "@/server/services/calls";
+import { callLists, callLog, callQueue, endSession, logCall, sessionSummary, startSession } from "@/server/services/calls";
 import { getMyDay, setMode } from "@/server/services/myday";
 import { optOutContact, crmSnapshot } from "@/server/services/crm";
 import { TEST_SHEET_ID, freshSheetsRepo } from "../helpers";
@@ -47,6 +47,26 @@ describe("Call mode", () => {
     expect(s.stats.objections).toMatchObject([{ key: "too_expensive", count: 1, won: 0 }]);
     expect((await callLists(ctx))[0]).toMatchObject({ called: 3, reached: 2, meetings: 1, remaining: 0 });
     await endSession(ctx, "theo", sid);
+  });
+
+  it("keeps a log of every call: newest first, per session, with outcome, objection and account", async () => {
+    const listId = randomUUID();
+    await commit(ctx.repo, "theo", { import_id: listId, csv: CSV, brand: "local", owner_founder: null, lead_source: "Garages Lyon", list_name: "Garages Lyon" });
+    const sid = randomUUID();
+    await startSession(ctx, "theo", { id: sid, list_id: listId });
+    const q = await callQueue(ctx, "theo", listId);
+    await call(sid, { account_id: q.queue[0].accountId, outcome: "not_interested", objection: "too_expensive" });
+    await call(sid, { account_id: q.queue[1].accountId, outcome: "voicemail" });
+    const other = randomUUID();
+    await startSession(ctx, "theo", { id: other, list_id: listId });
+    await call(other, { account_id: q.queue[2].accountId, outcome: "meeting", follow_up_date: "2026-11-20" });
+    const session = await callLog(ctx, "theo", { session_id: sid, days: 14 });
+    expect(session.map((r) => r.name)).toEqual(["Garage Deux (test)", "Garage Un (test)"]);
+    expect(session[1]).toMatchObject({ outcome: "not_interested", objections: ["too_expensive"], niche: "Garages", message: null });
+    const all = await callLog(ctx, "theo", { session_id: "", days: 14 });
+    expect(all).toHaveLength(3);
+    expect(all[0]).toMatchObject({ name: "Garage Trois (test)", outcome: "meeting" });
+    expect(await callLog(ctx, "pablo", { session_id: "", days: 14 })).toHaveLength(0);
   });
 
   it("free dialling: a refusal is counted without storing the number; a yes needs a name and lands in the pipeline", async () => {

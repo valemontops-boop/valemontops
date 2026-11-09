@@ -9,6 +9,8 @@ export interface PlaybookData {
   items: PlaybookItem[];
   links: { calendly: string; deckFR: string; deckES: string };
   founderName: string;
+  /** The founder's email signature (Settings › Workspace); empty = "First name / Valemont". */
+  signature: string;
 }
 
 /** Scripts and templates (defaults + founder edits) and the links they insert, for the signed-in founder. */
@@ -20,6 +22,7 @@ export async function getPlaybook(ctx: AppContext, founder: FounderKey): Promise
     items: mergePlaybook(t.Playbook.rows),
     links: { calendly: s(`calendly_url_${founder}`), deckFR: s("deck_url_fr"), deckES: s("deck_url_es") },
     founderName: u.display_name.split(" ")[0] ?? u.display_name,
+    signature: s(`signature_${founder}`),
   };
 }
 

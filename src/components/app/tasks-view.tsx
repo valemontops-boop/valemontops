@@ -7,9 +7,10 @@ import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState, Field, Input, Panel, SegmentedSwitch, Select, Skeleton, Textarea } from "@/components/ui/form";
 import { DetailPanel, Modal } from "@/components/ui/overlay";
 import { FOUNDERS, FOUNDER_NAMES } from "@/domain/constants";
-import { addDays, startOfWeek } from "@/domain/time";
+import { addDays, startOfWeek, weekday } from "@/domain/time";
+import type { Recurrence } from "@/domain/tasks";
 import { ApiError, api } from "@/lib/api";
-import { useT } from "@/i18n/react";
+import { useDateTag, useT } from "@/i18n/react";
 import { cn } from "@/lib/utils";
 import type { TaskRow } from "@/server/services/tasks";
 import { Pill, fmtDay } from "./bits";
@@ -20,6 +21,57 @@ type View = "mine" | "theo" | "pablo" | "unassigned" | "overdue" | "all";
 export type Area = "sales" | "marketing" | "ops";
 export const AREA_LABEL: Record<Area, string> = { sales: "Sales", marketing: "Marketing", ops: "Ops" };
 const today = () => new Date().toLocaleDateString("en-CA");
+
+/** Week order on screen: Monday first (L M M J V S D). Values are weekday numbers, 0 = Sunday. */
+const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0] as const;
+/** Localized weekday name; 2026-11-08 was a Sunday, so 8 + d lands on weekday d. */
+const dayName = (tag: string, d: number, style: "short" | "long") => new Intl.DateTimeFormat(tag, { weekday: style, timeZone: "UTC" }).format(new Date(Date.UTC(2026, 10, 8 + d)));
+
+/** "repeats every Tuesday" / "repeats every Monday and Thursday", in the founder's language. */
+export function useRecurrenceText() {
+  const tr = useT();
+  const tag = useDateTag();
+  return React.useCallback((t: { recurrence: Recurrence; recurrence_days?: number[] | null }) => {
+    if (t.recurrence === "none") return "";
+    const days = t.recurrence === "weekly" ? WEEK_ORDER.filter((d) => (t.recurrence_days ?? []).includes(d)) : [];
+    if (!days.length) return tr(`repeats ${t.recurrence}`);
+    const names = days.map((d) => dayName(tag, d, "long"));
+    return tr("repeats every {days}", { days: new Intl.ListFormat(tag, { type: "conjunction" }).format(names) });
+  }, [tr, tag]);
+}
+
+/** Never / Every day / Weekdays / Every week on [L M M J V S D] / Every month. */
+function RecurrencePicker({ id, value, days, due, onChange }: { id: string; value: Recurrence; days: number[]; due: string; onChange: (r: Recurrence, days: number[]) => void }) {
+  const tr = useT();
+  const tag = useDateTag();
+  return (
+    <div className="flex flex-col gap-2">
+      <Field label={tr("Repeats")} htmlFor={id}>
+        <Select id={id} value={value} onChange={(e) => { const r = e.target.value as Recurrence; onChange(r, r === "weekly" ? (days.length ? days : due ? [weekday(due)] : [1]) : []); }}>
+          <option value="none">{tr("Never")}</option>
+          <option value="daily">{tr("Every day")}</option>
+          <option value="weekdays">{tr("Weekdays (Mon–Fri)")}</option>
+          <option value="weekly">{tr("Every week on…")}</option>
+          <option value="monthly">{tr("Every month")}</option>
+        </Select>
+      </Field>
+      {value === "weekly" ? (
+        <fieldset>
+          <legend className="sr-only">{tr("Days of the week")}</legend>
+          <div className="flex flex-wrap gap-1.5">
+            {WEEK_ORDER.map((d) => (
+              <label key={d} title={dayName(tag, d, "long")} className="flex h-9 min-w-11 cursor-pointer items-center justify-center rounded-full border border-control px-2.5 text-[13px] has-[:checked]:border-ink has-[:checked]:bg-ink has-[:checked]:text-panel has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ink">
+                <input type="checkbox" className="sr-only" aria-label={dayName(tag, d, "long")} checked={days.includes(d)} onChange={(e) => onChange("weekly", e.target.checked ? [...days, d].sort((a, b) => a - b) : days.filter((x) => x !== d))} />
+                {dayName(tag, d, "short")}
+              </label>
+            ))}
+          </div>
+          <p className="mt-1 text-[12px] text-text-3">{days.length ? tr("A new task is created on the next chosen day when you complete this one.") : tr("No day chosen: same weekday as the due date.")}</p>
+        </fieldset>
+      ) : null}
+    </div>
+  );
+}
 
 export function useTasks(view: View) {
   return useQuery({ queryKey: ["tasks", view], queryFn: () => api<TaskRow[]>(`/api/tasks?view=${view}`) });
@@ -38,6 +90,7 @@ export function useToggleTask() {
 /** Task row with a round check (DESIGN.md). The check persists the real status. */
 export function TaskRowItem({ t, onOpen }: { t: TaskRow; onOpen?: () => void }) {
   const tr = useT();
+  const repeats = useRecurrenceText();
   const toggle = useToggleTask();
   const done = t.status === "done";
   const pending = toggle.isPending;
@@ -55,7 +108,7 @@ export function TaskRowItem({ t, onOpen }: { t: TaskRow; onOpen?: () => void }) 
           {t.due_at ? <span className={cn(overdue && "font-medium text-bad")}>{overdue ? `${tr("Overdue")} · ` : ""}{fmtDay(t.due_at)}</span> : null}
           <span>{t.owner ? FOUNDER_NAMES[t.owner] : tr("Unassigned")}</span>
           <span className="rounded-full bg-subtle px-1.5">{tr(AREA_LABEL[t.area])}</span>
-          {t.recurrence !== "none" ? <span>{tr(`repeats ${t.recurrence}`)}</span> : null}
+          {t.recurrence !== "none" ? <span>{repeats(t)}</span> : null}
           {t.snoozed_until && t.snoozed_until > today() ? <span>{tr("snoozed to {date}", { date: fmtDay(t.snoozed_until) })}</span> : null}
         </p>
       </button>
@@ -127,7 +180,7 @@ function WeekGrid({ tasks, onOpen }: { tasks: TaskRow[]; onOpen: (id: string) =>
 function TaskPanel({ t, onClose }: { t: TaskRow; onClose: () => void }) {
   const tr = useT();
   const qc = useQueryClient();
-  const [v, setV] = React.useState({ title: t.title, description: t.description, owner: t.owner ?? "", priority: t.priority, due_at: t.due_at ?? "", status: t.status, completion_evidence: t.completion_evidence, area: t.area });
+  const [v, setV] = React.useState({ title: t.title, description: t.description, owner: t.owner ?? "", priority: t.priority, due_at: t.due_at ?? "", status: t.status, completion_evidence: t.completion_evidence, area: t.area, recurrence: t.recurrence, recurrence_days: t.recurrence_days ?? [] });
   const [snooze, setSnooze] = React.useState({ until: "", reason: "" });
   const save = useMutation({
     mutationFn: (patch: Record<string, unknown>) => api("/api/tasks", { method: "PATCH", body: { id: t.id, private: t.private, expected_version: t.version, patch } }),
@@ -149,6 +202,7 @@ function TaskPanel({ t, onClose }: { t: TaskRow; onClose: () => void }) {
           <Field label={tr("Area")} htmlFor="tk-area"><Select id="tk-area" value={v.area} onChange={(e) => setV({ ...v, area: e.target.value as Area })}><option value="sales">{tr("Sales")}</option><option value="marketing">{tr("Marketing")}</option><option value="ops">{tr("Ops")}</option></Select></Field>
           <Field label={tr("Status")} htmlFor="tk-st"><Select id="tk-st" value={v.status} onChange={(e) => setV({ ...v, status: e.target.value as "todo" })}><option value="todo">{tr("To do")}</option><option value="in_progress">{tr("In progress")}</option><option value="done">{tr("Done")}</option><option value="cancelled">{tr("Cancelled")}</option></Select></Field>
         </div>
+        <RecurrencePicker id="tk-rec" value={v.recurrence} days={v.recurrence_days} due={v.due_at} onChange={(recurrence, recurrence_days) => setV({ ...v, recurrence, recurrence_days })} />
         <Field label={tr("Description")} htmlFor="tk-desc"><Textarea id="tk-desc" value={v.description} onChange={(e) => setV({ ...v, description: e.target.value })} /></Field>
         {v.status === "done" ? <Field label={tr("Completion evidence (optional)")} htmlFor="tk-ev"><Input id="tk-ev" value={v.completion_evidence} onChange={(e) => setV({ ...v, completion_evidence: e.target.value })} placeholder={tr("Link or short note")} /></Field> : null}
         {err?.isConflict ? <ConflictNotice mine={v} current={err.body.current} fields={["title", "owner", "priority", "due_at", "status"]} onKeepTheirs={() => qc.invalidateQueries()} onApplyMine={() => qc.invalidateQueries()} /> : save.isError ? <ErrorState error={save.error} onRetry={() => save.mutate({ ...v, owner: v.owner || null })} /> : null}
@@ -176,12 +230,12 @@ function TaskPanel({ t, onClose }: { t: TaskRow; onClose: () => void }) {
   );
 }
 
-export function NewTaskModal({ open, onOpenChange, defaults }: { open: boolean; onOpenChange: (o: boolean) => void; defaults?: { account_id?: string; title?: string; area?: Area } }) {
+export function NewTaskModal({ open, onOpenChange, defaults }: { open: boolean; onOpenChange: (o: boolean) => void; defaults?: { account_id?: string; title?: string; area?: Area; recurrence?: Recurrence; recurrence_days?: number[] } }) {
   const tr = useT();
   const qc = useQueryClient();
   const me = useMe();
   const [id, setId] = React.useState(() => crypto.randomUUID());
-  const blank = { title: defaults?.title ?? "", owner: me.founder as string, priority: "P2", due_at: today(), recurrence: "none", private: false, area: (defaults?.area ?? "sales") as Area };
+  const blank = { title: defaults?.title ?? "", owner: me.founder as string, priority: "P2", due_at: today(), recurrence: (defaults?.recurrence ?? "none") as Recurrence, recurrence_days: defaults?.recurrence_days ?? (defaults?.recurrence === "weekly" ? [weekday(today())] : []), private: false, area: (defaults?.area ?? "sales") as Area };
   const [v, setV] = React.useState(blank);
   const m = useMutation({
     mutationFn: () => api("/api/tasks", { body: { id, task: { ...v, owner: v.owner || null, account_id: defaults?.account_id ?? "" } } }),
@@ -196,8 +250,8 @@ export function NewTaskModal({ open, onOpenChange, defaults }: { open: boolean; 
           <Field label={tr("Priority")} htmlFor="nt-pr"><Select id="nt-pr" value={v.priority} onChange={(e) => setV({ ...v, priority: e.target.value })}>{["P0", "P1", "P2", "P3"].map((p) => <option key={p}>{p}</option>)}</Select></Field>
           <Field label={tr("Due")} htmlFor="nt-due"><Input id="nt-due" type="date" value={v.due_at} onChange={(e) => setV({ ...v, due_at: e.target.value })} /></Field>
           <Field label={tr("Area")} htmlFor="nt-area"><Select id="nt-area" value={v.area} onChange={(e) => setV({ ...v, area: e.target.value as Area })}><option value="sales">{tr("Sales")}</option><option value="marketing">{tr("Marketing")}</option><option value="ops">{tr("Ops")}</option></Select></Field>
-          <Field label={tr("Repeats")} htmlFor="nt-rec"><Select id="nt-rec" value={v.recurrence} onChange={(e) => setV({ ...v, recurrence: e.target.value })}><option value="none">{tr("No")}</option><option value="daily">{tr("Daily")}</option><option value="weekdays">{tr("Weekdays")}</option><option value="weekly">{tr("Weekly")}</option><option value="monthly">{tr("Monthly")}</option></Select></Field>
         </div>
+        <RecurrencePicker id="nt-rec" value={v.recurrence} days={v.recurrence_days} due={v.due_at} onChange={(recurrence, recurrence_days) => setV({ ...v, recurrence, recurrence_days })} />
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="size-4" checked={v.private} onChange={(e) => setV({ ...v, private: e.target.checked, owner: e.target.checked ? me.founder : v.owner })} /> {tr("Private (only you, stored in your own spreadsheet)")}</label>
         {m.isError ? <ErrorState error={m.error} onRetry={() => m.mutate()} /> : null}
         <Button type="submit" variant="primary" disabled={m.isPending || !v.title.trim()}>{m.isPending ? tr("Saving…") : tr("Add task")}</Button>

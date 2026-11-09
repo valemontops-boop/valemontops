@@ -4,7 +4,7 @@ import * as React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ErrorState, Field, Input, Panel, PanelTitle, SegmentedSwitch, Skeleton, Textarea } from "@/components/ui/form";
-import { FOUNDERS, FOUNDER_NAMES, METRICS, METRIC_LABELS } from "@/domain/constants";
+import { FOUNDERS, FOUNDER_NAMES, METRIC_LABELS } from "@/domain/constants";
 import { addDays } from "@/domain/time";
 import { api } from "@/lib/api";
 import type { weeklyReview } from "@/server/services/insights";
@@ -18,6 +18,7 @@ import { OBJECTION_LABELS } from "@/domain/constants";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { reportsDashboard as dashboard } from "@/server/services/dashboard";
 import { useT } from "@/i18n/react";
+import { useMe } from "./providers";
 
 type Weekly = Awaited<ReturnType<typeof weeklyReview>>;
 type Streaks = Awaited<ReturnType<typeof streakSummary>>;
@@ -102,11 +103,11 @@ function DashboardBody({ d }: { d: Dash }) {
         <Panel><PanelTitle>{t("Outreach by channel")}</PanelTitle><Bars tone="sales" data={d.channels.filter((c) => c.count > 0).map((c) => ({ label: t(METRIC_LABELS[c.metric]), value: c.count }))} /></Panel>
         <Panel>
           <PanelTitle>{t("By country")}</PanelTitle>
-          {d.byMarket.length ? <Bars data={d.byMarket.map((m) => ({ label: m.key, value: m.dials, tone: m.key === "ES" ? ("muted" as const) : ("ink" as const), sub: t("{pickup} pick-up · {yes} yes", { pickup: pctTxt(m.picked && m.dials ? m.picked / m.dials : null), yes: pctTxt(m.yesRate) }) }))} /> : <p className="text-sm text-text-2">No calls yet.</p>}
+          {d.byMarket.length ? <Bars data={d.byMarket.map((m) => ({ label: m.key, value: m.dials, tone: m.key === "ES" ? ("muted" as const) : ("ink" as const), sub: t("{pickup} pick-up · {yes} yes", { pickup: pctTxt(m.picked && m.dials ? m.picked / m.dials : null), yes: pctTxt(m.yesRate) }) }))} /> : <p className="text-sm text-text-2">{t("No calls yet.")}</p>}
         </Panel>
         <Panel>
           <PanelTitle>{t("By trade")}</PanelTitle>
-          {d.byNiche.length ? <Bars tone="sales" data={d.byNiche.map((m) => ({ label: m.key, value: m.dials, sub: t("{pct} yes when reached", { pct: pctTxt(m.yesRate) }) }))} /> : <p className="text-sm text-text-2">No calls yet.</p>}
+          {d.byNiche.length ? <Bars tone="sales" data={d.byNiche.map((m) => ({ label: t(m.key), value: m.dials, sub: t("{pct} yes when reached", { pct: pctTxt(m.yesRate) }) }))} /> : <p className="text-sm text-text-2">{t("No calls yet.")}</p>}
         </Panel>
       </div>
     </>
@@ -124,51 +125,86 @@ function WeekPicker({ start, setWeek }: { start: string; setWeek: (w: string) =>
   );
 }
 
+type Fact = { key: string; vars?: Record<string, string | number> };
+
+/** Short, data-only reading of the week: what went well, what to improve (max 3 each). */
+function weekFacts(d: Weekly, t: (k: string) => string): { good: Fact[]; fix: Fact[] } {
+  const good: Fact[] = [], fix: Fact[] = [];
+  const sum = (pick: (f: Weekly["perFounder"][keyof Weekly["perFounder"]]) => number) => FOUNDERS.reduce((a, f) => a + pick(d.perFounder[f]), 0);
+  const calls = sum((p) => p.actual.calls ?? 0);
+  if (calls === 0) fix.push({ key: "No call logged this week." });
+  for (const m of ["calls", "new_businesses"] as const) {
+    const target = sum((p) => p.target[m] ?? 0), actual = sum((p) => p.actual[m] ?? 0);
+    if (!target) continue;
+    if (actual >= target) good.push({ key: "{metric}: target reached ({n} / {total}).", vars: { metric: t(METRIC_LABELS[m]), n: actual, total: target } });
+    else if (actual < target * 0.8 && actual > 0) fix.push({ key: "{metric}: {n} of {total} done.", vars: { metric: t(METRIC_LABELS[m]), n: actual, total: target } });
+  }
+  const passed = sum((p) => p.passed), scheduled = sum((p) => p.scheduled);
+  if (scheduled && passed === scheduled) good.push({ key: "Every scheduled day passed ({n}).", vars: { n: passed } });
+  else if (scheduled) fix.push({ key: "{n} of {total} scheduled days passed.", vars: { n: passed, total: scheduled } });
+  const meetings = sum((p) => p.funnel.meetingsBooked), talks = sum((p) => p.funnel.conversations), won = sum((p) => p.funnel.sales);
+  if (won) good.push({ key: "{n} deals won.", vars: { n: won } });
+  if (meetings) good.push({ key: "{n} meetings booked.", vars: { n: meetings } });
+  else if (talks >= 5) fix.push({ key: "{n} conversations but no meeting: ask for the slot before hanging up.", vars: { n: talks } });
+  const obj = d.topObjections[0];
+  if (obj && obj.count >= 3) fix.push({ key: "Most heard objection: {objection} ({n} times).", vars: { objection: t(obj.label), n: obj.count } });
+  return { good: good.slice(0, 3), fix: fix.slice(0, 3) };
+}
+
 function WeeklyReview({ week, setWeek }: { week?: string; setWeek: (w: string) => void }) {
   const t = useT();
   const q = useQuery({ queryKey: ["weekly", week], queryFn: () => api<Weekly>(`/api/weekly${week ? `?week=${week}` : ""}`) });
   if (q.isPending) return <Skeleton className="h-96" />;
   if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
   const d = q.data;
-  const shown = METRICS.filter((m) => FOUNDERS.some((f) => (d.perFounder[f].target[m] ?? 0) > 0 || (d.perFounder[f].actual[m] ?? 0) > 0));
+  const sum = (pick: (f: Weekly["perFounder"][keyof Weekly["perFounder"]]) => number) => FOUNDERS.reduce((a, f) => a + pick(d.perFounder[f]), 0);
+  const { good, fix } = weekFacts(d, t);
   return (
-    <>
+    <div className="flex max-w-3xl flex-col gap-4">
       <WeekPicker start={d.weekStart} setWeek={setWeek} />
-      <Panel className="overflow-x-auto">
-        <PanelTitle>{t("This week against targets")}</PanelTitle>
-        <table className="w-full min-w-[520px] text-sm">
-          <thead><tr className="text-left text-[12px] text-text-3"><th className="py-1.5 font-medium">{t("Action")}</th>{FOUNDERS.map((f) => <th key={f} className="text-right font-medium">{FOUNDER_NAMES[f]} ({t("done / target")})</th>)}</tr></thead>
-          <tbody>
-            {shown.map((m) => <tr key={m} className="border-t border-hairline"><td className="py-1.5">{t(METRIC_LABELS[m])}</td>{FOUNDERS.map((f) => <td key={f} className="num text-right">{d.perFounder[f].actual[m] ?? 0} / {d.perFounder[f].target[m] ?? 0}</td>)}</tr>)}
-            <tr className="border-t border-hairline"><td className="py-1.5">{t("Days passed")}</td>{FOUNDERS.map((f) => <td key={f} className="num text-right">{t("{passed} / {scheduled} closed", { passed: d.perFounder[f].passed, scheduled: d.perFounder[f].scheduled })}</td>)}</tr>
-            {(["conversations", "demos", "meetingsBooked", "proposals", "sales"] as const).map((k) => <tr key={k} className="border-t border-hairline"><td className="py-1.5">{t({ conversations: "Conversations", demos: "Demos", meetingsBooked: "Meetings booked", proposals: "Proposals", sales: "Deals won" }[k])}</td>{FOUNDERS.map((f) => <td key={f} className="num text-right">{d.perFounder[f].funnel[k]}</td>)}</tr>)}
-          </tbody>
-        </table>
-      </Panel>
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <Panel><PanelTitle>{t("Top objections")}</PanelTitle>{d.topObjections.length ? <ul className="text-sm">{d.topObjections.map((o) => <li key={o.label} className="flex justify-between border-t border-hairline py-1.5 first:border-t-0"><span>{t(o.label)}</span><span className="num">{o.count}</span></li>)}</ul> : <p className="text-sm text-text-2">{t("No objection logged this week.")}</p>}</Panel>
-        <Panel><PanelTitle>{t("Decisions from founder points")}</PanelTitle>{d.decisions.length ? <ul className="flex list-disc flex-col gap-1 pl-5 text-sm">{d.decisions.map((x) => <li key={x.id}>{x.text}</li>)}</ul> : <p className="text-sm text-text-2">{t("No decision recorded this week.")}</p>}</Panel>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Kpi label={t("Calls")} value={String(sum((p) => p.actual.calls ?? 0))} dark />
+        <Kpi label={t("Conversations")} value={String(sum((p) => p.funnel.conversations))} />
+        <Kpi label={t("Meetings booked")} value={String(sum((p) => p.funnel.meetingsBooked))} />
+        <Kpi label={t("New businesses contacted")} value={String(sum((p) => p.actual.new_businesses ?? 0))} />
       </div>
+      <Panel>
+        {good.length || fix.length ? (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <section><h3 className="mb-1 text-sm font-semibold">{t("What went well")}</h3>{good.length ? <ul className="flex list-disc flex-col gap-1 pl-5 text-sm">{good.map((f) => <li key={f.key}>{t(f.key, f.vars)}</li>)}</ul> : <p className="text-sm text-text-2">—</p>}</section>
+            <section><h3 className="mb-1 text-sm font-semibold">{t("What to improve")}</h3>{fix.length ? <ul className="flex list-disc flex-col gap-1 pl-5 text-sm">{fix.map((f) => <li key={f.key}>{t(f.key, f.vars)}</li>)}</ul> : <p className="text-sm text-text-2">—</p>}</section>
+          </div>
+        ) : <p className="text-sm text-text-2">{t("Not enough activity this week to draw conclusions.")}</p>}
+      </Panel>
       <WeeklyForm key={d.weekStart + (d.saved?.version ?? 0)} d={d} />
-    </>
+    </div>
   );
 }
 
+/**
+ * Three fields only (founder feedback round 7). Stored in the existing WeeklyReviews columns, no schema change:
+ * "What worked" → worked, "What blocked" → blocked, "Priority next week" → priority_<me>; older notes/decisions are kept. The co-founder's priority is sent back unchanged.
+ */
 function WeeklyForm({ d }: { d: Weekly }) {
   const t = useT();
   const qc = useQueryClient();
-  const [v, setV] = React.useState({ decisions: d.saved?.decisions ?? "", notes: d.saved?.notes ?? "", priority_theo: d.saved?.priority_theo ?? "", priority_pablo: d.saved?.priority_pablo ?? "" });
-  const m = useMutation({ mutationFn: () => api("/api/weekly", { body: { week_start: d.weekStart, ...v } }), onSuccess: () => { qc.invalidateQueries({ queryKey: ["weekly"] }); toast(t("Saved")); } });
+  const me = useMe().founder;
+  const other = me === "theo" ? "pablo" : "theo";
+  const mine = me === "theo" ? "priority_theo" : "priority_pablo";
+  const theirs = d.saved?.[other === "theo" ? "priority_theo" : "priority_pablo"] ?? "";
+  const [v, setV] = React.useState({ worked: d.saved?.worked || d.saved?.notes || "", blocked: d.saved?.blocked || "", priority: d.saved?.[mine] ?? "" });
+  const m = useMutation({
+    mutationFn: () => api("/api/weekly", { body: { week_start: d.weekStart, worked: v.worked, blocked: v.blocked, notes: d.saved?.notes ?? "", decisions: d.saved?.decisions ?? "", priority_theo: me === "theo" ? v.priority : theirs, priority_pablo: me === "pablo" ? v.priority : theirs } }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["weekly"] }); toast(t("Saved")); },
+  });
   return (
     <Panel>
-      <PanelTitle>{t("Next week")}</PanelTitle>
-      <form className="grid grid-cols-1 gap-3 sm:grid-cols-2" onSubmit={(e) => { e.preventDefault(); m.mutate(); }}>
-        <Field label={t("{name}'s single priority", { name: FOUNDER_NAMES.theo })} htmlFor="wp-t"><Input id="wp-t" value={v.priority_theo} onChange={(e) => setV({ ...v, priority_theo: e.target.value })} /></Field>
-        <Field label={t("{name}'s single priority", { name: FOUNDER_NAMES.pablo })} htmlFor="wp-p"><Input id="wp-p" value={v.priority_pablo} onChange={(e) => setV({ ...v, priority_pablo: e.target.value })} /></Field>
-        <Field label={t("Decisions taken in this review")} htmlFor="wp-d" className="sm:col-span-2"><Textarea id="wp-d" value={v.decisions} onChange={(e) => setV({ ...v, decisions: e.target.value })} /></Field>
-        <Field label={t("Notes")} htmlFor="wp-n" className="sm:col-span-2"><Textarea id="wp-n" value={v.notes} onChange={(e) => setV({ ...v, notes: e.target.value })} /></Field>
-        {m.isError ? <div className="sm:col-span-2"><ErrorState error={m.error} onRetry={() => m.mutate()} /></div> : null}
-        <Button type="submit" variant="primary" className="self-start" disabled={m.isPending}>{m.isPending ? t("Saving…") : t("Save weekly review")}</Button>
+      <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); m.mutate(); }}>
+        <Field label={t("What worked")} htmlFor="wr-w"><Textarea id="wr-w" rows={2} value={v.worked} onChange={(e) => setV({ ...v, worked: e.target.value })} /></Field>
+        <Field label={t("What blocked")} htmlFor="wr-b"><Textarea id="wr-b" rows={2} value={v.blocked} onChange={(e) => setV({ ...v, blocked: e.target.value })} /></Field>
+        <Field label={t("Priority next week")} htmlFor="wr-p" hint={theirs ? t("{name}'s priority: {text}", { name: FOUNDER_NAMES[other], text: theirs }) : undefined}><Input id="wr-p" value={v.priority} onChange={(e) => setV({ ...v, priority: e.target.value })} /></Field>
+        {m.isError ? <ErrorState error={m.error} onRetry={() => m.mutate()} /> : null}
+        <Button type="submit" variant="primary" className="self-start" disabled={m.isPending}>{m.isPending ? t("Saving…") : t("Save")}</Button>
       </form>
     </Panel>
   );

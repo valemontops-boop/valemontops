@@ -105,7 +105,7 @@ test("call mode: objections on any outcome, one-key outcomes, yes goes to the pi
   await page.getByRole("button", { name: fr("Save · {outcome}", { outcome: fr("Meeting booked") }) }).click();
   await expect(page.getByText(fr("{outcome}: added to your pipeline", { outcome: fr("Meeting booked") }))).toBeVisible();
   // The message for the person just called is ready (meeting → confirmation); E opens it in their language.
-  await expect(page.getByText(fr("Message for {name}", { name: "Carrosserie Rapide (e2e)" }), { exact: false })).toBeVisible();
+  await expect(page.getByText(fr("Send to {name}", { name: "Carrosserie Rapide (e2e)" }), { exact: false })).toBeVisible();
   await page.keyboard.press("e");
   await expect(page.getByLabel(fr("Subject"))).toHaveValue(/Carrosserie Rapide/);
   await page.keyboard.press("Escape");

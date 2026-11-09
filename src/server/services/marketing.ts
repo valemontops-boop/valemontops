@@ -29,7 +29,7 @@ export async function marketingOverview(ctx: AppContext, founder: FounderKey, in
   const traffic = t.TrafficDaily.rows.filter((r) => !r.is_archived && r.date >= from && r.date <= today && brandOk(r.brand)) as TrafficRow[];
   const accounts = t.SocialAccounts.rows.filter((a) => !a.is_archived && a.visibility === "team" && brandOk(a.brand));
   const daily = t.SocialAccountDaily.rows.filter((r) => r.date >= from && r.date <= today);
-  const sum = (ids: string[], k: "views" | "impressions" | "link_clicks") => daily.filter((r) => ids.includes(r.account_id)).reduce((s, r) => s + (r[k] ?? 0), 0);
+  const sum = (ids: string[], k: "views" | "impressions" | "link_clicks" | "profile_visits") => daily.filter((r) => ids.includes(r.account_id)).reduce((s, r) => s + (r[k] ?? 0), 0);
   const markets = await targetMarkets(ctx);
   const events = dedupeEvents(t.ActivityEvents.rows).filter((e) => e.local_date >= from && e.local_date <= today);
 
@@ -50,6 +50,19 @@ export async function marketingOverview(ctx: AppContext, founder: FounderKey, in
     return { brand: b, label: BRAND_LABELS[b], steps, hasData: steps.some((s) => s.value > 0) };
   });
 
+  // Growth › LinkedIn / Instagram: content funnel per platform (team accounts), down to the website visits that came from it.
+  const fromSource = (re: RegExp) => traffic.filter((r) => re.test(`${r.source} ${r.medium}`));
+  const trafficSteps = (re: RegExp) => [
+    { label: "Website visits", value: fromSource(re).reduce((s, r) => s + (r.sessions ?? 0), 0) },
+    { label: "Leads", value: fromSource(re).reduce((s, r) => s + (r.leads ?? 0), 0) },
+  ];
+  const igIds = accounts.filter((a) => a.platform === "instagram").map((a) => a.id);
+  const liIds = accounts.filter((a) => a.platform !== "instagram").map((a) => a.id);
+  const platforms = {
+    instagram: [{ label: "Views", value: sum(igIds, "views") }, { label: "Profile visits", value: sum(igIds, "profile_visits") }, { label: "Link clicks", value: sum(igIds, "link_clicks") }, ...trafficSteps(/instagram|\big\b/i)],
+    linkedin: [{ label: "Impressions", value: sum(liIds, "impressions") }, { label: "Link clicks", value: sum(liIds, "link_clicks") }, ...trafficSteps(/linkedin|lnkd/i)],
+  };
+
   const latestBreakdown = (accountId: string) => {
     const rows = t.AudienceBreakdown.rows.filter((r) => r.account_id === accountId && !r.is_archived);
     const last = rows.map((r) => r.date).sort().at(-1);
@@ -64,6 +77,7 @@ export async function marketingOverview(ctx: AppContext, founder: FounderKey, in
     sources: sources.slice(0, 8),
     countries: byCountry(traffic).slice(0, 8).map((c) => ({ ...c, target: Object.values(markets).flat().includes(c.country) })),
     funnels,
+    platforms,
     fits,
     insights: recommendations({ sources, fits, content: week.items }),
     hasTraffic: traffic.length > 0,

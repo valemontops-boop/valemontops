@@ -5,16 +5,17 @@ import { cn } from "@/lib/utils";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { EmailTab } from "./email-tab";
+import { MessagesTab } from "./email-tab";
 import { Spark } from "./charts";
-import { FunnelsTab } from "./marketing-funnels";
+import { GrowthOverviewTab } from "./marketing-funnels";
+import { StatStrip, StepFunnel, useFunnels, type Days, type GrowthFilter, type GrowthTab, type Scope } from "./growth-common";
 import { useDateTag, useT } from "@/i18n/react";
 import { EmptyState, ErrorState, Field, Input, Panel, PanelTitle, SegmentedSwitch, Select, Skeleton } from "@/components/ui/form";
 import { Modal } from "@/components/ui/overlay";
 import { BRANDS, BRAND_LABELS } from "@/domain/constants";
 import { api } from "@/lib/api";
 import { fmtDay } from "./bits";
-import { CountrySplitButton, MarketingOverview, TrafficTab } from "./marketing-overview";
+import { CountrySplitButton, WebsiteTab, useMarketingOverview } from "./marketing-overview";
 import { MarketingWeek, TasksFor } from "./my-day-extras";
 
 type Account = { id: string; platform: "instagram" | "linkedin_page" | "linkedin_personal"; handle: string; brand: string | null; market: string | null; visibility: string; owner_founder: string | null };
@@ -22,19 +23,42 @@ type Series = { account: Account; metric: string; allowedMetrics: string[]; poin
 const METRIC_NAMES: Record<string, string> = { followers: "Followers", views: "Views", impressions: "Impressions", reach: "Reach", profile_visits: "Profile visits", interactions: "Interactions", link_clicks: "Link clicks" };
 const PLATFORM: Record<string, string> = { instagram: "Instagram", linkedin_page: "LinkedIn page", linkedin_personal: "LinkedIn personal" };
 
+/**
+ * Growth (round 7): acquisition across every channel. One period and one scope at the top apply to every
+ * tab that can use them; each tab reads the same way: key numbers → the channel funnel → the details.
+ */
 export function MarketingView() {
   const t = useT();
-  const [tab, setTab] = React.useState<"funnels" | "email" | "website" | "social" | "content">("funnels");
+  const [tab, setTab] = React.useState<GrowthTab>("overview");
+  const [days, setDays] = React.useState<Days>("30");
+  const [scope, setScope] = React.useState<Scope>("team");
+  const filter: GrowthFilter = { days, scope };
+  const usesPeriod = tab !== "content";
+  const usesScope = tab === "overview" || tab === "messages" || tab === "linkedin";
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{t("Growth")}</h1>
           <p className="text-sm text-text-2">{t("Which channel brings meetings, for how much work.")}</p>
         </div>
-        <SegmentedSwitch label={t("Section")} value={tab} onChange={setTab} options={[{ value: "funnels", label: t("Funnels") }, { value: "email", label: t("Email") }, { value: "website", label: t("Website") }, { value: "social", label: t("Social") }, { value: "content", label: t("Content") }]} />
+        <div className="flex flex-wrap gap-2">
+          {usesPeriod ? <SegmentedSwitch size="sm" label={t("Period")} value={days} onChange={setDays} options={[{ value: "7", label: t("7 days") }, { value: "30", label: t("30 days") }, { value: "90", label: t("90 days") }]} /> : null}
+          {usesScope ? <SegmentedSwitch size="sm" label={t("Scope")} value={scope} onChange={setScope} options={[{ value: "team", label: t("Team") }, { value: "me", label: t("Me") }]} /> : null}
+        </div>
       </div>
-      {tab === "funnels" ? <FunnelsTab /> : tab === "email" ? <EmailTab /> : tab === "website" ? <><MarketingOverview /><TrafficTab /></> : tab === "social" ? <AudienceTab /> : <ContentTab />}
+      <div className="-mx-1 overflow-x-auto px-1 [&_button]:whitespace-nowrap">
+        <SegmentedSwitch label={t("Section")} value={tab} onChange={setTab} options={[
+          { value: "overview", label: t("Overview") }, { value: "messages", label: t("Messages") }, { value: "linkedin", label: "LinkedIn" },
+          { value: "instagram", label: "Instagram" }, { value: "website", label: t("Website") }, { value: "content", label: t("Content") },
+        ]} />
+      </div>
+      {tab === "overview" ? <GrowthOverviewTab filter={filter} onOpen={setTab} />
+        : tab === "messages" ? <MessagesTab filter={filter} />
+        : tab === "linkedin" ? <SocialTab key="li" network="linkedin" filter={filter} />
+        : tab === "instagram" ? <SocialTab key="ig" network="instagram" filter={filter} />
+        : tab === "website" ? <WebsiteTab filter={filter} />
+        : <ContentTab />}
     </div>
   );
 }
@@ -48,70 +72,93 @@ function ContentTab() {
   );
 }
 
-function AudienceTab() {
+type Overview = { account: Account; followers: number | null; lastDate: string | null; change30: number | null; reach30: number | null; reachMetric: "views" | "impressions"; spark: number[] }[];
+const isNetwork = (a: Account, n: "linkedin" | "instagram") => (n === "instagram" ? a.platform === "instagram" : a.platform !== "instagram");
+
+/** LinkedIn (4 accounts + outreach) or Instagram (2 accounts): key numbers → funnels → accounts and the selected curve. */
+function SocialTab({ network, filter }: { network: "linkedin" | "instagram"; filter: GrowthFilter }) {
   const t = useT();
+  const tag = useDateTag();
   const accounts = useQuery({ queryKey: ["audience-accounts"], queryFn: () => api<Account[]>("/api/audience/accounts") });
+  const overview = useQuery({ queryKey: ["audience-overview"], queryFn: () => api<Overview>("/api/audience/overview") });
+  const funnels = useFunnels(filter);
+  const content = useMarketingOverview(filter.days);
   const [accountId, setAccountId] = React.useState<string | null>(null);
   const [adding, setAdding] = React.useState(false);
-  const current = accounts.data?.find((a) => a.id === (accountId ?? accounts.data?.[0]?.id));
+  const mine = (accounts.data ?? []).filter((a) => isNetwork(a, network));
+  const cards = (overview.data ?? []).filter((o) => isNetwork(o.account, network));
+  const current = mine.find((a) => a.id === accountId) ?? mine[0];
+  const followers = cards.reduce((s, o) => s + (o.followers ?? 0), 0);
+  const known = cards.filter((o) => o.followers !== null).length;
+  const change = cards.some((o) => o.change30 !== null) ? cards.reduce((s, o) => s + (o.change30 ?? 0), 0) : null;
+  const li = funnels.data?.all.find((c) => c.key === "linkedin");
+  const steps = content.data?.platforms?.[network] ?? [];
+  const n = (v: number | undefined) => (v === undefined ? "…" : v.toLocaleString(tag));
+
+  const followerStat = { label: t("Followers"), value: known ? followers.toLocaleString(tag) : "—", note: known ? `${t("{n} account(s)", { n: known })}${change === null ? "" : ` · ${change >= 0 ? "+" : ""}${change.toLocaleString(tag)} ${t("in 30 days")}`}` : t("enter or import the numbers below") };
+  const stats = network === "linkedin" ? [
+    followerStat,
+    { label: t("Invitations & messages"), value: n(li?.touches), note: t("{n} people reached", { n: li?.steps[1]?.value ?? 0 }) },
+    { label: t("Replies"), value: n(li?.steps[2]?.value), note: li?.steps[1]?.value ? t("{pct} of people reached", { pct: `${Math.round(((li.steps[2]?.value ?? 0) / li.steps[1].value) * 100)}%` }) : t("replies to invitations and messages") },
+    { label: t("Meetings"), value: n(li?.meetings), note: t("credited to LinkedIn (last touch)"), result: true },
+  ] : [
+    followerStat,
+    { label: t("Views"), value: n(steps[0]?.value), note: t("Instagram views in this period") },
+    { label: t("Website visits"), value: n(steps[3]?.value), note: t("sessions coming from Instagram (GA4)") },
+  ];
+
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-text-2">{t("How views and followers evolve. Gaps stay visible; nothing is interpolated.")}</p>
-        <Button variant="outline" onClick={() => setAdding(true)}>{t("Add account")}</Button>
+      <StatStrip stats={stats} />
+      <div className={cn("grid grid-cols-1 gap-5", network === "linkedin" && "lg:grid-cols-2")}>
+        {network === "linkedin" ? (
+          <StepFunnel title={t("LinkedIn outreach")} steps={li ? li.steps : []} hours={li?.hours} empty={t("No LinkedIn invitation or message logged in this period. Log them with “Log activity”.")} />
+        ) : null}
+        <StepFunnel title={network === "linkedin" ? t("LinkedIn content → website") : t("Instagram content → website")} steps={steps}
+          empty={network === "linkedin" ? t("No LinkedIn impressions in this period: import the LinkedIn export of each account below.") : t("No Instagram numbers in this period: open an account below and enter its numbers.")}
+          footnote={network === "linkedin" ? t("Team pages only. Website visits and leads come from the GA4 import (source LinkedIn). The % is the share kept from the step before.") : t("Website visits and leads come from the GA4 import (source Instagram). The % is the share kept from the step before.")} />
       </div>
-      {accounts.isPending ? <Skeleton className="h-96" /> : accounts.isError ? <ErrorState error={accounts.error} onRetry={() => accounts.refetch()} /> : accounts.data.length === 0 ? (
-        <EmptyState title={t("No social account yet")} action={<Button size="sm" variant="primary" onClick={() => setAdding(true)}>{t("Add your first account")}</Button>}>{t("Add the Valemont and 30/30 pages, then import LinkedIn exports or enter numbers manually.")}</EmptyState>
-      ) : (
-        <>
-          <SocialOverview selected={current?.id ?? null} onSelect={setAccountId} />
-          <div className="flex flex-wrap items-center gap-2">
-            <Select aria-label={t("Account")} value={current?.id} onChange={(e) => setAccountId(e.target.value)} className="h-9 w-72">
-              {accounts.data.map((a) => <option key={a.id} value={a.id}>{a.handle} · {t(PLATFORM[a.platform])}{a.visibility === "owner" ? ` ${t("(private to you)")}` : ""}</option>)}
-            </Select>
+
+      <Panel>
+        <PanelTitle action={<Button size="sm" variant="outline" onClick={() => setAdding(true)}>{t("Add account")}</Button>}>{network === "linkedin" ? t("LinkedIn accounts") : t("Instagram accounts")}</PanelTitle>
+        {accounts.isPending ? <Skeleton className="h-40" /> : accounts.isError ? <ErrorState error={accounts.error} onRetry={() => accounts.refetch()} /> : mine.length === 0 ? (
+          <EmptyState title={network === "linkedin" ? t("No LinkedIn account yet") : t("No Instagram account yet")} action={<Button size="sm" variant="primary" onClick={() => setAdding(true)}>{t("Add your first account")}</Button>}>{network === "linkedin" ? t("Add the Valemont and 30/30 pages and your own profile, then import their LinkedIn exports.") : t("Add the Valemont and 30/30 Instagram accounts, then enter their numbers once a week.")}</EmptyState>
+        ) : (
+          <div className={cn("grid grid-cols-1 gap-3 sm:grid-cols-2", mine.length > 2 && "lg:grid-cols-4")}>
+            {mine.map((a) => <AccountCard key={a.id} account={a} o={cards.find((c) => c.account.id === a.id)} selected={current?.id === a.id} onSelect={() => setAccountId(a.id)} />)}
           </div>
-          {current ? <AccountChart key={current.id} account={current} /> : null}
+        )}
+      </Panel>
+      {current ? <AccountChart key={current.id} account={current} days={filter.days} /> : null}
+      <AddAccountModal open={adding} onOpenChange={setAdding} platform={network === "instagram" ? "instagram" : "linkedin_page"} />
+    </div>
+  );
+}
+
+/** One account: followers, change over 30 days, trend; click to see its curve below. */
+function AccountCard({ account, o, selected, onSelect }: { account: Account; o: Overview[number] | undefined; selected: boolean; onSelect: () => void }) {
+  const t = useT();
+  const tag = useDateTag();
+  return (
+    <button type="button" onClick={onSelect} aria-pressed={selected}
+      className={cn("flex min-w-0 flex-col gap-1 rounded-[12px] border p-3 text-left transition-colors hover:border-control", selected ? "border-ink" : "border-hairline")}>
+      <span className="text-[12px] text-text-3">{t(PLATFORM[account.platform])}{account.visibility === "owner" ? ` ${t("(private to you)")}` : ""}</span>
+      <span className="truncate font-semibold">{account.handle}</span>
+      {!o || o.followers === null ? <span className="text-[13px] text-text-3">{t("No data yet: import or enter the numbers")}</span> : (
+        <>
+          <span className="num text-[24px] font-semibold leading-none">{o.followers.toLocaleString(tag)} <span className="text-[12px] font-normal text-text-3">{t("followers")}</span></span>
+          <span className="num text-[12px] text-text-3">{o.change30 !== null ? <>{o.change30 >= 0 ? "+" : ""}{o.change30.toLocaleString(tag)} {t("in 30 days")}</> : t("no change measured yet")}</span>
+          <Spark values={o.spark} tone="sales" className="mt-1" />
         </>
       )}
-      <AddAccountModal open={adding} onOpenChange={setAdding} />
-    </div>
+    </button>
   );
 }
 
-type Overview = { account: Account; followers: number | null; lastDate: string | null; change30: number | null; reach30: number | null; reachMetric: "views" | "impressions"; spark: number[] }[];
-/** The six accounts side by side: followers, 30-day change, reach; click one to see its curve. */
-function SocialOverview({ selected, onSelect }: { selected: string | null; onSelect: (id: string) => void }) {
-  const t = useT();
-  const q = useQuery({ queryKey: ["audience-overview"], queryFn: () => api<Overview>("/api/audience/overview") });
-  if (!q.data) return null;
-  return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {q.data.map((o) => (
-        <button key={o.account.id} type="button" onClick={() => onSelect(o.account.id)} aria-pressed={selected === o.account.id}
-          className={cn("flex flex-col gap-1 rounded-[16px] border bg-panel p-4 text-left transition-colors hover:border-control", selected === o.account.id ? "border-ink" : "border-transparent")}>
-          <span className="text-[13px] text-text-2">{t(PLATFORM[o.account.platform])}</span>
-          <span className="font-semibold">{o.account.handle}</span>
-          {o.followers === null ? <span className="text-[13px] text-text-3">{t("No data yet: import or enter the numbers")}</span> : (
-            <>
-              <span className="num text-[26px] font-semibold leading-none">{o.followers.toLocaleString()}</span>
-              <span className="text-[12px] text-text-3">
-                {t("followers")}{o.change30 !== null ? <> · <b className={cn("font-medium", o.change30 >= 0 ? "text-win" : "text-bad")}>{o.change30 >= 0 ? "+" : ""}{o.change30}</b> {t("in 30 days")}</> : null}
-                {o.reach30 !== null ? ` · ${o.reach30.toLocaleString()} ${t(o.reachMetric === "views" ? "views" : "impressions")}` : ""}
-              </span>
-              <Spark values={o.spark} tone="sales" className="mt-1" />
-            </>
-          )}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function AccountChart({ account }: { account: Account }) {
+function AccountChart({ account, days }: { account: Account; days: Days }) {
   const t = useT();
   const tag = useDateTag();
   const [metric, setMetric] = React.useState<string | null>(null);
-  const [days, setDays] = React.useState<"30" | "90">("30");
   const [asTable, setAsTable] = React.useState(false);
   const [entry, setEntry] = React.useState(false);
   const [importing, setImporting] = React.useState(false);
@@ -121,14 +168,14 @@ function AccountChart({ account }: { account: Account }) {
     <Panel>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
+          <h2 className="text-base font-semibold tracking-tight">{account.handle}</h2>
           <p className="text-[13px] text-text-2">{t(PLATFORM[account.platform])}{account.brand ? ` · ${t(BRAND_LABELS[account.brand as "local"])}` : ""}{account.market ? ` · ${account.market}` : ""}</p>
           {s?.latest ? (
-            <p className="num text-[40px] font-semibold leading-none tracking-tight">{s.latest.value.toLocaleString(tag)} <span className="text-sm font-normal text-text-2">{t("{metric} on {date} · source: {source}", { metric: t(METRIC_NAMES[s.metric]).toLowerCase(), date: fmtDay(s.latest.date), source: t(s.latest.source) })}</span></p>
-          ) : <p className="text-lg text-text-3">{t("No data yet")}</p>}
+            <p className="num mt-1 text-[13px] text-text-2"><b className="text-[20px] font-semibold text-ink">{s.latest.value.toLocaleString(tag)}</b> {t("{metric} on {date} · source: {source}", { metric: t(METRIC_NAMES[s.metric]).toLowerCase(), date: fmtDay(s.latest.date), source: t(s.latest.source) })}</p>
+          ) : <p className="mt-1 text-[13px] text-text-3">{t("No data yet: import or enter the numbers")}</p>}
         </div>
         <div className="flex flex-wrap gap-2">
           {s ? <SegmentedSwitch size="sm" label={t("Metric")} value={s.metric} onChange={setMetric} options={s.allowedMetrics.map((m) => ({ value: m, label: t(METRIC_NAMES[m]) }))} /> : null}
-          <SegmentedSwitch size="sm" label={t("Period")} value={days} onChange={setDays} options={[{ value: "30", label: t("30 days") }, { value: "90", label: t("90 days") }]} />
           <SegmentedSwitch size="sm" label={t("Display")} value={asTable ? "table" : "chart"} onChange={(v) => setAsTable(v === "table")} options={[{ value: "chart", label: t("Chart") }, { value: "table", label: t("Table") }]} />
         </div>
       </div>
@@ -146,7 +193,7 @@ function AccountChart({ account }: { account: Account }) {
               <XAxis dataKey="date" tickFormatter={(d: string) => fmtDay(d).slice(4)} stroke="var(--text-3)" fontSize={12} tickLine={false} axisLine={false} minTickGap={24} />
               <YAxis stroke="var(--text-3)" fontSize={12} tickLine={false} axisLine={false} width={48} allowDecimals={false} />
               <Tooltip cursor={{ stroke: "var(--control-border)" }} contentStyle={{ borderRadius: 999, border: "none", background: "var(--ink)", color: "var(--panel)", fontSize: 12, padding: "4px 12px" }} labelFormatter={(d) => fmtDay(String(d))} formatter={(v) => [Number(v).toLocaleString(tag), t(METRIC_NAMES[s!.metric])]} />
-              <Line type="linear" dataKey="value" name={t(METRIC_NAMES[s!.metric])} stroke="var(--ink)" strokeWidth={2} dot={{ r: 3, fill: "var(--ink)" }} activeDot={{ r: 4 }} connectNulls={false} isAnimationActive={false} />
+              <Line type="linear" dataKey="value" name={t(METRIC_NAMES[s!.metric])} stroke="var(--sales)" strokeWidth={2} dot={{ r: 3, fill: "var(--sales)" }} activeDot={{ r: 4 }} connectNulls={false} isAnimationActive={false} />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -170,7 +217,7 @@ function ManualEntryModal({ open, onOpenChange, account, allowed }: { open: bool
   const [vals, setVals] = React.useState<Record<string, string>>({});
   const m = useMutation({
     mutationFn: () => api("/api/audience/manual", { body: { account_id: account.id, date, ...Object.fromEntries(["followers", "views", "impressions", "reach", "profile_visits", "interactions", "link_clicks"].map((k) => [k, vals[k] ? Number(vals[k]) : null])) } }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["audience-series"] }); toast(t("Saved")); onOpenChange(false); },
+    onSuccess: () => { for (const k of ["audience-series", "audience-overview", "marketing-overview"]) qc.invalidateQueries({ queryKey: [k] }); toast(t("Saved")); onOpenChange(false); },
   });
   return (
     <Modal open={open} onOpenChange={onOpenChange} title={`${t("Enter numbers")} · ${account.handle}`} description={t("Recorded as source: manual. An import or API value for the same day takes precedence.")}>
@@ -191,7 +238,7 @@ function ImportModal({ open, onOpenChange, account }: { open: boolean; onOpenCha
   const [file, setFile] = React.useState<{ name: string; b64: string } | null>(null);
   const run = useMutation({
     mutationFn: (commit: boolean) => api<Preview>("/api/audience/import", { body: { account_id: account.id, file_name: file!.name, data_base64: file!.b64, commit } }),
-    onSuccess: (r) => { if (r.committed) { qc.invalidateQueries({ queryKey: ["audience-series"] }); toast(t("Imported {n} day(s)", { n: r.newRows })); } },
+    onSuccess: (r) => { if (r.committed) { for (const k of ["audience-series", "audience-overview", "marketing-overview"]) qc.invalidateQueries({ queryKey: [k] }); toast(t("Imported {n} day(s)", { n: r.newRows })); } },
   });
   const onFile = async (f?: File) => {
     if (!f) return;
@@ -222,14 +269,14 @@ function ImportModal({ open, onOpenChange, account }: { open: boolean; onOpenCha
   );
 }
 
-function AddAccountModal({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+function AddAccountModal({ open, onOpenChange, platform }: { open: boolean; onOpenChange: (o: boolean) => void; platform: Account["platform"] }) {
   const t = useT();
   const qc = useQueryClient();
   const [id, setId] = React.useState(() => crypto.randomUUID());
-  const [v, setV] = React.useState({ platform: "linkedin_page", handle: "", brand: "consulting", market: "" });
+  const [v, setV] = React.useState({ platform: platform as string, handle: "", brand: "consulting", market: "" });
   const m = useMutation({
     mutationFn: () => api("/api/audience/accounts", { body: { id, platform: v.platform, handle: v.handle, brand: v.platform === "linkedin_personal" ? null : v.brand, market: v.market || null } }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["audience-accounts"] }); toast(t("Saved")); setId(crypto.randomUUID()); onOpenChange(false); },
+    onSuccess: () => { for (const k of ["audience-accounts", "audience-overview"]) qc.invalidateQueries({ queryKey: [k] }); toast(t("Saved")); setId(crypto.randomUUID()); onOpenChange(false); },
   });
   return (
     <Modal open={open} onOpenChange={onOpenChange} title={t("Add a social account")}>

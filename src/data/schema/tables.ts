@@ -56,6 +56,8 @@ function taskShape() {
     due_at: optDay(),
     recurrence: oneOf(["none", "daily", "weekdays", "weekly", "monthly"] as const),
     recurrence_parent_id: text(40),
+    /** Late column: weekdays 0–6 (0 = Sunday) for a "weekly" recurrence; [] = same weekday as the due date. */
+    recurrence_days: json(z.array(z.number().int().min(0).max(6)).max(7), []),
     dependency_ids: json(z.array(z.string()), []),
     completion_evidence: text(1_000),
     completed_at: optIso(),
@@ -329,7 +331,7 @@ export const TABLES = {
   },
   WeeklyReviews: {
     domain: "work",
-    shape: { ...base, week_start: day(), decisions: text(4_000), notes: text(4_000), priority_theo: text(300), priority_pablo: text(300) },
+    shape: { ...base, week_start: day(), decisions: text(4_000), notes: text(4_000), priority_theo: text(300), priority_pablo: text(300), worked: text(4_000), blocked: text(4_000) },
   },
   Ideas: {
     domain: "work",
@@ -618,8 +620,8 @@ export interface BaseRow {
 export type Row<T extends TableName> = RowMap[T] & BaseRow;
 export type BaseFields = keyof typeof base;
 /** Columns added after a table was first created: optional on create, filled by CREATE_DEFAULTS. */
-export const CREATE_DEFAULTS: Record<string, unknown> = { list_id: "", call_session_id: "", target_key: "", duration_sec: null, area: "sales", objections: [], replies: [] };
-type LateKeys = "list_id" | "call_session_id" | "target_key" | "duration_sec" | "area" | "objections" | "replies";
+export const CREATE_DEFAULTS: Record<string, unknown> = { list_id: "", call_session_id: "", target_key: "", duration_sec: null, area: "sales", objections: [], replies: [], recurrence_days: [] , worked: "", blocked: "" };
+type LateKeys = "list_id" | "call_session_id" | "target_key" | "duration_sec" | "area" | "objections" | "replies" | "recurrence_days" | "worked" | "blocked";
 export type NewRow<T extends TableName> = Omit<Row<T>, Exclude<BaseFields, "id"> | LateKeys> &
   Partial<Pick<Row<T>, Extract<keyof Row<T>, LateKeys>>> & { id: string };
 

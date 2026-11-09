@@ -3,7 +3,7 @@ import type { NewRow, Row } from "@/data/repository";
 import { childId } from "@/lib/ids";
 import { FOUNDERS, type FounderKey } from "@/domain/constants";
 import { filterTasks, nextDue, type TaskView } from "@/domain/tasks";
-import { localDate } from "@/domain/time";
+import { addDays, localDate } from "@/domain/time";
 import { ForbiddenError, RuleError } from "../errors";
 import type { AppContext } from "../context";
 import { patchOf } from "@/lib/zod";
@@ -20,6 +20,8 @@ export const taskInput = z.object({
   due_at: day,
   estimated_minutes: z.number().int().min(0).max(2_400).nullable().default(null),
   recurrence: z.enum(["none", "daily", "weekdays", "weekly", "monthly"]).default("none"),
+  /** Weekly recurrence on these weekdays (0 = Sunday); missing or [] = same weekday as the due date. Optional so existing callers stay valid. */
+  recurrence_days: z.array(z.number().int().min(0).max(6)).max(7).optional(),
   account_id: z.union([z.literal(""), z.string().uuid()]).default(""),
   opportunity_id: z.union([z.literal(""), z.string().uuid()]).default(""),
   dependency_ids: z.array(z.string().uuid()).max(20).default([]),
@@ -28,11 +30,18 @@ export const taskInput = z.object({
 });
 export const createTaskSchema = z.object({ id: z.string().uuid(), task: taskInput, source: z.enum(["manual", "founder_point", "idea"]).default("manual"), source_id: z.string().max(40).default("") });
 
+/** Weekdays only mean something for a weekly recurrence: sorted, unique, else []. */
+const normDays = (r: string, days: readonly number[] | undefined) => (r === "weekly" ? [...new Set(days ?? [])].sort((a, b) => a - b) : []);
+
+/** A weekly task on chosen weekdays starts on the first of those days on or after the chosen due date. */
+const firstDue = (due: string, r: string, days: number[]) => (due && r === "weekly" && days.length ? nextDue(addDays(due, -1), "weekly", days) ?? due : due);
+
 function toNew(id: string, founder: FounderKey, t: z.infer<typeof taskInput>, source: string, sourceId: string): NewRow<"Tasks"> {
+  const days = normDays(t.recurrence, t.recurrence_days);
   return {
     id, title: t.title, description: t.description, owner: t.private ? founder : t.owner, created_by_founder: founder, account_id: t.account_id,
     opportunity_id: t.opportunity_id, project_id: "", client_id: "", priority: t.priority, status: "todo", estimated_minutes: t.estimated_minutes,
-    due_at: t.due_at || null, recurrence: t.recurrence, recurrence_parent_id: "", dependency_ids: t.dependency_ids, completion_evidence: "",
+    due_at: firstDue(t.due_at, t.recurrence, days) || null, recurrence: t.recurrence, recurrence_days: days, recurrence_parent_id: "", dependency_ids: t.dependency_ids, completion_evidence: "",
     completed_at: null, visibility: t.private ? "private" : "team", snoozed_until: null, snooze_reason: "", area: t.area ?? "sales", source: source as never, source_id: sourceId,
   };
 }
@@ -85,6 +94,7 @@ export async function updateTask(ctx: AppContext, founder: FounderKey, input: z.
   if (cur.visibility === "private" && cur.created_by_founder !== founder) throw new ForbiddenError("This task is private.");
   const { due_at, snoozed_until, ...rest } = input.patch;
   const patch: Partial<Row<"Tasks">> = { ...rest };
+  if (rest.recurrence !== undefined || rest.recurrence_days !== undefined) patch.recurrence_days = normDays(rest.recurrence ?? cur.recurrence, rest.recurrence_days ?? cur.recurrence_days);
   if (due_at !== undefined) patch.due_at = due_at || null;
   if (snoozed_until !== undefined) {
     if (snoozed_until && !(input.patch.snooze_reason ?? "").trim()) throw new RuleError("Snoozing needs a reason.");
@@ -99,7 +109,7 @@ export async function updateTask(ctx: AppContext, founder: FounderKey, input: z.
   const updated = await repo.update(table, input.id, input.expected_version, patch, { founder });
   // Recurring: completing creates the next instance once (deterministic id → retry-safe).
   if (input.patch.status === "done" && cur.status !== "done" && cur.recurrence !== "none" && cur.due_at) {
-    const next = nextDue(cur.due_at, cur.recurrence);
+    const next = nextDue(cur.due_at, cur.recurrence, cur.recurrence_days ?? []);
     const id = childId(cur.id, "next", next ?? "");
     if (next && !(await repo.get(table, id, { fresh: true }))) {
       await repo.insert(table, [{ ...toNew(id, founder, { ...cur, private: cur.visibility === "private", due_at: next, estimated_minutes: cur.estimated_minutes, dependency_ids: [] } as never, cur.source, cur.source_id), created_by_founder: cur.created_by_founder, owner: cur.owner, recurrence_parent_id: cur.recurrence_parent_id || cur.id }], { founder });

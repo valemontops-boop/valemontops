@@ -26,13 +26,13 @@ Money: integer EUR cents (`value_minor`) + `currency`.
 | SuppressionList | crm | kind, value_normalized, contact_id, account_id, reason, added_by |
 | AuditLog | audit | actor, action, table_name, record_id, fields, correlation_id |
 | SchemaMigrations | settings | schema_version, schema_hash, applied_at, notes |
-| Tasks | work | title, description, owner, created_by_founder, account_id, opportunity_id, project_id, client_id, priority, status, estimated_minutes, due_at, recurrence, recurrence_parent_id, dependency_ids, completion_evidence, completed_at, visibility, snoozed_until, snooze_reason, area, source, source_id |
+| Tasks | work | title, description, owner, created_by_founder, account_id, opportunity_id, project_id, client_id, priority, status, estimated_minutes, due_at, recurrence, recurrence_days, recurrence_parent_id, dependency_ids, completion_evidence, completed_at, visibility, snoozed_until, snooze_reason, area, source, source_id |
 | TaskComments | work | task_id, author, body |
 | DailyReviews | work | founder_key, local_date, went_well, blockers, tomorrow_priority |
 | DailyResults | work | founder_key, local_date, status, attainment_pct, followups_ok, review_done, computed_at, correction_count |
 | DailyResultCorrections | work | founder_key, local_date, reason, event_ids |
 | Sprints | work | name, start_date, end_date, status, niche, targets, brand_split |
-| WeeklyReviews | work | week_start, decisions, notes, priority_theo, priority_pablo |
+| WeeklyReviews | work | week_start, decisions, notes, priority_theo, priority_pablo, worked, blocked |
 | Ideas | work | text, note, brand, category, status, votes, reason, created_by_founder, converted_type, converted_id |
 | FounderPoints | work | title, type, duration_min, status, start_at, calendar_event_id, recurrence, notes |
 | FounderPointItems | work | point_id, kind, text, done, owner, task_id, idea_id |
@@ -53,7 +53,7 @@ Money: integer EUR cents (`value_minor`) + `currency`.
 
 | Tab | Columns (after base) |
 |---|---|
-| PrivateTasks | private | title, description, owner, created_by_founder, account_id, opportunity_id, project_id, client_id, priority, status, estimated_minutes, due_at, recurrence, recurrence_parent_id, dependency_ids, completion_evidence, completed_at, visibility, snoozed_until, snooze_reason, area, source, source_id |
+| PrivateTasks | private | title, description, owner, created_by_founder, account_id, opportunity_id, project_id, client_id, priority, status, estimated_minutes, due_at, recurrence, recurrence_days, recurrence_parent_id, dependency_ids, completion_evidence, completed_at, visibility, snoozed_until, snooze_reason, area, source, source_id |
 | Playbook | settings | kind, key, language, subject, body |
 | EmailSends | activity | idempotency_key, founder_key, account_id, contact_id, activity_event_id, call_session_id, channel, via, context, template_key, language, brand, market, niche, to_address, subject, status, sent_at, local_date, gmail_message_id, gmail_thread_id, replied_at, reply_kind |
 

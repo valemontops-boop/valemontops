@@ -37,21 +37,21 @@ const D: PlaybookItem[] = [
 
   ...objectionDefaults(),
 
-  { kind: "email", key: "calendly", language: "FR", subject: "Suite à notre appel, {business}", body: "Bonjour {contact},\n\nMerci pour votre temps au téléphone. Comme convenu, voici mon lien pour choisir un créneau de 15 minutes :\n{calendly}\n\nJe vous montrerai concrètement comment chaque demande est captée, qualifiée et relancée.\n\nBonne journée,\n{founder}\nValemont" },
-  { kind: "email", key: "calendly", language: "ES", subject: "Tras nuestra llamada, {business}", body: "Hola {contact}:\n\nGracias por su tiempo al teléfono. Como hablamos, aquí tiene mi enlace para elegir 15 minutos:\n{calendly}\n\nLe enseñaré cómo se recoge, se cualifica y se sigue cada solicitud.\n\nUn saludo,\n{founder}\nValemont" },
-  { kind: "email", key: "deck", language: "FR", subject: "La présentation promise, {business}", body: "Bonjour {contact},\n\nComme promis, voici notre présentation :\n{deck}\n\nSi ça vous parle, choisissez 15 minutes ici :\n{calendly}\n\nBonne journée,\n{founder}\nValemont" },
-  { kind: "email", key: "deck", language: "ES", subject: "La presentación prometida, {business}", body: "Hola {contact}:\n\nComo le prometí, aquí tiene nuestra presentación:\n{deck}\n\nSi le interesa, reserve 15 minutos aquí:\n{calendly}\n\nUn saludo,\n{founder}\nValemont" },
-  { kind: "email", key: "confirm", language: "FR", subject: "Notre rendez-vous, {business}", body: "Bonjour {contact},\n\nMerci, c'est noté pour notre rendez-vous. Si le créneau ne vous convient plus, vous pouvez le déplacer ici :\n{calendly}\n\nÀ bientôt,\n{founder}\nValemont" },
-  { kind: "email", key: "confirm", language: "ES", subject: "Nuestra reunión, {business}", body: "Hola {contact}:\n\nGracias, queda anotada nuestra reunión. Si el horario ya no le va bien, puede cambiarlo aquí:\n{calendly}\n\nHasta pronto,\n{founder}\nValemont" },
+  { kind: "email", key: "calendly", language: "FR", subject: "Suite à notre appel, {business}", body: "Bonjour {contact},\n\nMerci pour votre temps au téléphone. Comme convenu, voici mon lien pour choisir un créneau de 15 minutes :\n{calendly}\n\nJe vous montrerai concrètement comment chaque demande est captée, qualifiée et relancée.\n\nBonne journée,\n{signature}" },
+  { kind: "email", key: "calendly", language: "ES", subject: "Tras nuestra llamada, {business}", body: "Hola {contact}:\n\nGracias por su tiempo al teléfono. Como hablamos, aquí tiene mi enlace para elegir 15 minutos:\n{calendly}\n\nLe enseñaré cómo se recoge, se cualifica y se sigue cada solicitud.\n\nUn saludo,\n{signature}" },
+  { kind: "email", key: "deck", language: "FR", subject: "La présentation promise, {business}", body: "Bonjour {contact},\n\nComme promis, voici notre présentation :\n{deck}\n\nSi ça vous parle, choisissez 15 minutes ici :\n{calendly}\n\nBonne journée,\n{signature}" },
+  { kind: "email", key: "deck", language: "ES", subject: "La presentación prometida, {business}", body: "Hola {contact}:\n\nComo le prometí, aquí tiene nuestra presentación:\n{deck}\n\nSi le interesa, reserve 15 minutos aquí:\n{calendly}\n\nUn saludo,\n{signature}" },
+  { kind: "email", key: "confirm", language: "FR", subject: "Notre rendez-vous, {business}", body: "Bonjour {contact},\n\nMerci, c'est noté pour notre rendez-vous. Si le créneau ne vous convient plus, vous pouvez le déplacer ici :\n{calendly}\n\nÀ bientôt,\n{signature}" },
+  { kind: "email", key: "confirm", language: "ES", subject: "Nuestra reunión, {business}", body: "Hola {contact}:\n\nGracias, queda anotada nuestra reunión. Si el horario ya no le va bien, puede cambiarlo aquí:\n{calendly}\n\nHasta pronto,\n{signature}" },
 
-  { kind: "email", key: "thanks", language: "FR", subject: "Merci pour votre temps, {business}", body: "Bonjour {contact},\n\nMerci d'avoir pris le temps de me répondre tout à l'heure.\n\nComme convenu, je reviens vers vous à la date prévue. Si vous voulez avancer plus vite, voici mon lien pour réserver 15 minutes :\n{calendly}\n\nBonne journée,\n{founder}\nValemont" },
-  { kind: "email", key: "thanks", language: "ES", subject: "Gracias por su tiempo, {business}", body: "Hola {contact}:\n\nGracias por atenderme hace un rato.\n\nComo hablamos, le vuelvo a llamar en la fecha prevista. Si quiere avanzar antes, aquí tiene mi enlace para reservar 15 minutos:\n{calendly}\n\nUn saludo,\n{founder}\nValemont" },
-  { kind: "email", key: "thanks_soft", language: "FR", subject: "Merci pour votre accueil", body: "Bonjour {contact},\n\nMerci d'avoir pris mon appel tout à l'heure, même si ce n'est pas le moment.\n\nSi un jour les appels manqués ou les devis sans réponse deviennent un sujet, il vous suffit de répondre à ce mail.\n\nBonne continuation,\n{founder}\nValemont" },
-  { kind: "email", key: "thanks_soft", language: "ES", subject: "Gracias por atenderme", body: "Hola {contact}:\n\nGracias por atender mi llamada, aunque no sea el momento.\n\nSi algún día las llamadas perdidas o los presupuestos sin respuesta se convierten en un problema, solo tiene que responder a este email.\n\nUn saludo,\n{founder}\nValemont" },
-  { kind: "email", key: "missed", language: "FR", subject: "J'ai essayé de vous joindre, {business}", body: "Bonjour {contact},\n\nJ'ai essayé de vous appeler aujourd'hui : vous étiez sûrement sur un chantier.\n\nC'est justement pour ça que je vous écris : un appel manqué pendant que vous travaillez, c'est souvent un client qui part ailleurs. Nous mettons en place un système qui répond, qualifie la demande et vous prévient tout de suite.\n\nSi ça vous parle, choisissez 15 minutes ici :\n{calendly}\n\nBonne journée,\n{founder}\nValemont" },
-  { kind: "email", key: "missed", language: "ES", subject: "He intentado llamarle, {business}", body: "Hola {contact}:\n\nHe intentado llamarle hoy: seguramente estaba trabajando.\n\nPor eso le escribo: una llamada perdida mientras trabaja suele ser un cliente que se va a otro. Montamos un sistema que contesta, cualifica la solicitud y le avisa al momento.\n\nSi le interesa, reserve 15 minutos aquí:\n{calendly}\n\nUn saludo,\n{founder}\nValemont" },
-  { kind: "email", key: "nudge", language: "FR", subject: "Re : {business}", body: "Bonjour {contact},\n\nJe me permets de revenir vers vous après mon dernier message. Est-ce toujours d'actualité, ou je classe le dossier ?\n\nMon lien si vous voulez en parler 15 minutes :\n{calendly}\n\n{founder}\nValemont" },
-  { kind: "email", key: "nudge", language: "ES", subject: "Re: {business}", body: "Hola {contact}:\n\nLe escribo de nuevo tras mi último mensaje. ¿Sigue siendo de interés, o cierro el tema?\n\nMi enlace si quiere hablarlo 15 minutos:\n{calendly}\n\n{founder}\nValemont" },
+  { kind: "email", key: "thanks", language: "FR", subject: "Merci pour votre temps, {business}", body: "Bonjour {contact},\n\nMerci d'avoir pris le temps de me répondre tout à l'heure.\n\nComme convenu, je reviens vers vous à la date prévue. Si vous voulez avancer plus vite, voici mon lien pour réserver 15 minutes :\n{calendly}\n\nBonne journée,\n{signature}" },
+  { kind: "email", key: "thanks", language: "ES", subject: "Gracias por su tiempo, {business}", body: "Hola {contact}:\n\nGracias por atenderme hace un rato.\n\nComo hablamos, le vuelvo a llamar en la fecha prevista. Si quiere avanzar antes, aquí tiene mi enlace para reservar 15 minutos:\n{calendly}\n\nUn saludo,\n{signature}" },
+  { kind: "email", key: "thanks_soft", language: "FR", subject: "Merci pour votre accueil", body: "Bonjour {contact},\n\nMerci d'avoir pris mon appel tout à l'heure, même si ce n'est pas le moment.\n\nSi un jour les appels manqués ou les devis sans réponse deviennent un sujet, il vous suffit de répondre à ce mail.\n\nBonne continuation,\n{signature}" },
+  { kind: "email", key: "thanks_soft", language: "ES", subject: "Gracias por atenderme", body: "Hola {contact}:\n\nGracias por atender mi llamada, aunque no sea el momento.\n\nSi algún día las llamadas perdidas o los presupuestos sin respuesta se convierten en un problema, solo tiene que responder a este email.\n\nUn saludo,\n{signature}" },
+  { kind: "email", key: "missed", language: "FR", subject: "J'ai essayé de vous joindre, {business}", body: "Bonjour {contact},\n\nJ'ai essayé de vous appeler aujourd'hui : vous étiez sûrement sur un chantier.\n\nC'est justement pour ça que je vous écris : un appel manqué pendant que vous travaillez, c'est souvent un client qui part ailleurs. Nous mettons en place un système qui répond, qualifie la demande et vous prévient tout de suite.\n\nSi ça vous parle, choisissez 15 minutes ici :\n{calendly}\n\nBonne journée,\n{signature}" },
+  { kind: "email", key: "missed", language: "ES", subject: "He intentado llamarle, {business}", body: "Hola {contact}:\n\nHe intentado llamarle hoy: seguramente estaba trabajando.\n\nPor eso le escribo: una llamada perdida mientras trabaja suele ser un cliente que se va a otro. Montamos un sistema que contesta, cualifica la solicitud y le avisa al momento.\n\nSi le interesa, reserve 15 minutos aquí:\n{calendly}\n\nUn saludo,\n{signature}" },
+  { kind: "email", key: "nudge", language: "FR", subject: "Re : {business}", body: "Bonjour {contact},\n\nJe me permets de revenir vers vous après mon dernier message. Est-ce toujours d'actualité, ou je classe le dossier ?\n\nMon lien si vous voulez en parler 15 minutes :\n{calendly}\n\n{signature}" },
+  { kind: "email", key: "nudge", language: "ES", subject: "Re: {business}", body: "Hola {contact}:\n\nLe escribo de nuevo tras mi último mensaje. ¿Sigue siendo de interés, o cierro el tema?\n\nMi enlace si quiere hablarlo 15 minutos:\n{calendly}\n\n{signature}" },
 
   { kind: "whatsapp", key: "thanks", language: "FR", subject: "", body: "Bonjour {contact}, {founder} de Valemont. Merci pour votre temps au téléphone tout à l'heure ! Mon lien si vous voulez caler 15 min : {calendly}" },
   { kind: "whatsapp", key: "thanks", language: "ES", subject: "", body: "Hola {contact}, soy {founder} de Valemont. ¡Gracias por su tiempo al teléfono! Mi enlace por si quiere reservar 15 min: {calendly}" },
@@ -84,7 +84,7 @@ export function findItem(items: readonly PlaybookItem[], kind: PlaybookKind, key
   return items.find((i) => i.kind === kind && i.key === key && i.language === language) ?? items.find((i) => i.kind === kind && i.key === key) ?? null;
 }
 
-export interface FillVars { business?: string; contact?: string; founder?: string; calendly?: string; deck?: string }
+export interface FillVars { business?: string; contact?: string; founder?: string; calendly?: string; deck?: string; signature?: string }
 /** Fills placeholders. A missing link stays visible as [add … in Settings] so nothing is sent with a hole. */
 export function fill(text: string, v: FillVars): string {
   const contact = v.contact?.trim() ?? "";
@@ -93,6 +93,8 @@ export function fill(text: string, v: FillVars): string {
     .replace(/\{contact\}/g, contact)
     .replace(/, \{business\}/g, v.business?.trim() ? `, ${v.business.trim()}` : "")
     .replace(/\{business\}/g, v.business?.trim() ?? "")
+    // Signature: the founder's own (Settings › Workspace), else "First name / Valemont".
+    .replace(/\{signature\}/g, v.signature?.trim() || `${v.founder?.trim() ?? ""}\nValemont`)
     .replace(/\{founder\}/g, v.founder?.trim() ?? "")
     .replace(/\{calendly\}/g, v.calendly?.trim() || "[add your Calendly link in Settings › Workspace]")
     .replace(/\{deck\}/g, v.deck?.trim() || "[add the deck link in Settings › Workspace]")
@@ -123,4 +125,9 @@ export function suggestedFollowUp(outcome: string, objections: readonly string[]
   if (outcome === "not_interested") return "thanks_soft";
   if (outcome === "no_answer" || outcome === "voicemail") return "missed";
   return null;
+}
+
+/** Gmail web compose, prefilled (used when Gmail sending is not connected): opens straight in Gmail, ready to send. */
+export function gmailComposeLink(to: string, subject: string, body: string): string {
+  return `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(to)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }

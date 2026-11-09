@@ -1,0 +1,35 @@
+/** Round 7 (work7). */
+export const entries: Record<string, readonly [string, string]> = {
+  // Task recurrence
+  "Never": ["Jamais", "Nunca"],
+  "Every day": ["Tous les jours", "Todos los días"],
+  "Weekdays (Mon–Fri)": ["En semaine (lun.–ven.)", "Días laborables (lun–vie)"],
+  "Every week on…": ["Chaque semaine le…", "Cada semana el…"],
+  "Every month": ["Tous les mois", "Todos los meses"],
+  "Days of the week": ["Jours de la semaine", "Días de la semana"],
+  "A new task is created on the next chosen day when you complete this one.": ["Quand tu termines cette tâche, la suivante est créée au prochain jour choisi.", "Cuando completas esta tarea, la siguiente se crea el próximo día elegido."],
+  "No day chosen: same weekday as the due date.": ["Aucun jour choisi : même jour que l'échéance.", "Ningún día elegido: el mismo día que la fecha límite."],
+  "repeats every {days}": ["chaque {days}", "cada {days}"],
+  // Settings › Mode & targets › Routines
+  "Routines": ["Routines", "Rutinas"],
+  "Add a routine": ["Ajouter une routine", "Añadir una rutina"],
+  "No routine yet. A routine is a task that comes back on its own, for example every Tuesday.": ["Aucune routine pour l'instant. Une routine est une tâche qui revient toute seule, par exemple chaque mardi.", "Aún no hay rutinas. Una rutina es una tarea que vuelve sola, por ejemplo cada martes."],
+  "next one on {date}": ["prochaine le {date}", "próxima el {date}"],
+  // Reports › Weekly review (simplified)
+  "What went well": ["Ce qui a bien marché", "Lo que fue bien"],
+  "What to improve": ["À améliorer", "Qué mejorar"],
+  "Not enough activity this week to draw conclusions.": ["Pas assez d'activité cette semaine pour en tirer des conclusions.", "No hay suficiente actividad esta semana para sacar conclusiones."],
+  "No call logged this week.": ["Aucun appel enregistré cette semaine.", "Ninguna llamada registrada esta semana."],
+  "{metric}: target reached ({n} / {total}).": ["{metric} : objectif atteint ({n} / {total}).", "{metric}: objetivo alcanzado ({n} / {total})."],
+  "{metric}: {n} of {total} done.": ["{metric} : {n} sur {total} faits.", "{metric}: {n} de {total} hechos."],
+  "Every scheduled day passed ({n}).": ["Toutes les journées prévues validées ({n}).", "Todos los días previstos superados ({n})."],
+  "{n} of {total} scheduled days passed.": ["{n} journées validées sur {total} prévues.", "{n} de {total} días previstos superados."],
+  "{n} deals won.": ["{n} ventes conclues.", "{n} ventas cerradas."],
+  "{n} meetings booked.": ["{n} RDV pris.", "{n} reuniones fijadas."],
+  "{n} conversations but no meeting: ask for the slot before hanging up.": ["{n} conversations mais aucun RDV : demande le créneau avant de raccrocher.", "{n} conversaciones pero ninguna reunión: pide la cita antes de colgar."],
+  "Most heard objection: {objection} ({n} times).": ["Objection la plus entendue : {objection} ({n} fois).", "Objeción más escuchada: {objection} ({n} veces)."],
+  "What worked": ["Ce qui a marché", "Lo que funcionó"],
+  "What blocked": ["Ce qui a bloqué", "Lo que bloqueó"],
+  "Priority next week": ["Priorité de la semaine prochaine", "Prioridad de la próxima semana"],
+  "{name}'s priority: {text}": ["Priorité de {name} : {text}", "Prioridad de {name}: {text}"],
+};

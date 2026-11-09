@@ -6,6 +6,8 @@ import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState, Panel, PanelTitle, SegmentedSwitch, Skeleton } from "@/components/ui/form";
 import { type CallStats } from "@/domain/calls";
+import { CallLog } from "./call-log";
+import { ConfirmSent, messageFor, useInstantSend } from "./instant-send";
 import { ActiveSession, FollowUpComposer, type ObjectionReport, type Playbook } from "./call-live";
 import { OBJECTION_GUIDE, guideOf, replySteps } from "@/domain/objections";
 import { Modal } from "@/components/ui/overlay";
@@ -41,7 +43,7 @@ export function CallMode() {
 function StartScreen({ onStart }: { onStart: (s: { id: string; listId: string }) => void }) {
   const t = useT();
   const dt = useDateTag();
-  const [tab, setTab] = React.useState<"call" | "messages" | "objections">("call");
+  const [tab, setTab] = React.useState<"call" | "messages" | "objections" | "log">("call");
   const queueCount = useQuery({ queryKey: ["email-queue"], queryFn: () => api<{ items: unknown[] }>("/api/email/queue") }).data?.items.length ?? 0;
   const lists = useQuery({ queryKey: ["call-lists"], queryFn: () => api<ListRow[]>("/api/call-lists") });
   const sessions = useQuery({ queryKey: ["call-sessions"], queryFn: () => api<{ session: { id: string; started_at: string }; stats: CallStats }[]>("/api/calls/sessions") });
@@ -53,9 +55,9 @@ function StartScreen({ onStart }: { onStart: (s: { id: string; listId: string })
     <div className="mx-auto flex max-w-3xl flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold tracking-tight">{t("Call mode")}</h1>
-        <SegmentedSwitch label={t("Section")} value={tab} onChange={setTab} options={[{ value: "call", label: t("Call") }, { value: "messages", label: queueCount ? `${t("Messages")} · ${queueCount}` : t("Messages") }, { value: "objections", label: t("Objections") }]} />
+        <SegmentedSwitch label={t("Section")} value={tab} onChange={setTab} options={[{ value: "call", label: t("Call") }, { value: "messages", label: queueCount ? `${t("Messages")} · ${queueCount}` : t("Messages") }, { value: "objections", label: t("Objections") }, { value: "log", label: t("Call log") }]} />
       </div>
-      {tab === "messages" ? <MessageQueue /> : tab === "objections" ? <><ObjectionsPanel /><ObjectionDrill /></> : <>
+      {tab === "log" ? <CallLog days={14} /> : tab === "messages" ? <MessageQueue /> : tab === "objections" ? <><ObjectionsPanel /><ObjectionDrill /></> : <>
       <Panel>
         <PanelTitle>{t("Call from a list")}</PanelTitle>
         {lists.isPending ? <Skeleton className="h-24" /> : lists.isError ? <ErrorState error={lists.error} onRetry={() => lists.refetch()} /> : lists.data.length === 0 ? (
@@ -231,11 +233,12 @@ function MessageQueue() {
   const [keys] = React.useState(() => new Map<string, string>());
   const [open, setOpen] = React.useState<{ item: QItem; channel: "email" | "whatsapp" } | null>(null);
   const idemFor = (k: string) => { if (!keys.has(k)) keys.set(k, crypto.randomUUID()); return keys.get(k)!; };
-  const textFor = (it: QItem) => {
-    const tp = pb.data ? findItem(pb.data.items, "email", it.template, lang) : null;
-    const v = { business: it.name, contact: it.contact, founder: pb.data?.founderName, calendly: pb.data?.links.calendly, deck: lang === "ES" ? pb.data?.links.deckES : pb.data?.links.deckFR };
-    return { subject: fill(tp?.subject ?? "", v), body: fill(tp?.body ?? "", v) };
+  const instant = useInstantSend();
+  const sendNow = (it: QItem, channel: "email" | "whatsapp") => {
+    const target = { accountId: it.accountId, name: it.name, contact: it.contact, email: it.email, phone: it.phone, market: it.market };
+    if (!instant.send(channel, target, it.template, channel === "email" ? idemFor(it.key) : crypto.randomUUID())) setOpen({ item: it, channel });
   };
+  const textFor = (it: QItem) => (pb.data ? messageFor(pb.data as never, lang, "email", it.template, { accountId: it.accountId, name: it.name, contact: it.contact, email: it.email, phone: it.phone, market: it.market }) : { subject: "", body: "" });
   const emailable = (q.data?.items ?? []).filter((it) => it.email);
   const batch = useMutation({
     mutationFn: () => api<{ sent: number; failed: number; results: { idempotency_key: string; ok: boolean; message?: string }[] }>("/api/email/batch", {
@@ -249,6 +252,7 @@ function MessageQueue() {
   const failed = new Map((batch.data?.results ?? []).filter((r) => !r.ok).map((r) => [r.idempotency_key, r.message ?? ""]));
   return (
     <Panel>
+      <div className="mb-3"><ConfirmSent s={instant} /></div>
       <PanelTitle action={<span className="num text-[13px] text-text-2">{t("{n} sent today", { n: q.data.sentToday })}</span>}>{t("Messages to send")} <span className="num text-text-3">{items.length}</span></PanelTitle>
       {items.length === 0 ? <p className="text-sm text-text-2">{t("Everyone you reached has had a message. Each call adds one here.")}</p> : (
         <>
@@ -264,8 +268,9 @@ function MessageQueue() {
                   <p className="truncate text-sm font-medium">{it.name} <span className="font-normal text-text-3">· {it.market}</span></p>
                   <p className="text-[12px] text-text-3">{t(REASON[it.reason])} · {t(EMAIL_TEMPLATE_LABELS[it.template])}{failed.has(keys.get(it.key) ?? "") ? <span className="text-bad"> · {failed.get(keys.get(it.key)!)}</span> : null}</p>
                 </div>
-                {it.email ? <Button size="sm" variant="outline" onClick={() => setOpen({ item: it, channel: "email" })}><Mail /> {t("Email")}</Button> : null}
-                {it.phone ? <Button size="sm" variant="outline" onClick={() => setOpen({ item: it, channel: "whatsapp" })}><MessageCircle /> WhatsApp</Button> : null}
+                {it.email ? <Button size="sm" variant="outline" onClick={() => sendNow(it, "email")}><Mail /> {t("Email")}</Button> : null}
+                {it.phone ? <Button size="sm" variant="outline" onClick={() => sendNow(it, "whatsapp")}><MessageCircle /> WhatsApp</Button> : null}
+                <Button size="sm" variant="ghost" onClick={() => setOpen({ item: it, channel: it.email ? "email" : "whatsapp" })}>{t("Edit")}</Button>
               </li>
             ))}
           </ul>

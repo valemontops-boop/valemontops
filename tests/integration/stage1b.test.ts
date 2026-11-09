@@ -80,6 +80,20 @@ describe("Scenario 4: P0 task assigned to Pablo", () => {
     expect(after.find((x) => x.id === id)?.status).toBe("done");
     expect(after.filter((x) => x.title === "Call the accountant" && x.status === "todo").map((x) => x.due_at)).toEqual(["2026-11-16"]);
   });
+  it("weekly on chosen weekdays: Monday + Thursday starts on the first chosen day and the next instance keeps the days", async () => {
+    const id = randomUUID();
+    // Due Sunday 2026-11-08 → first instance aligned to Monday 2026-11-09.
+    await createTask(ctx, "theo", { id, task: { title: "Prospect list", description: "", owner: "theo", priority: "P2", due_at: "2026-11-08", estimated_minutes: null, recurrence: "weekly", recurrence_days: [4, 1, 4], account_id: "", opportunity_id: "", dependency_ids: [], private: false }, source: "manual", source_id: "" });
+    const t = (await listTasks(ctx, "theo", "mine")).find((x) => x.id === id)!;
+    expect(t.due_at).toBe("2026-11-09");
+    expect(t.recurrence_days).toEqual([1, 4]);
+    await updateTask(ctx, "theo", { id, private: false, expected_version: t.version, patch: { status: "done" } });
+    const next = (await listTasks(ctx, "theo", "mine")).filter((x) => x.title === "Prospect list" && x.status === "todo");
+    expect(next.map((x) => [x.due_at, x.recurrence_days])).toEqual([["2026-11-12", [1, 4]]]);
+    // Switching away from weekly clears the days.
+    await updateTask(ctx, "theo", { id: next[0].id, private: false, expected_version: next[0].version, patch: { recurrence: "daily" } });
+    expect((await listTasks(ctx, "theo", "mine")).find((x) => x.id === next[0].id)?.recurrence_days).toEqual([]);
+  });
   it("snoozing needs a reason", async () => {
     const id = randomUUID();
     await createTask(ctx, "theo", { id, task: { title: "X", description: "", owner: "theo", priority: "P2", due_at: "", estimated_minutes: null, recurrence: "none", account_id: "", opportunity_id: "", dependency_ids: [], private: false }, source: "manual", source_id: "" });

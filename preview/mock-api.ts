@@ -38,7 +38,7 @@ import { MemoryBank, demoWiseStore } from "@/fake-wise/store";
 import { categorySchema, csvSchema, importBankCsv, moneyOverview, setCategory, syncBank, syncStripe } from "@/server/services/bank";
 import { MemoryStripe, demoStripeStore } from "@/fake-stripe";
 import { LOCALE_OF, translate } from "@/i18n";
-import { callQueue, callSchema, callLists, endSession, endSessionSchema, listSessions, logCall, objectionReport, sessionSummary, startSession, startSessionSchema } from "@/server/services/calls";
+import { callLog, callLogSchema, callQueue, callSchema, callLists, endSession, endSessionSchema, listSessions, logCall, objectionReport, sessionSummary, startSession, startSessionSchema } from "@/server/services/calls";
 import { contentLogSchema, logContent, marketingWeek } from "@/server/services/marketing-week";
 import { funnelsSchema, marketingFunnels, addBreakdown, addTraffic, breakdownSchema, importTraffic, marketingOverview, overviewSchema, trafficImportSchema, trafficManualSchema } from "@/server/services/marketing";
 import { dashboardSchema, reportsDashboard } from "@/server/services/dashboard";
@@ -149,7 +149,7 @@ const routes: Record<string, [z.ZodTypeAny | null, Handler]> = {
   "GET /api/audience/series": [seriesSchema, async (i, f) => audienceSeries(ctx, f, i as never)],
   "GET /api/settings/system": [null, async () => {
     const rows = (await repo.list("SystemSettings")).rows;
-    return Object.fromEntries(["drive_folder_id", "founder_point_video_link", "ideas_testing_limit", "hot_lead_stale_days", "conversion_min_sample", "company_name", "calendly_url_theo", "calendly_url_pablo", "deck_url_fr", "deck_url_es"].map((k) => [k, rows.find((r) => r.key === k)?.value ?? ""]));
+    return Object.fromEntries(["drive_folder_id", "founder_point_video_link", "ideas_testing_limit", "hot_lead_stale_days", "conversion_min_sample", "company_name", "calendly_url_theo", "calendly_url_pablo", "deck_url_fr", "deck_url_es", "signature_theo", "signature_pablo"].map((k) => [k, rows.find((r) => r.key === k)?.value ?? ""]));
   }],
   "POST /api/settings/system": [z.object({ key: z.string(), value: z.string().max(500) }), async (i, f) => {
     const { key, value } = i as { key: string; value: string };
@@ -160,6 +160,7 @@ const routes: Record<string, [z.ZodTypeAny | null, Handler]> = {
   "GET /api/my-day": [null, async (_, f) => getMyDay(repo, f)],
   "GET /api/playbook": [null, async (_, f) => getPlaybook(ctx, f)],
   "POST /api/playbook": [playbookEditSchema, async (i, f) => savePlaybookItem(ctx, f, i as never)],
+  "GET /api/calls/log": [callLogSchema, async (i, f) => callLog(ctx, f, i as never)],
   "GET /api/calls/objections": [null, async (_, f) => objectionReport(ctx, f)],
   "GET /api/email/status": [null, async (_, f) => ({ connected: gmailGrant[f], mode: "demo" })],
   "DELETE /api/email/status": [null, async (_, f) => { gmailGrant[f] = false; return { connected: false }; }],

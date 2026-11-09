@@ -3,98 +3,84 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { ErrorState, Field, Input, Panel, PanelTitle, SegmentedSwitch, Select, Skeleton } from "@/components/ui/form";
+import { EmptyState, ErrorState, Field, Input, Panel, PanelTitle, Select, Skeleton } from "@/components/ui/form";
 import { BRANDS, BRAND_LABELS } from "@/domain/constants";
 import { api } from "@/lib/api";
 import { cn, formatEur } from "@/lib/utils";
 import type { marketingOverview } from "@/server/services/marketing";
-import { Bars, Funnel, Kpi } from "./charts";
+import { Bars } from "./charts";
+import { StatStrip, StepFunnel, useFunnels, type Days, type GrowthFilter } from "./growth-common";
 import { useDateTag, useT } from "@/i18n/react";
 
 type Overview = Awaited<ReturnType<typeof marketingOverview>>;
 const pct = (n: number | null | undefined, digits = 0) => (n === null || n === undefined ? "—" : `${(n * 100).toFixed(digits)}%`);
 
-export function MarketingOverview() {
+/** Website, social reach and countries for the period, all brands (shared by the Website, LinkedIn and Instagram tabs). */
+export function useMarketingOverview(days: Days) {
+  return useQuery({ queryKey: ["marketing-overview", days, "all"], queryFn: () => api<Overview>(`/api/marketing/overview?days=${days}&brand=all`) });
+}
+
+/** Growth › Website: traffic numbers → the website funnel → sources, countries → GA4 import. */
+export function WebsiteTab({ filter }: { filter: GrowthFilter }) {
   const t = useT();
-  const [days, setDays] = React.useState<"7" | "30" | "90">("30");
-  const [brand, setBrand] = React.useState<"all" | "local" | "consulting" | "thirty">("all");
-  const q = useQuery({ queryKey: ["marketing-overview", days, brand], queryFn: () => api<Overview>(`/api/marketing/overview?days=${days}&brand=${brand}`) });
+  const q = useMarketingOverview(filter.days);
+  const f = useFunnels(filter);
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap gap-2">
-        <SegmentedSwitch size="sm" label={t("Period")} value={days} onChange={setDays} options={[{ value: "7", label: t("7 days") }, { value: "30", label: t("30 days") }, { value: "90", label: t("90 days") }]} />
-        <SegmentedSwitch size="sm" label={t("Brand")} value={brand} onChange={setBrand} options={[{ value: "all", label: t("All") }, ...BRANDS.map((b) => ({ value: b, label: t(BRAND_LABELS[b]).replace("Valemont ", "") }))]} />
-      </div>
-      {q.isPending ? <Skeleton className="h-[520px]" /> : q.isError ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : <Body d={q.data} />}
+      {q.isPending ? <Skeleton className="h-[420px]" /> : q.isError ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : (
+        <WebsiteBody d={q.data} steps={f.data?.inbound.steps ?? []} />
+      )}
+      <div className="pt-2"><h2 className="text-lg font-semibold tracking-tight">{t("Add website numbers")}</h2><p className="text-sm text-text-2">{t("Import a GA4 export once a week, or type the numbers of a day.")}</p></div>
+      <TrafficTab />
     </div>
   );
 }
 
-function Body({ d }: { d: Overview }) {
+function WebsiteBody({ d, steps }: { d: Overview; steps: { label: string; value: number }[] }) {
   const t = useT();
   const tag = useDateTag();
   const conv = d.totals.sessions ? (d.totals.leads + d.totals.purchases) / d.totals.sessions : null;
+  const fits = d.fits.filter((f) => f.fit);
   return (
     <>
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Kpi tone="mkt" label={t("Website sessions")} value={d.totals.sessions.toLocaleString(tag)} note={d.hasTraffic ? `${d.from} → ${d.to}` : t("import GA4 to see this")} />
-        <Kpi tone="mkt" label={t("Leads")} value={String(d.totals.leads)} note={t("from tracked sources")} />
-        <Kpi tone="win" label={t("30/30 purchases")} value={String(d.totals.purchases)} note={d.totals.revenue_minor ? formatEur(d.totals.revenue_minor) : t("revenue not imported")} />
-        <Kpi label={t("Visit → lead or sale")} value={pct(conv, 1)} dark note={t("conversion of website sessions")} />
-      </div>
-
-      <Panel>
-        <PanelTitle>{t("What to do next")}</PanelTitle>
-        <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          {d.insights.map((i, k) => (
-            <li key={k} className={cn("flex flex-col gap-1 rounded-[12px] border p-3", i.severity === "act" ? "border-ink" : "border-hairline")}>
-              <span className={cn("self-start rounded-full px-2 py-0.5 text-[11px] font-semibold", i.severity === "act" ? "bg-mkt text-panel" : i.severity === "good" ? "bg-win-soft text-win" : "bg-subtle text-text-2")}>{i.severity === "act" ? t("Act") : i.severity === "good" ? t("Working") : t("Watch")}</span>
-              <p className="font-semibold leading-snug">{t(i.title)}</p>
-              <p className="text-[13px] text-text-2">{t(i.evidence)}</p>
-              <p className="text-[13px]">{t(i.action)}</p>
-            </li>
-          ))}
-        </ul>
-      </Panel>
-
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        {d.funnels.map((f) => (
-          <Panel key={f.brand}>
-            <PanelTitle><span className="flex items-center gap-2"><span className="size-2.5 rounded-full" style={{ background: `var(--brand-${f.brand})` }} />{t("{brand} funnel", { brand: t(f.label) })}</span></PanelTitle>
-            {f.hasData ? <Funnel steps={f.steps.map((x: { label: string; value: number }, i: number) => ({ ...x, label: t(x.label), tone: i === 0 ? ("mkt" as const) : i === f.steps.length - 1 ? ("win" as const) : ("mkt" as const) }))} /> : <p className="text-sm text-text-2">{t("No data for this brand yet.")}</p>}
-            <p className="mt-2 text-[12px] text-text-3">{t("Instagram views and LinkedIn impressions are shown separately; the % compares each step with the first one.")}</p>
-          </Panel>
-        ))}
-      </div>
-
+      <StatStrip stats={[
+        { label: t("Website visits"), value: d.totals.sessions.toLocaleString(tag), note: d.hasTraffic ? t("sessions, all sites") : t("import GA4 below to see this") },
+        { label: t("Leads"), value: d.totals.leads.toLocaleString(tag), note: t("forms and calls from the website") },
+        { label: t("30/30 purchases"), value: d.totals.purchases.toLocaleString(tag), note: d.totals.revenue_minor ? formatEur(d.totals.revenue_minor) : t("revenue not imported"), result: true },
+        { label: t("Visit → lead or sale"), value: pct(conv, 1), note: t("conversion of website sessions") },
+      ]} />
+      <StepFunnel title={t("Website funnel")} steps={steps} empty={t("No website traffic in this period: import a GA4 export below.")} />
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <Panel>
           <PanelTitle>{t("Where visits come from")}</PanelTitle>
-          {d.sources.length ? <Bars tone="mkt" data={d.sources.map((s) => ({ label: `${s.source}${s.medium ? ` / ${s.medium}` : ""}`, value: s.sessions, sub: t("{pct} convert · {n}", { pct: pct(s.conversion, 1), n: s.leads + s.purchases }) }))} /> : <p className="text-sm text-text-2">{t("No traffic imported yet (Traffic tab).")}</p>}
+          {d.sources.length ? <Bars tone="sales" data={d.sources.map((s) => ({ label: `${s.source}${s.medium ? ` / ${s.medium}` : ""}`, value: s.sessions, sub: t("{pct} convert · {n}", { pct: pct(s.conversion, 1), n: s.leads + s.purchases }) }))} /> : <p className="text-sm text-text-2">{t("No website traffic in this period: import a GA4 export below.")}</p>}
+          {d.sources.length ? <p className="mt-3 text-[12px] text-text-3">{t("Sessions per source; under each, the share that became a lead or a sale.")}</p> : null}
         </Panel>
         <Panel>
           <PanelTitle>{t("Visits by country")}</PanelTitle>
-          {d.countries.length ? <Bars data={d.countries.map((c) => ({ label: `${t(c.country)}${c.target ? "" : ` · ${t("outside target")}`}`, value: c.sessions, tone: c.target ? ("mkt" as const) : ("muted" as const), sub: t("{n} conversions", { n: c.conversions }) }))} /> : <p className="text-sm text-text-2">{t("No traffic imported yet.")}</p>}
+          {d.countries.length ? <Bars data={d.countries.map((c) => ({ label: `${t(c.country)}${c.target ? "" : ` · ${t("outside target")}`}`, value: c.sessions, tone: c.target ? ("sales" as const) : ("muted" as const), sub: t("{n} conversions", { n: c.conversions }) }))} /> : <p className="text-sm text-text-2">{t("No website traffic in this period: import a GA4 export below.")}</p>}
+          {d.countries.length ? <p className="mt-3 text-[12px] text-text-3">{t("Grey = outside the target markets.")}</p> : null}
         </Panel>
       </div>
-
       <Panel>
         <PanelTitle>{t("Are we reaching the right countries?")}</PanelTitle>
-        {d.fits.every((f) => !f.fit) ? <p className="text-sm text-text-2">{t("No audience country data yet. Enter the country split from Instagram Insights, or import the LinkedIn follower export (Location sheet), in the Audience tab.")}</p> : (
+        {fits.length === 0 ? (
+          <EmptyState title={t("No audience country data yet")}>{t("In the LinkedIn or Instagram tab, select an account and use “Enter country split”, or import the LinkedIn follower export.")}</EmptyState>
+        ) : (
           <ul className="flex flex-col gap-4">
-            {d.fits.filter((f) => f.fit).map((f) => (
+            {fits.map((f) => (
               <li key={f.accountId}>
                 <p className="mb-1 flex flex-wrap justify-between gap-2 text-sm"><span className="font-medium">{f.account}</span><span><span className="num font-semibold">{pct(f.fit!.inTarget)}</span> <span className="text-text-2">{t("in {markets}", { markets: f.targets.join(" + ") })}</span></span></p>
-                <div className="flex h-7 overflow-hidden rounded-[6px]" role="img" aria-label={t("{account} audience by country", { account: f.account })}>
+                <div className="flex h-6 overflow-hidden rounded-[6px]" role="img" aria-label={t("{account} audience by country", { account: f.account })}>
                   {f.fit!.countries.map((c) => (
-                    <div key={c.country} title={`${c.country} ${pct(c.share)}`} className={cn("flex items-center justify-center overflow-hidden border-r-2 border-panel text-[11px] font-medium", c.target ? "bg-mkt text-panel" : "hatch-strong text-ink")} style={{ width: `${c.share * 100}%` }}>
+                    <div key={c.country} title={`${c.country} ${pct(c.share)}`} className={cn("flex items-center justify-center overflow-hidden border-r-2 border-panel text-[11px] font-medium", c.target ? "bg-sales text-panel" : "hatch-strong text-ink")} style={{ width: `${c.share * 100}%` }}>
                       {c.share >= 0.07 ? `${c.country} ${pct(c.share)}` : ""}
                     </div>
                   ))}
                 </div>
               </li>
             ))}
-            <li className="flex gap-4 text-[12px] text-text-3"><span className="flex items-center gap-1"><span className="size-2.5 rounded-sm bg-mkt" />{t("Target market")}</span><span className="flex items-center gap-1"><span className="hatch-strong size-2.5 rounded-sm" />{t("Outside target")}</span></li>
+            <li className="flex gap-4 text-[12px] text-text-3"><span className="flex items-center gap-1"><span className="size-2.5 rounded-sm bg-sales" />{t("Target market")}</span><span className="flex items-center gap-1"><span className="hatch-strong size-2.5 rounded-sm" />{t("Outside target")}</span></li>
           </ul>
         )}
       </Panel>
@@ -111,12 +97,12 @@ export function TrafficTab() {
   const [file, setFile] = React.useState<{ name: string; text: string } | null>(null);
   const run = useMutation({
     mutationFn: (commit: boolean) => api<TrafficPreview>("/api/marketing/traffic", { body: { brand: brand || null, csv: file!.text, period_end: end, file_name: file!.name, commit } }),
-    onSuccess: (r) => { if (r.committed) { qc.invalidateQueries({ queryKey: ["marketing-overview"] }); toast(t("Imported {n} row(s)", { n: r.newRows })); } },
+    onSuccess: (r) => { if (r.committed) { for (const k of ["marketing-overview", "funnels"]) qc.invalidateQueries({ queryKey: [k] }); toast(t("Imported {n} row(s)", { n: r.newRows })); } },
   });
   const [v, setV] = React.useState({ date: new Date().toLocaleDateString("en-CA"), source: "instagram", medium: "social", country: "France", sessions: "", leads: "", purchases: "" });
   const manual = useMutation({
     mutationFn: () => api("/api/marketing/traffic", { method: "PUT", body: { date: v.date, brand: brand || null, source: v.source, medium: v.medium, country: v.country, sessions: Number(v.sessions) || 0, leads: Number(v.leads) || 0, purchases: Number(v.purchases) || 0 } }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["marketing-overview"] }); toast(t("Saved")); },
+    onSuccess: () => { for (const k of ["marketing-overview", "funnels"]) qc.invalidateQueries({ queryKey: [k] }); toast(t("Saved")); },
   });
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">

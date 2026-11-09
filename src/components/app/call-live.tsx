@@ -1,17 +1,19 @@
 "use client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, Copy, Mail, MessageCircle, Phone, Send, SkipForward, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Copy, Mail, MessageCircle, Phone, PhoneOff, SkipForward, X } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState, Field, Input, Panel, SegmentedSwitch, Select, Skeleton, Textarea } from "@/components/ui/form";
 import { Modal } from "@/components/ui/overlay";
 import { useLocale, useT } from "@/i18n/react";
+import { ConfirmSent, useInstantSend } from "./instant-send";
+import { CallLog } from "./call-log";
 import { CALL_OUTCOMES, CALL_OUTCOME_LABELS, type CallOutcome, type CallStats } from "@/domain/calls";
 import { OBJECTION_LABELS, type Objection } from "@/domain/constants";
 import { OBJECTION_GUIDE, VARIANTS, guideOf, replySteps, type VariantStat } from "@/domain/objections";
 import {
-  COLD_TEMPLATES, EMAIL_TEMPLATE_LABELS, TEMPLATES, fill, findItem, hasMissingLink, mailtoLink, suggestedFollowUp, whatsappLink,
+  COLD_TEMPLATES, EMAIL_TEMPLATE_LABELS, TEMPLATES, fill, findItem, gmailComposeLink, hasMissingLink, suggestedFollowUp, whatsappLink,
   type Lang, type PlaybookItem, type TemplateKey,
 } from "@/domain/playbook";
 import { addDays } from "@/domain/time";
@@ -20,7 +22,7 @@ import { cn } from "@/lib/utils";
 
 type QueueItem = { accountId: string; name: string; phone: string; city: string; niche: string; country: "FR" | "ES" | null; why: string; contactName: string; email: string };
 type Summary = { session: { id: string; started_at: string; ended_at: string | null; list_id: string }; stats: CallStats; messages: number };
-export type Playbook = { items: PlaybookItem[]; links: { calendly: string; deckFR: string; deckES: string }; founderName: string };
+export type Playbook = { items: PlaybookItem[]; links: { calendly: string; deckFR: string; deckES: string }; founderName: string; signature: string };
 export type ObjectionReport = { days: number; team: { key: string; count: number; won: number; wonRate: number | null }[]; variants: VariantStat[]; picks: Record<string, number>; heard: number; brushOffShare: number | null; byMarket: { key: string; total: number; top: { key: string; count: number }[] }[]; byNiche: { key: string; total: number; top: { key: string; count: number }[] }[] };
 /** Who a message goes to: the person on the line, or the one just called. */
 export type Target = { accountId: string; name: string; contact: string; email: string; phone: string; market: Lang };
@@ -50,27 +52,29 @@ export function ActiveSession({ id, listId, onEnd }: { id: string; listId: strin
   const [skipped, setSkipped] = React.useState<string[]>([]);
   const current = queue.data?.queue.find((q) => !skipped.includes(q.accountId)) ?? null;
   const [phone, setPhone] = React.useState("");
-  const [market, setMarket] = React.useState<Lang>("FR");
   const [objs, setObjs] = React.useState<Objection[]>([]);
   const [focusObj, setFocusObj] = React.useState<Objection | null>(null);
   const [variant, setVariant] = React.useState<Record<string, number>>({});
   const [dialAt, setDialAt] = React.useState<number | null>(null);
+  const [endAt, setEndAt] = React.useState<number | null>(null); // "Hang up": the call is over, the outcome is next
   const [pending, setPending] = React.useState<CallOutcome | null>(null);
   const [key, setKey] = React.useState(() => crypto.randomUUID()); // one idempotency key per call, reused on retry
   const [after, setAfter] = React.useState<{ target: Target; suggestion: TemplateKey | null; outcome: CallOutcome; sendKey: string } | null>(null);
   const [composer, setComposer] = React.useState<{ channel: Channel; template: TemplateKey; target: Target; sendKey?: string } | null>(null);
   const now = useNow();
   const sessionSec = summary.data ? Math.max(0, Math.floor((now - Date.parse(summary.data.session.started_at)) / 1000)) : 0;
-  const callSec = dialAt ? Math.max(0, Math.floor((now - dialAt) / 1000)) : null;
+  const callSec = dialAt ? Math.max(0, Math.floor(((endAt ?? now) - dialAt) / 1000)) : null;
   // Scripts and messages are in the founder's own language (Théo FR, Pablo ES); the market only drives consent rules.
   const locale = useLocale();
   const lang: Lang = locale === "es" ? "ES" : "FR";
+  const market: Lang = lang; // free dialling: Théo calls France, Pablo calls Spain
   const liveTarget: Target | null = listId
     ? current ? { accountId: current.accountId, name: current.name, contact: current.contactName, email: current.email, phone: current.phone, market: current.country ?? "FR" } : null
     : { accountId: "", name: "", contact: "", email: "", phone, market };
   const followTarget = after?.target ?? liveTarget;
   const pb = playbook.data;
-  const resetCall = () => { setObjs([]); setFocusObj(null); setVariant({}); setDialAt(null); };
+  const resetCall = () => { setObjs([]); setFocusObj(null); setVariant({}); setDialAt(null); setEndAt(null); };
+  const hangUp = () => { if (dialAt && !endAt) setEndAt(Date.now()); setFocusObj(null); };
 
   const end = useMutation({ mutationFn: () => api("/api/calls/sessions", { method: "PATCH", body: { id } }), onSuccess: () => { qc.invalidateQueries(); onEnd(); } });
   const log = useMutation({
@@ -92,28 +96,20 @@ export function ActiveSession({ id, listId, onEnd }: { id: string; listId: strin
       qc.invalidateQueries({ queryKey: ["call-summary", id] });
       qc.invalidateQueries({ queryKey: ["call-queue", listId] });
       qc.invalidateQueries({ queryKey: ["call-objections"] });
+      qc.invalidateQueries({ queryKey: ["call-log"] });
       qc.invalidateQueries({ queryKey: ["my-day"] });
     },
     onError: (e) => toast(e instanceof ApiError && e.isBlocked ? e.message : t("Error: {message}. Tap again to retry (it won't count twice).", { message: (e as Error).message.replace(/[.\s]+$/, "") })),
   });
-  // One key sends the suggested message: straight through Gmail when connected and an address is known.
-  const quick = useMutation({
-    mutationFn: (a: NonNullable<typeof after>) => {
-      const it = pb ? findItem(pb.items, "email", a.suggestion!, lang) : null;
-      const v = { business: a.target.name, contact: a.target.contact, founder: pb?.founderName, calendly: pb?.links.calendly, deck: lang === "ES" ? pb?.links.deckES : pb?.links.deckFR };
-      return api("/api/email/send", { body: { idempotency_key: a.sendKey, channel: "email", via: "gmail", account_id: a.target.accountId, call_session_id: id, to: a.target.email, subject: fill(it?.subject ?? "", v), body: fill(it?.body ?? "", v), template_key: a.suggestion, language: lang, market: a.target.market } });
-    },
-    onSuccess: (_r, a) => { toast(t("Email sent to {name}", { name: a.target.name || a.target.email })); setAfter(null); qc.invalidateQueries({ queryKey: ["call-summary", id] }); qc.invalidateQueries({ queryKey: ["email-queue"] }); },
-    onError: (e, a) => {
-      if (e instanceof ApiError && e.body.error === "consent_required") toast(t("Connect Gmail first"));
-      else { toast((e as Error).message); setComposer({ channel: "email", template: a.suggestion!, target: a.target, sendKey: a.sendKey }); }
-    },
-  });
-  const sendSuggested = () => {
+  // One click sends: Gmail directly when connected, else Gmail / WhatsApp open prefilled (founder's language and signature).
+  const instant = useInstantSend(id);
+  const sendNow = (channel: "email" | "whatsapp") => {
     if (!after?.suggestion) return;
-    if (gmail.data?.connected && after.target.email && after.target.accountId) quick.mutate(after);
-    else setComposer({ channel: after.target.email || !after.target.phone ? "email" : "whatsapp", template: after.suggestion, target: after.target, sendKey: after.sendKey });
+    const ok = instant.send(channel, after.target, after.suggestion, after.sendKey);
+    if (ok) setAfter(null);
+    else setComposer({ channel, template: after.suggestion, target: after.target, sendKey: after.sendKey });
   };
+  const sendSuggested = () => { if (after) sendNow(after.target.email ? "email" : "whatsapp"); };
 
   const tap = (o: CallOutcome) => {
     if (log.isPending) return;
@@ -163,9 +159,10 @@ export function ActiveSession({ id, listId, onEnd }: { id: string; listId: strin
       if (g) { e.preventDefault(); toggleObj(g.key); return; }
       if (k === "enter") { e.preventDefault(); dial(); return; }
       if (k === "m") { e.preventDefault(); sendSuggested(); return; }
-      if (k === "e") { e.preventDefault(); open("email"); return; }
+      if (k === "e") { e.preventDefault(); if (after?.suggestion) sendNow("email"); else open("email"); return; }
+      if (k === "x") { e.preventDefault(); hangUp(); return; }
       if (k === "p") { e.preventDefault(); open("email", "deck"); return; }
-      if (k === "w") { e.preventDefault(); open("whatsapp"); return; }
+      if (k === "w") { e.preventDefault(); if (after?.suggestion) sendNow("whatsapp"); else open("whatsapp"); return; }
       if (k === "c") { e.preventDefault(); void copyCalendly(); return; }
       if (k === "n" && listId) { e.preventDefault(); skip(); }
     };
@@ -192,12 +189,13 @@ export function ActiveSession({ id, listId, onEnd }: { id: string; listId: strin
         {counts.map(([l, v]) => <div key={l} className="flex items-baseline gap-1.5"><dt className="text-text-2">{t(l)}</dt><dd className="num text-lg font-semibold">{v ?? 0}</dd></div>)}
       </dl>
 
+      <ConfirmSent s={instant} />
       {after?.suggestion ? (
         <div className="flex flex-wrap items-center gap-2 rounded-[16px] border-2 border-sales bg-panel px-4 py-3" aria-live="polite">
-          <p className="min-w-0 flex-1 text-sm"><span className="text-text-2">{t("Message for {name}", { name: after.target.name || t("the last call") })}: </span><b className="font-medium">{t(EMAIL_TEMPLATE_LABELS[after.suggestion])}</b></p>
-          <Button size="sm" variant="primary" disabled={quick.isPending} onClick={sendSuggested}><Send /> {quick.isPending ? t("Sending…") : t("Send")} <span className="text-[11px] opacity-70">M</span></Button>
-          <Button size="sm" variant="ghost" onClick={() => open("email")}><Mail /> {t("Email")}</Button>
-          <Button size="sm" variant="ghost" onClick={() => open("whatsapp")}><MessageCircle /> WhatsApp</Button>
+          <p className="min-w-0 flex-1 text-[15px]"><span className="text-text-2">{t("Send to {name}", { name: after.target.contact || after.target.name || t("the last call") })}: </span><b className="font-semibold">{t(EMAIL_TEMPLATE_LABELS[after.suggestion])}</b></p>
+          <Button variant="primary" disabled={instant.busy} onClick={() => sendNow("email")}><Mail /> {t("Email")} <span className="text-[11px] opacity-70">E</span></Button>
+          <Button variant="primary" disabled={instant.busy} onClick={() => sendNow("whatsapp")}><MessageCircle /> WhatsApp <span className="text-[11px] opacity-70">W</span></Button>
+          <Button size="sm" variant="ghost" onClick={() => open(after.target.email ? "email" : "whatsapp")}>{t("Edit")}</Button>
           <Button size="icon" variant="ghost" aria-label={t("Skip this message")} onClick={() => setAfter(null)}><X /></Button>
         </div>
       ) : null}
@@ -208,13 +206,13 @@ export function ActiveSession({ id, listId, onEnd }: { id: string; listId: strin
           ) : current ? (
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-[12px] text-text-2">{t(current.why)}{current.niche ? ` · ${current.niche}` : ""}{current.city ? ` · ${current.city}` : ""} · {lang}</p>
+                <p className="text-[12px] text-text-2">{t(current.why)}{current.niche ? ` · ${t(current.niche)}` : ""}{current.city ? ` · ${current.city}` : ""}</p>
                 <p className="truncate text-2xl font-semibold tracking-tight">{current.name}</p>
                 {current.contactName ? <p className="text-sm text-text-2">{t("Ask for {name}", { name: current.contactName })}</p> : null}
               </div>
               <div className="flex items-center gap-2">
                 {callSec !== null ? <span className="num text-sm text-text-2" aria-label={t("Call timer")}>{fmt(callSec)}</span> : null}
-                <Button variant="primary" size="lg" onClick={dial}><Phone /> <span className="num">{current.phone}</span></Button>
+                {dialAt && !endAt ? <Button variant="outline" size="lg" onClick={hangUp}><PhoneOff /> {t("Hang up")} <span className="text-[11px] opacity-60">X</span></Button> : <Button variant="primary" size="lg" onClick={dial}><Phone /> <span className="num">{current.phone}</span></Button>}
                 <Button variant="ghost" size="lg" aria-label={t("Skip this number (N)")} onClick={skip}><SkipForward /></Button>
               </div>
             </div>
@@ -222,8 +220,7 @@ export function ActiveSession({ id, listId, onEnd }: { id: string; listId: strin
         ) : (
           <div className="flex flex-wrap items-end gap-3">
             <Field label={t("Number (optional, never stored for a refusal)")} htmlFor="cm-phone" className="min-w-56 flex-1"><Input id="cm-phone" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+33…" className="num h-12 text-lg" /></Field>
-            <SegmentedSwitch label={t("Country")} value={market} onChange={setMarket} options={[{ value: "FR", label: "FR" }, { value: "ES", label: "ES" }]} />
-            <Button variant="primary" size="lg" onClick={dial}><Phone /> {callSec !== null ? <span className="num">{fmt(callSec)}</span> : t("Dial")}</Button>
+            {dialAt && !endAt ? <Button variant="outline" size="lg" onClick={hangUp}><PhoneOff /> {t("Hang up")} <span className="num">{fmt(callSec ?? 0)}</span></Button> : <Button variant="primary" size="lg" onClick={dial}><Phone /> {callSec !== null ? <span className="num">{fmt(callSec)}</span> : t("Dial")}</Button>}
           </div>
         )}
 
@@ -253,7 +250,7 @@ export function ActiveSession({ id, listId, onEnd }: { id: string; listId: strin
               </div>
             </div>
             <div>
-              <p className="mb-2 text-sm font-medium text-text-2">{t("End of call: one tap")}</p>
+              <p className={cn("mb-2 text-sm font-medium", endAt ? "text-ink" : "text-text-2")}>{endAt ? t("Call over: how did it go?") : t("End of call: one tap")}</p>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {CALL_OUTCOMES.map((o, i) => (
                   <button key={o} type="button" onClick={() => tap(o)} disabled={log.isPending || (Boolean(listId) && !current)}
@@ -282,6 +279,8 @@ export function ActiveSession({ id, listId, onEnd }: { id: string; listId: strin
         </details>
       </div>
 
+      <CallLog sessionId={id} title="This session's calls" />
+
       <Modal open={Boolean(composer && pb)} onOpenChange={(o) => { if (!o) setComposer(null); }} title={composer ? (composer.target.name || t("New message")) : ""}>
         {composer && pb ? (
           <FollowUpComposer key={`${composer.channel}-${composer.template}-${composer.target.accountId}-${composer.target.name}`} channel={composer.channel} template={composer.template} target={composer.target} playbook={pb} gmailConnected={Boolean(gmail.data?.connected)} sessionId={id} sendKey={composer.sendKey}
@@ -293,7 +292,11 @@ export function ActiveSession({ id, listId, onEnd }: { id: string; listId: strin
 }
 const isYes = (o: CallOutcome) => o === "meeting" || o === "interested" || o === "call_back";
 
-/** The live reply, large and high-contrast so it can be read mid-call: Label / Ask / Next step; ← → other reply. */
+const STEP_NAMES = ["Rephrase", "Ask", "Propose"] as const;
+/**
+ * The live reply, built to be read in two seconds mid-call: three short blocks, each with its role
+ * ("Rephrase" / "Ask" / "Propose"), large dark text on white, the question emphasised. ← → other reply.
+ */
 function ReplyCard({ objection, lang, variant, onCycle, pb, vars, stats, best, onClose }: { objection: Objection; lang: Lang; variant: number; onCycle: (d: 1 | -1) => void; pb: Playbook; vars: Record<string, string | undefined>; stats: VariantStat[]; best: number | null; onClose: () => void }) {
   const t = useT();
   const item = findItem(pb.items, "objection", `${objection}#${variant}`, lang);
@@ -301,19 +304,25 @@ function ReplyCard({ objection, lang, variant, onCycle, pb, vars, stats, best, o
   const steps = item ? replySteps(fill(item.body, vars)) : [];
   const g = guideOf(objection);
   return (
-    <div className="rounded-[16px] bg-ink p-4 text-panel shadow-[0_8px_24px_rgba(23,22,26,0.18)]" aria-live="assertive">
-      <div className="mb-3 flex items-center justify-between gap-2 text-[13px] text-panel/70">
-        <span className="font-medium text-panel">{t(OBJECTION_LABELS[objection])}{g?.type === "brush_off" ? <span className="font-normal text-panel/70"> · {t("brush-off: test it")}</span> : null}</span>
-        <span className="flex items-center gap-1">
-          <button type="button" aria-label={t("Previous reply")} onClick={() => onCycle(-1)} className="rounded p-1.5 hover:bg-panel/10"><ChevronLeft className="size-5" /></button>
-          <span className="num">{variant}/{VARIANTS}{best === variant ? ` · ${t("best")}` : ""}{st ? ` · ${st.won}/${st.uses}` : ""}</span>
-          <button type="button" aria-label={t("Next reply")} onClick={() => onCycle(1)} className="rounded p-1.5 hover:bg-panel/10"><ChevronRight className="size-5" /></button>
-          <button type="button" aria-label={t("Close")} onClick={onClose} className="rounded p-1.5 hover:bg-panel/10"><X className="size-5" /></button>
+    <div className="rounded-[18px] border-2 border-ink bg-panel p-5" aria-live="assertive">
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <p className="text-[15px] font-semibold">« {t(OBJECTION_LABELS[objection])} »{g?.type === "brush_off" ? <span className="ml-2 text-[13px] font-normal text-text-2">{t("brush-off: test it")}</span> : null}</p>
+        <span className="flex items-center gap-1 text-[12px] text-text-3">
+          <button type="button" aria-label={t("Previous reply")} onClick={() => onCycle(-1)} className="rounded p-1.5 hover:bg-subtle"><ChevronLeft className="size-5" /></button>
+          <span className="num">{t("reply {n}", { n: variant })}{best === variant ? ` · ${t("best")}` : ""}{st ? ` · ${st.won}/${st.uses}` : ""}</span>
+          <button type="button" aria-label={t("Next reply")} onClick={() => onCycle(1)} className="rounded p-1.5 hover:bg-subtle"><ChevronRight className="size-5" /></button>
+          <button type="button" aria-label={t("Close")} onClick={onClose} className="rounded p-1.5 hover:bg-subtle"><X className="size-5" /></button>
         </span>
       </div>
-      <ol className="flex flex-col gap-2.5">
+      <ol className="flex flex-col gap-4">
         {steps.map((line, i) => (
-          <li key={i} className={cn("text-[20px] leading-snug", i === 2 ? "font-semibold" : "font-normal", i === 0 && "text-panel/85")}>{line}</li>
+          <li key={i} className="flex gap-3">
+            <span className={cn("mt-1 flex size-7 shrink-0 items-center justify-center rounded-full text-[13px] font-semibold", i === 1 ? "bg-ink text-panel" : "bg-subtle text-text-2")}>{i + 1}</span>
+            <span>
+              <span className="block text-[12px] font-semibold uppercase tracking-wide text-text-3">{t(STEP_NAMES[i] ?? "")}</span>
+              <span className={cn("block text-[22px] leading-[1.35]", i === 1 ? "font-semibold" : "font-normal")}>{line}</span>
+            </span>
+          </li>
         ))}
       </ol>
     </div>
@@ -362,7 +371,7 @@ export function FollowUpComposer({ channel, template, target, playbook, gmailCon
   const [business, setBusiness] = React.useState(target.name);
   const [idem] = React.useState(() => sendKey ?? crypto.randomUUID());
   const [opened, setOpened] = React.useState(false);
-  const varsFor = (l: Lang) => ({ business, contact: target.contact, founder: playbook.founderName, calendly: playbook.links.calendly, deck: l === "ES" ? playbook.links.deckES : playbook.links.deckFR });
+  const varsFor = (l: Lang) => ({ business, contact: target.contact, founder: playbook.founderName, signature: playbook.signature, calendly: playbook.links.calendly, deck: l === "ES" ? playbook.links.deckES : playbook.links.deckFR });
   const textFor = (c: Channel, t: TemplateKey, l: Lang) => {
     const it = findItem(playbook.items, c === "whatsapp" ? "whatsapp" : "email", t, l);
     return { subject: fill(it?.subject ?? "", varsFor(l)), body: fill(it?.body ?? "", varsFor(l)) };
@@ -383,7 +392,7 @@ export function FollowUpComposer({ channel, template, target, playbook, gmailCon
   const check = useMutation({
     mutationFn: (via: "mail_app" | "whatsapp") => api("/api/email/send", { body: payload(via, true) }).then(() => via),
     onSuccess: (via) => {
-      window.open(via === "whatsapp" ? whatsappLink(to, body) : mailtoLink(to, subject, body), "_blank", "noopener");
+      window.open(via === "whatsapp" ? whatsappLink(to, body) : gmailComposeLink(to, subject, body), "_blank", "noopener");
       setOpened(true);
     },
   });
@@ -418,7 +427,7 @@ export function FollowUpComposer({ channel, template, target, playbook, gmailCon
           {isWa ? <Button variant="primary" disabled={blocked || check.isPending} onClick={() => check.mutate("whatsapp")}><MessageCircle /> {t("Open WhatsApp")}</Button> : (
             <>
               {gmailConnected ? <Button variant="primary" disabled={blocked || send.isPending} onClick={() => send.mutate("gmail")}><Mail /> {send.isPending ? t("Sending…") : t("Send with Gmail")}</Button> : null}
-              <Button variant={gmailConnected ? "outline" : "primary"} disabled={blocked || check.isPending} onClick={() => check.mutate("mail_app")}>{t("Open in mail app")}</Button>
+              <Button variant={gmailConnected ? "outline" : "primary"} disabled={blocked || check.isPending} onClick={() => check.mutate("mail_app")}>{t("Open in Gmail")}</Button>
             </>
           )}
           <Button variant="ghost" onClick={async () => { try { await navigator.clipboard.writeText(isWa ? body : `${subject}\n\n${body}`); toast(t("Copied")); } catch { /* clipboard blocked */ } }}><Copy /> {t("Copy")}</Button>

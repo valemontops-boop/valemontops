@@ -14,6 +14,8 @@ const KEYS = {
   calendly_url_pablo: "Pablo's booking link inserted in call follow-ups.",
   deck_url_fr: "Commercial deck link (French).",
   deck_url_es: "Commercial deck link (Spanish).",
+  signature_theo: "Théo's email signature (several lines allowed).",
+  signature_pablo: "Pablo's email signature (several lines allowed).",
 } as const;
 const URL_KEYS = ["calendly_url_theo", "calendly_url_pablo", "deck_url_fr", "deck_url_es"];
 

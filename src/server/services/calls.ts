@@ -220,3 +220,29 @@ export async function objectionReport(ctx: AppContext, founder: FounderKey, days
     byNiche: split((e) => niche.get(e.account_id) ?? "").slice(0, 6),
   };
 }
+
+/* ---------------- call log: every call, one line ---------------- */
+export const callLogSchema = z.object({ session_id: z.union([z.literal(""), z.string().uuid()]).default(""), days: z.coerce.number().int().min(1).max(90).default(14) });
+const OUTCOME_OF = (e: { activity_type: string; outcome: string | null }) =>
+  e.activity_type === "voicemail" ? "voicemail" : e.activity_type === "cold_call" ? "no_answer" : e.outcome === "gatekeeper" ? "gatekeeper" : e.outcome === "not_interested" ? "not_interested" : e.outcome === "callback_requested" ? "call_back" : e.outcome === "meeting_booked" ? "meeting" : e.outcome === "interested" ? "interested" : "no_answer";
+/** The founder's calls (one session, or the last N days), newest first: who, outcome, objections, length, message sent after. */
+export async function callLog(ctx: AppContext, founder: FounderKey, input: z.infer<typeof callLogSchema>) {
+  const t = await ctx.repo.listMany(["ActivityEvents", "Accounts", "EmailSends", "Contacts"]);
+  const u = await userRow(ctx.repo, founder);
+  const from = addDays(localDate(new Date(), u.timezone), -input.days + 1);
+  const acc = new Map(t.Accounts.rows.map((a) => [a.id, a]));
+  const sends = t.EmailSends.rows.filter((x) => !x.is_archived && x.status === "sent");
+  const calls = dedupeEvents(t.ActivityEvents.rows)
+    .filter((e) => e.founder_key === founder && ["cold_call", "connected_call", "voicemail"].includes(e.activity_type) && (input.session_id ? e.call_session_id === input.session_id : e.local_date >= from))
+    .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))
+    .slice(0, 300);
+  return calls.map((e) => {
+    const a = e.account_id ? acc.get(e.account_id) : undefined;
+    const msg = e.account_id ? sends.filter((x) => x.account_id === e.account_id && (x.sent_at ?? "") >= e.occurred_at).sort((x, y) => (x.sent_at ?? "").localeCompare(y.sent_at ?? ""))[0] : undefined;
+    return {
+      id: e.id, at: e.occurred_at, date: e.local_date, outcome: OUTCOME_OF(e), objections: objectionsOf(e), duration_sec: e.duration_sec,
+      name: a?.name ?? "", niche: a?.niche ?? "", phone: a?.phone ?? "", accountId: e.account_id, contact: t.Contacts.rows.find((c) => c.account_id === e.account_id)?.full_name ?? "",
+      message: msg ? { channel: msg.channel, template: msg.template_key, at: msg.sent_at } : null, next_action: e.next_action, next_action_due: e.next_action_due,
+    };
+  });
+}

@@ -2,11 +2,21 @@ import { addDays, weekday } from "./time";
 
 export type Recurrence = "none" | "daily" | "weekdays" | "weekly" | "monthly";
 
-/** Due date of the next instance of a recurring task (created when the current one is completed). */
-export function nextDue(due: string, r: Recurrence): string | null {
+/**
+ * Due date of the next instance of a recurring task (created when the current one is completed).
+ * `days` (weekly only): weekday numbers 0–6 (0 = Sunday). Non-empty → the first later date on one of those weekdays
+ * (e.g. [2] every Tuesday, [1, 4] Monday and Thursday); empty → same weekday as the due date, one week later.
+ */
+export function nextDue(due: string, r: Recurrence, days: readonly number[] = []): string | null {
   if (r === "none") return null;
   if (r === "daily") return addDays(due, 1);
-  if (r === "weekly") return addDays(due, 7);
+  if (r === "weekly") {
+    const set = new Set(days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6));
+    if (!set.size) return addDays(due, 7);
+    let d = addDays(due, 1);
+    while (!set.has(weekday(d))) d = addDays(d, 1);
+    return d;
+  }
   if (r === "weekdays") {
     let d = addDays(due, 1);
     while ([0, 6].includes(weekday(d))) d = addDays(d, 1);

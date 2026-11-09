@@ -1,6 +1,17 @@
 # Status
 
-Updated: 2026-11-09 · Stage: **1B complete + founder feedback round 6 (fake-verified)** · Next: Stage 2 (revenue operations).
+Updated: 2026-11-09 · Stage: **1B complete + founder feedback round 7 (fake-verified)** · Next: Stage 2 (revenue operations).
+
+## Feedback round 7 (2026-11-09)
+| Change | Status |
+|---|---|
+| Objection replies easier to read: 3 numbered steps (Reformule / Demande / Propose), large text, the question in bold | VERIFIED_FAKE (preview) |
+| Instant email / WhatsApp: one click; Gmail API when connected, else Gmail opens prefilled (right person, subject, founder's language, founder's signature); WhatsApp prefilled; "Sent?" confirmation | VERIFIED_FAKE (playbook.test.ts, e2e, preview) — Gmail API send needs real credentials for VERIFIED_LIVE |
+| Calls: no language switch; "Hang up" (X) ends the call, not the session; call log per session and over 14 days | VERIFIED_FAKE (calls.test.ts, e2e, preview) |
+| Growth rebuilt: six tabs with the same layout (numbers → funnel → details), channels compared, LinkedIn and Instagram funnels | VERIFIED_FAKE (preview FR/ES/phone) |
+| Trade names in French / Spanish everywhere (demo data + dictionary for English names) | VERIFIED_FAKE (preview scan) |
+| Weekly review simplified (4 totals, went well / to improve, 3 fields) | VERIFIED_FAKE |
+| Task recurrence: daily, weekdays, weekly, monthly, chosen weekdays (e.g. every Tuesday) | VERIFIED_FAKE (tasks.test.ts) |
 
 ## Feedback round 6 (2026-11-09)
 | Change | Status |

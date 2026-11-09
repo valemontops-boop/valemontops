@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PLAYBOOK, fill, findItem, hasMissingLink, mailtoLink, mergePlaybook, suggestedFollowUp, whatsappLink } from "./playbook";
+import { DEFAULT_PLAYBOOK, fill, findItem, gmailComposeLink, hasMissingLink, mailtoLink, mergePlaybook, suggestedFollowUp, whatsappLink } from "./playbook";
 import { OBJECTION_GUIDE, pickVariant, replySteps, replyStats } from "./objections";
 import { emailBenchmarks, type SendRow } from "./email";
 
@@ -11,7 +11,7 @@ describe("playbook", () => {
       expect(replySteps(it!.body)).toHaveLength(3);
     }
     const keys = OBJECTION_GUIDE.map((g) => g.hotkey);
-    expect(new Set([...keys, "e", "p", "w", "c", "n", "m"]).size).toBe(keys.length + 6);
+    expect(new Set([...keys, "e", "p", "w", "c", "n", "m", "x"]).size).toBe(keys.length + 7);
   });
   it("tries every reply variant before settling on the one that wins most often", () => {
     const ev = (r: string, won: boolean) => ({ activity_type: "connected_call", outcome: won ? "meeting_booked" : "not_interested", replies: [r] });
@@ -59,5 +59,22 @@ describe("email benchmarks", () => {
     expect(b.cold.verdict).toBe("strong");
     expect(b.byWeekday).toEqual([expect.objectContaining({ key: "Mon", sent: 20 })]);
     expect(emailBenchmarks(rows.slice(0, 5), "Europe/Paris", 20).cold.verdict).toBe("not_enough_data");
+  });
+
+  it("signs every email with the founder's signature, or first name + Valemont by default", () => {
+    for (const l of ["FR", "ES"] as const) for (const it of DEFAULT_PLAYBOOK.filter((i) => i.kind === "email" && i.language === l)) {
+      expect(it.body).toContain("{signature}");
+      expect(fill(it.body, { founder: "Théo", calendly: "https://example.com/c", deck: "https://example.com/d" })).toMatch(/Théo\nValemont$/);
+      expect(fill(it.body, { founder: "Théo", signature: "Théo M.\nValemont · example.com", calendly: "x", deck: "y" })).toMatch(/Théo M\.\nValemont · example\.com$/);
+    }
+  });
+
+  it("builds a prefilled Gmail compose link with encoded recipient, subject and body", () => {
+    const url = new URL(gmailComposeLink("a+b@example.com", "Suite à notre appel", "Bonjour,\nmerci & à bientôt"));
+    expect(url.origin + url.pathname).toBe("https://mail.google.com/mail/");
+    expect(url.searchParams.get("view")).toBe("cm");
+    expect(url.searchParams.get("to")).toBe("a+b@example.com");
+    expect(url.searchParams.get("su")).toBe("Suite à notre appel");
+    expect(url.searchParams.get("body")).toBe("Bonjour,\nmerci & à bientôt");
   });
 });

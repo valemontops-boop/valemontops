@@ -22,14 +22,14 @@ export async function seedDemo(repo: DataRepository) {
   );
 
   const accounts = [
-    ["Plomberie Duval (demo)", "FR", "Building trades", "Plumbers", "plomberie-duval.example.com", "+33100000001", "theo"],
-    ["Chauffage Morel (demo)", "FR", "Building trades", "Heating", "chauffage-morel.example.com", "+33100000002", "theo"],
-    ["Garage du Parc (demo)", "FR", "Automotive", "Independent garages", "garage-du-parc.example.com", "+33100000003", "theo"],
-    ["Toitures Leroy (demo)", "FR", "Building trades", "Roofers", "toitures-leroy.example.com", "+33100000004", "theo"],
-    ["Fontanería Ruiz (demo)", "ES", "Building trades", "Plumbers", "fontaneria-ruiz.example.com", "+34900000001", "pablo"],
-    ["Taller Sánchez (demo)", "ES", "Automotive", "Independent garages", "taller-sanchez.example.com", "+34900000002", "pablo"],
-    ["Electricidad Vega (demo)", "ES", "Building trades", "Electricians", "electricidad-vega.example.com", "+34900000003", "pablo"],
-    ["Climatización Ortega (demo)", "ES", "Building trades", "HVAC", "climatizacion-ortega.example.com", "+34900000004", "pablo"],
+    ["Plomberie Duval (demo)", "FR", "Bâtiment", "Plombiers", "plomberie-duval.example.com", "+33100000001", "theo"],
+    ["Chauffage Morel (demo)", "FR", "Bâtiment", "Chauffagistes", "chauffage-morel.example.com", "+33100000002", "theo"],
+    ["Garage du Parc (demo)", "FR", "Automobile", "Garages indépendants", "garage-du-parc.example.com", "+33100000003", "theo"],
+    ["Toitures Leroy (demo)", "FR", "Bâtiment", "Couvreurs", "toitures-leroy.example.com", "+33100000004", "theo"],
+    ["Fontanería Ruiz (demo)", "ES", "Construcción", "Fontaneros", "fontaneria-ruiz.example.com", "+34900000001", "pablo"],
+    ["Taller Sánchez (demo)", "ES", "Automoción", "Talleres independientes", "taller-sanchez.example.com", "+34900000002", "pablo"],
+    ["Electricidad Vega (demo)", "ES", "Construcción", "Electricistas", "electricidad-vega.example.com", "+34900000003", "pablo"],
+    ["Climatización Ortega (demo)", "ES", "Construcción", "Climatización", "climatizacion-ortega.example.com", "+34900000004", "pablo"],
   ] as const;
   const acc = accounts.map(([name, country, sector, niche, domain, phone, owner], i) => ({
     id: childId("demo-account", String(i)),
@@ -169,14 +169,14 @@ async function seedDemoCallsAndEmails(repo: DataRepository, today: string) {
   ], sys);
   // A small call list so call mode can be tried end to end (3 FR for Théo, 3 ES for Pablo).
   const listId = childId("demo-call-list", "1");
-  await repo.insert("CallLists", [{ id: listId, name: "Trades & garages (demo)", source: "Demo", market: null, niche: "Building trades", brand: "local", owner_founder: null, notes: "" }], sys);
+  await repo.insert("CallLists", [{ id: listId, name: "Artisans et garages (démo)", source: "Demo", market: null, niche: "Bâtiment", brand: "local", owner_founder: null, notes: "" }], sys);
   const callAcc = ([
-    ["Plomberie Martin (demo)", "FR", "Plumbers", "theo", "Julien"], ["Garage Bernard (demo)", "FR", "Independent garages", "theo", "Nadia"], ["Électricité Roux (demo)", "FR", "Electricians", "theo", ""],
-    ["Fontanería Gil (demo)", "ES", "Plumbers", "pablo", "Carmen"], ["Taller Navarro (demo)", "ES", "Independent garages", "pablo", "Javier"], ["Reformas Díaz (demo)", "ES", "Renovation", "pablo", ""],
+    ["Plomberie Martin (demo)", "FR", "Plombiers", "theo", "Julien"], ["Garage Bernard (demo)", "FR", "Garages indépendants", "theo", "Nadia"], ["Électricité Roux (demo)", "FR", "Électriciens", "theo", ""],
+    ["Fontanería Gil (demo)", "ES", "Fontaneros", "pablo", "Carmen"], ["Taller Navarro (demo)", "ES", "Talleres independientes", "pablo", "Javier"], ["Reformas Díaz (demo)", "ES", "Reformas", "pablo", ""],
   ] as const).map(([name, country, niche, owner, contact], i) => {
     const domain = `call-demo-${i + 1}.example.com`;
     return { name, contact, a: {
-      id: childId("demo-call-account", String(i)), name, sector: "Building trades", niche, country, city: "", website: `https://${domain}`, domain_normalized: domain,
+      id: childId("demo-call-account", String(i)), name, sector: country === "FR" ? "Bâtiment" : "Construcción", niche, country, city: "", website: `https://${domain}`, domain_normalized: domain,
       phone: country === "FR" ? `+3310000020${i}` : `+3490000020${i}`, email: `contact@${domain}`, linkedin_url: "", lead_source: "Demo list", lead_type: "outbound" as const,
       brand: "local" as const, owner_founder: owner, lead_status: "new" as const, observed_problem: "", problem_evidence: "", language: country === "FR" ? "fr" : "es", notes: "", import_batch_id: "", list_id: listId,
     } };
@@ -208,7 +208,7 @@ async function seedDemoCallsAndEmails(repo: DataRepository, today: string) {
     };
   }), sys);
   // 64 follow-ups over four weeks: warm (after a call) and cold, FR and ES, some replies marked.
-  const niches = ["Plumbers", "Independent garages", "Heating", "Electricians"];
+  const niches = ["Plombiers", "Garages indépendants", "Chauffagistes", "Électriciens"];
   const rows = Array.from({ length: 64 }, (_, i) => {
     const d = addDays(today, -1 - (i % 27));
     const cold = i % 3 === 0;
