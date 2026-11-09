@@ -57,7 +57,16 @@ function ExportDialog({ defaultScope, onClose }: { defaultScope: "team" | "me"; 
         throw new Error(body.message ?? t("The export failed. Retry."));
       }
       const name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? `valemont-${period.from}_${period.to}.${format}`;
-      const url = URL.createObjectURL(await res.blob());
+      const blob = await res.blob();
+      // Inside the claude.ai preview viewer, plain downloads are blocked: hand the file over through its downloads capability.
+      const host = (window as unknown as { claude?: { use?: (n: string) => Promise<{ save: (f: { filename: string; data: Blob }) => Promise<unknown> } | null> } }).claude;
+      const saver = host?.use ? await host.use("downloads").catch(() => null) : null;
+      if (saver) {
+        try { await saver.save({ filename: name, data: blob }); toast.success(`${t("File downloaded")}: ${name}`); onClose(); }
+        catch (err) { if ((err as { code?: string }).code !== "declined") toast.error(t("The export failed. Retry.")); }
+        return;
+      }
+      const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
       a.download = name;
