@@ -38,7 +38,7 @@ interface CacheEntry {
 
 export interface SheetsRepoOptions {
   tableTtlMs?: number; // catch manual edits (spec 4.1: "a TTL of a few minutes")
-  revisionsTtlMs?: number; // collapse concurrent polls (~10 s)
+  revisionsTtlMs?: number; // collapse concurrent polls (30 s: one service account shares 60 reads/min across both founders)
   extraColumns?: number; // read a few columns beyond the schema to detect unknown headers
 }
 
@@ -59,7 +59,7 @@ export class GoogleSheetsRepository implements DataRepository {
 
   constructor(private readonly client: SheetsClient, opts: SheetsRepoOptions = {}) {
     this.tableTtl = opts.tableTtlMs ?? 180_000;
-    this.revTtl = opts.revisionsTtlMs ?? 10_000;
+    this.revTtl = opts.revisionsTtlMs ?? 30_000;
     this.extra = opts.extraColumns ?? 4;
   }
 
