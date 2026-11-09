@@ -1,6 +1,6 @@
-# Valemont OS — working rules for Claude Code
+# Valemont OS — working rules
 
-Spec: `docs/VALEMONT_OS_CLAUDE_CODE_MASTER_PROMPT.md` (binding). Resume from `docs/STATUS.md`, `docs/DECISIONS.md`, this file.
+Spec: `docs/SPEC.md` (binding). Resume from `docs/STATUS.md`, `docs/DECISIONS.md`, this file.
 
 ## Non-negotiables
 - Google Sheets is the ONLY durable business store. No Supabase/Firebase/Postgres/SQLite/localStorage as truth.

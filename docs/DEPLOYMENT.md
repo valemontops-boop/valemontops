@@ -57,7 +57,7 @@ host's settings, never in the repository or a chat). The Claude account that bui
 | Trackers | `TRACKER_WEBHOOK_URL_*`, `TRACKER_WEBHOOK_SECRET_*`, `TRACKER_DAILY_SUMMARY_*`, `TRACKER_FEED_TOKEN_*` |
 | Never in production | `SHEETS_API_BASE_URL`, `GOOGLE_API_BASE_URL`, `*_API_BASE_URL` (test fakes; LIVE refuses a fake Sheets URL in production), `DEMO_*`, `FAKE_*` |
 
-A DEMO deployment (feedback) uses `APP_MODE=demo` + `DEMO_ACCESS_CODE` (12+ chars) and no Google variables; it is
+A DEMO deployment (for review) uses `APP_MODE=demo` + `DEMO_ACCESS_CODE` (12+ chars) and no Google variables; it is
 bannered and never touches live data. LIVE with missing credentials shows the setup page, never DEMO.
 
 ## 4. Webhook URLs to register

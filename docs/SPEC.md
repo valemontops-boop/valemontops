@@ -1,63 +1,43 @@
-# VALEMONT OS: MASTER IMPLEMENTATION SPECIFICATION (v3)
+# VALEMONT OS: PRODUCT SPECIFICATION (v3)
 
-Binding product specification for Claude Code. Build a functional, deployable internal operating system for a two-founder consulting firm: not a slide deck, not a static mockup, not only an architecture proposal.
+Product and engineering specification for Valemont OS: a functional, deployable internal operating system for a two-founder consulting firm (a working application, not a slide deck, static mockup or architecture proposal).
 
-Requirement words: MUST and NEVER are binding. "Seed" means an editable starting value stored in Google Sheets, never a hardcoded rule. When two parts of this document appear to conflict, the more specific section wins; log the conflict in `docs/DECISIONS.md`.
+Requirement words: MUST and NEVER are binding. "Seed" means an editable starting value stored in Google Sheets, never a hardcoded rule. When two parts of this document appear to conflict, the more specific section wins, and the resolution is logged in `docs/DECISIONS.md`.
 
-The application UI, labels, navigation, onboarding, default templates, reports, emails and internal documentation MUST be in ENGLISH. Do not translate the UI to French. Clients are served in France and Spain, so outreach scripts and client-facing content templates exist in FR and ES as content, not as UI translations.
+The original version of this specification required an English UI, with outreach scripts and client-facing content templates in FR and ES as content. This is superseded by D048 in `docs/DECISIONS.md`: the UI is in French for Théo and Spanish for Pablo. Clients are served in France and Spain.
 
 ---
 
-## 0. ROLE AND DEFINITION OF DONE
+## 0. PRODUCT GOAL AND DEFINITION OF DONE
 
-Act as a senior founding CTO, full-stack engineer, systems architect, product designer and revenue operations architect.
+**Product goal:** the founders spend their time calling, sending legitimate DMs and InMails, visiting businesses, following up, posting content, holding meetings, proposing and delivering. Everything else (tracking, task generation, reporting, proposals, cost projections, reminders) is as frictionless as possible. A feature that adds data entry without helping one of those actions or a decision is simplified.
 
-**Product goal:** the founders spend their time calling, sending legitimate DMs and InMails, visiting businesses, following up, posting content, holding meetings, proposing and delivering. Everything else (tracking, task generation, reporting, proposals, cost projections, reminders) is as frictionless as possible. If a feature adds data entry without helping one of those actions or a decision, simplify it.
-
-**A feature is done only when:** (1) it is reachable from the real UI; (2) its state persists through the `DataRepository`; (3) server authorization and Zod validation exist; (4) loading, empty, error and retry states exist; (5) automated tests cover its business rule; (6) lint, typecheck and tests were run and their output was read; (7) `docs/STATUS.md` records it honestly.
+**A feature is done only when:** (1) it is reachable from the real UI; (2) its state persists through the `DataRepository`; (3) server authorization and Zod validation exist; (4) loading, empty, error and retry states exist; (5) automated tests cover its business rule; (6) lint, typecheck and tests pass; (7) `docs/STATUS.md` records it accurately.
 
 **Status vocabulary for every feature:** `VERIFIED_LIVE` (passed against a real Google Sheet), `VERIFIED_FAKE` (passed against the fake Sheets server only), `PARTIAL`, `NOT_STARTED`, `BLOCKED: <reason>`. Without Google credentials, nothing may be labelled `VERIFIED_LIVE`.
 
 **Nothing inert.** A module from a later stage is hidden from navigation until it works; Settings > Roadmap lists what is planned. No button without behavior. No placeholder numbers.
 
-**Not oversaturated.** Every element on a screen must support a decision or an action, otherwise it moves behind a tab or a drill-down. Section 8.2 sets hard limits.
+**Not oversaturated.** Every element on a screen supports a decision or an action, otherwise it moves behind a tab or a drill-down. Section 8.2 sets hard limits.
 
 ---
 
-## 1. WORKING PROTOCOL FOR CLAUDE CODE
+## 1. ENGINEERING PROCESS
 
-1. **Audit first.** Inspect the repository and dependencies before changing anything. Never overwrite existing work unnecessarily. If empty, bootstrap.
-2. **Check current facts.** Do not rely on remembered framework or API behavior. Read the installed package docs or official docs for Next.js, the auth library, googleapis and shadcn/ui before using them. Use current stable versions.
-3. **Plan compactly.** Before coding each stage, write a short execution plan and file tree to `docs/PLAN.md` (one screen). Then implement without waiting for approval of routine edits.
-4. **Keep durable state in files.** Maintain `docs/STATUS.md` (feature checklist with the status vocabulary), `docs/DECISIONS.md` (one line per decision: what, why, how to reverse) and `CLAUDE.md` (under 60 lines: non-negotiables from sections 3 and 4, commands, where things live). A new session MUST be able to resume from these three files alone.
-5. **Test-first for business rules.** Scoring, streaks, idempotency, MRR, EBITDA, FX, quote totals, permissions and sanitization are written red-green-refactor as pure functions with no I/O.
-6. **Evidence before claims.** Before stating that something works, run the command that proves it in that same step, read the full output and exit code, and quote the result. "Should work" is not a status.
-7. **Stage gate.** Run lint, typecheck, unit, integration and smoke tests after each stage, fix failures, update `docs/STATUS.md`, then continue. Review the stage diff for security and dead code before moving on.
-8. **Bug handling.** Find the root cause before changing code. No retry-until-green. No deleted or skipped test without a line in `docs/DECISIONS.md`.
-9. **Subagents.** Use them only for work that is independent and file-disjoint (for example separate documentation files or an independent review of a finished stage). Shared schemas and the repository adapter are built in the main thread first.
-10. **Decision policy.** Do not stop for routine choices: take the most reasonable option and log it. Stop and ask only for something irreversible, or when a real credential or legal fact is required. If blocked on one item, record it as `BLOCKED` and continue with everything else.
-11. **Commits.** One logical commit per completed slice, with green checks. Never commit secrets, `.env*` (except `.env.example`), real personal data or real founder email addresses.
+1. **Existing work is preserved.** Changes start from an audit of the repository and its dependencies; existing work is not overwritten unnecessarily.
+2. **Current facts.** Framework and API behavior (Next.js, the auth library, googleapis, shadcn/ui) is checked against the installed package docs or official docs. Current stable versions are used.
+3. **Compact plan.** Each stage has a short execution plan and file tree in `docs/PLAN.md` (one screen).
+4. **Durable project state in files.** `docs/STATUS.md` (feature checklist with the status vocabulary), `docs/DECISIONS.md` (one line per decision: what, why, how to reverse) and `CLAUDE.md` (under 60 lines: non-negotiables from sections 3 and 4, commands, where things live) are maintained. Work MUST be resumable from these three files alone.
+5. **Test-first for business rules.** Scoring, streaks, idempotency, MRR, EBITDA, FX, quote totals, permissions and sanitization are pure functions with no I/O, written red-green-refactor.
+6. **Evidence before claims.** A feature is reported as working only after the command that proves it has run and its full output and exit code have been read.
+7. **Stage gate.** Lint, typecheck, unit, integration and smoke tests run after each stage; failures are fixed and `docs/STATUS.md` is updated. The stage diff is reviewed for security and dead code before the next stage.
+8. **Bug handling.** Root cause before code change. No retry-until-green. No deleted or skipped test without a line in `docs/DECISIONS.md`.
+9. **Parallel work.** Only independent, file-disjoint work (for example separate documentation files or an independent review of a finished stage) is parallelized. Shared schemas and the repository adapter are built first.
+10. **Decision policy.** Routine choices take the most reasonable option and are logged. Irreversible choices, real credentials and legal facts require a founder. An item that is blocked is recorded as `BLOCKED` and does not stop other work.
+11. **Commits.** One logical commit per completed slice, with green checks. Secrets, `.env*` (except `.env.example`), real personal data and real founder email addresses are never committed.
 12. **No real data in code or fixtures.** Real emails, phones and company identifiers live only in environment variables or the live Sheet. Fixtures use synthetic names and reserved domains such as `example.com`.
 
-### Skills to load when available
-
-If a skill below exists in this session, load it at the matching moment. If it does not exist, do not stop and do not ask: the rules in this document already contain the requirement.
-
-| Moment | Skills |
-|---|---|
-| Every stage | `superpowers:writing-plans`, `superpowers:test-driven-development`, `superpowers:systematic-debugging`, `superpowers:verification-before-completion`, `superpowers:requesting-code-review`, `planning-with-files` |
-| Data layer | `ddia-systems`, `database-designer`, `release-it`, `domain-driven-design`, `clean-architecture` |
-| App code | `vercel:nextjs`, `vercel:next-best-practices`, `vercel:react-best-practices`, `vercel:shadcn`, `vercel:runtime-cache`, `vercel:env-vars`, `senior-backend`, `senior-frontend` |
-| Interface | `impeccable`, `refactoring-ui`, `ux-heuristics`, `frontend-design`, `emil-design-eng`, `microinteractions`, `web-typography`, `dataviz` (run its palette validator), `accessibility`, `ux-writing` |
-| Streaks and goals | `drive-motivation` |
-| CRM and quotes | `revops`, `predictable-revenue`, `prospecting`, `deal-desk`, `pricing`, `contract-and-proposal-writer` |
-| Finance | `financial-analyst`, `saas-metrics-coach`, `finance:journal-entry`, `finance:reconciliation` |
-| Marketing | `content-strategy`, `social-media-manager`, `linkedin-strategy`, `analytics-tracking`, `i18n-localization` |
-| Security and privacy | `senior-security`, `gdpr-dsgvo-expert`, `senior-qa` |
-| Release | `engineering:deploy-checklist`, `runbook-generator`, `technical-documentation`, `vercel:verification` |
-
 ---
-
 ## 2. BUSINESS AND OPERATING CONTEXT
 
 Valemont Partners is a boutique, founder-led B2B business/AI consulting and implementation studio serving French and Spanish SMEs. It diagnoses operational needs, selects the right approach, implements working solutions itself when appropriate and uses vetted subcontractors if needed. Valemont owns the commercial relationship and coordinates delivery. It MUST NEVER falsely describe contractors as employees or claim third-party technology is proprietary.
@@ -137,7 +117,7 @@ All entries are `pilot_assumption = true`, configurable and versioned by effecti
 12. **Currency.** Main display EUR with an instant EUR/USD VIEW toggle. Store each transaction's original currency and amount and never rewrite originals. Use ECB reference rates cached daily with an attributed FX timestamp, a documented manual fallback, and a locked rate on historical entries. Show native and converted amounts in detail views. No invented exchange rates. Money is stored as integer minor units plus an ISO currency code; never use binary floats for money.
 13. **Free/low-cost.** No needless paid APIs, subscriptions, SMS, voice minutes, LLM calls or background jobs. AI recommendations are optional and require explicit model configuration; deterministic templates work with no API key. No scheduled job is required for correctness (see 4.6), with one documented exception: audience snapshots (see 4.11).
 14. **Hosting.** Node-compatible and host-agnostic. Before recommending a host, check its current terms: Vercel's Hobby tier has been limited to non-commercial use, so document a compliant option and its cost.
-15. **Build identity is not runtime identity.** The Claude account used to write this code has no role in the running product. Valemont OS is a standalone deployed web application; a Claude artifact cannot hold its server secrets and is not a delivery target. NEVER use connectors, MCP tools, browser sessions or files available to the building session to read, create or configure Valemont's real resources. NEVER use the builder's address as a default, fixture, sender, owner or contact. Every Google, Meta, LinkedIn and hosting identity is supplied by the founders at setup through environment variables or the Integrations page. A founder's sign-in address, calendar owner, Drive owner and social-account admin may all differ, so they are configured separately.
+15. **Build identity is not runtime identity.** The accounts and tools used to develop the code have no role in the running product. Valemont OS is a standalone deployed web application; a development tool's preview cannot hold its server secrets and is not a delivery target. Development accounts, connectors and tools are NEVER used to read, create or configure Valemont's real resources. A developer's address is NEVER used as a default, fixture, sender, owner or contact. Every Google, Meta, LinkedIn and hosting identity is supplied by the founders at setup through environment variables or the Integrations page. A founder's sign-in address, calendar owner, Drive owner and social-account admin may all differ, so they are configured separately.
 
 ---
 
@@ -491,7 +471,7 @@ Statuses: Connected, Needs setup, Manual logging, Import-only, Unavailable, with
 - **LinkedIn statistics:** status `Import-only` until approved. Page statistics and member post analytics belong to the Community Management API, a vetted product: it needs a dedicated new developer app associated with a verified Company Page, a registered organization and a business email, then a Standard-tier review with a screencast. Development tier is limited to 500 calls per app and 100 per member per 24 hours. Build the adapter only after approval is obtained. No browser automation or scraping of analytics pages.
 - **Instagram statistics:** Meta's Instagram API for the founders' own professional accounts, which needs no App Review at Standard Access. Prefer the Facebook Login path with a Facebook Page and a System User token, because the token does not expire and some metrics exist only on that path. Use Instagram Login (`instagram_business_manage_insights`, 60-day token) as the fallback. Manual entry remains available. No promise of precise organic country targeting.
 - **Facebook:** optional, same Meta app, only if the founders use a Page.
-- **Google Flow + Claude Code/creative tools:** link manually created assets in Drive and log credits/costs. No unofficial APIs, no automatic claim of generated video completion.
+- **Google Flow and AI creative tools (e.g. Claude):** link manually created assets in Drive and log credits/costs. No unofficial APIs, no automatic claim of generated video completion.
 - **Payments (30/30, invoices):** connector interface for the actual provider when known; signed webhooks with idempotency; otherwise CSV/manual import. Do not assume Stripe.
 - **Wise/banking:** manual CSV import or properly authorized official integration if available. No scraped or fabricated balances.
 - **GA4/Search Console:** optional when accounts and credentials exist, manual fallback.
@@ -501,11 +481,11 @@ Statuses: Connected, Needs setup, Manual logging, Import-only, Unavailable, with
 
 ## 8. INTERFACE
 
-Write `docs/DESIGN.md` from this section first, and build every screen from its tokens and components. Reference images, if present, are in `docs/design-inspiration/` (numbered 01 to 20). They are a vocabulary to learn from, never layouts or brands to reproduce.
+`docs/DESIGN.md` is derived from this section, and every screen is built from its tokens and components. Reference images, if present, are in `docs/design-inspiration/` (numbered 01 to 20). They are a vocabulary to learn from, never layouts or brands to reproduce.
 
 ### 8.1 Direction
 
-A calm, light workspace with quiet surfaces, large confident numbers and one warm accent. **This replaces any earlier dark navy direction.** Light is chosen for the use: all-day office work and phones used outdoors during field visits. Keep tokens semantic so a dark theme can be added later, but ship one theme.
+A calm, light workspace with quiet surfaces, large confident numbers and one warm accent. Light is chosen for the use: all-day office work and phones used outdoors during field visits. Keep tokens semantic so a dark theme can be added later, but ship one theme.
 
 | Token | Value | Use |
 |---|---|---|
@@ -578,15 +558,15 @@ A calm, light workspace with quiet surfaces, large confident numbers and one war
 
 ## 9. IMPLEMENTATION STAGES
 
-Build sequentially. Each stage ends with its gate (section 1, item 7).
+Stages are built sequentially. Each stage ends with its gate (section 1, item 7).
 
-### Stage 1A: first usable day (build this before anything else)
+### Stage 1A: first usable day (built before anything else)
 
 The smallest version the founders can sell with tomorrow:
 
 Next.js app; Google OAuth allowlist; LIVE/DEMO separation; `DataRepository` with Sheets adapter, in-memory adapter and fake Sheets server; `setup:sheets` and `doctor:sheets`; Accounts, Contacts, Opportunities with pipeline; CSV prospect import with deduplication; Quick Actions for call, field visit, DM, invitation, InMail, cold email, follow-up, demo and meeting; My Day with editable mode, targets and live counters; suppression and opt-out block; Copy WhatsApp daily report.
 
-**Gate:** acceptance scenarios 1, 2, 3, 11 and 15 pass; `docs/STATUS.md` updated. Report to the user at this point with setup steps, then continue.
+**Gate:** acceptance scenarios 1, 2, 3, 11 and 15 pass; `docs/STATUS.md` updated with the setup steps.
 
 ### Stage 1B: management layer
 
@@ -612,13 +592,13 @@ Integration Hub, secure website webhook ingestion, optional Gmail, Calendar OAut
 
 **Gate:** all scenarios, plus live cross-session validation with real credentials if available.
 
-If time or tokens run out, finish the current slice cleanly and leave an honest `docs/STATUS.md`. Never claim a missing feature works. Never replace Google Sheets with an easier database.
+Work stops only at a clean slice boundary with an accurate `docs/STATUS.md`. A missing feature is never reported as working. Google Sheets is never replaced with an easier database.
 
 ---
 
 ## 10. ACCEPTANCE SCENARIOS
 
-Implement as automated tests where possible and as `docs/ACCEPTANCE.md` checklist otherwise. Every scenario runs against the fake Sheets server and fake Calendar, Drive and Instagram servers that can simulate 429 and 5xx responses. A separate `npm run test:live`, gated by credentials and using a dedicated test spreadsheet, runs against the real API; report it as `NOT RUN` if credentials are absent.
+Automated tests where possible, and the `docs/ACCEPTANCE.md` checklist otherwise. Every scenario runs against the fake Sheets server and fake Calendar, Drive and Instagram servers that can simulate 429 and 5xx responses. A separate `npm run test:live`, gated by credentials and using a dedicated test spreadsheet, runs against the real API; report it as `NOT RUN` if credentials are absent.
 
 1. Log in as Théo, set Searching mode; the dashboard loads his exact saved targets from Google Sheets.
 2. Add a test account and opportunity; log one cold call with outcome. The call appears exactly once in founder stats and company CRM and persists after reload.
@@ -643,7 +623,7 @@ Implement as automated tests where possible and as `docs/ACCEPTANCE.md` checklis
 21. Import synthetic LinkedIn Page XLS and creator XLSX fixtures: preview shows mapped and unrecognized columns; re-importing the same file adds no row; the Audience chart shows the series with source `import`. Personal-profile data is invisible to the other founder.
 22. Snapshot job: a valid signature captures once per slot and a repeat is a no-op; an invalid signature is refused; a Story snapshot taken inside 24 h is retained after the fake API stops serving it; a Story with fewer than 5 viewers is stored as "not available", not zero; a skipped day renders as a gap. Instagram views and LinkedIn impressions are never summed.
 23. Information budget: Command Center's Now tab renders exactly five primary numbers in live and demo modes, and every metric from 5.1 is still reachable through the tabs. Automated contrast check passes on the tokens in 8.1.
-24. Build separation: a repository scan finds no real address, calendar ID, Drive ID, handle or token outside `.env.example` placeholders, and the app boots using only environment configuration, with no dependency on any Claude account or connector.
+24. Build separation: a repository scan finds no real address, calendar ID, Drive ID, handle or token outside `.env.example` placeholders, and the app boots using only environment configuration, with no dependency on any development account or connector.
 
 ---
 
@@ -651,14 +631,12 @@ Implement as automated tests where possible and as `docs/ACCEPTANCE.md` checklis
 
 All application source; Google Sheets connector; setup scripts; `.env.example`; `README.md`; `CLAUDE.md`; `docs/ARCHITECTURE.md`, `docs/SCHEMA.md`, `docs/INTEGRATIONS.md`, `docs/FINANCIAL_DEFINITIONS.md`, `docs/SECURITY.md`, `docs/MIGRATION_TO_POSTGRES.md`, `docs/DESIGN.md`, `docs/STATUS.md`, `docs/DECISIONS.md`, `docs/ACCEPTANCE.md`, `docs/TROUBLESHOOTING.md`; deployment configuration; test suite.
 
-**Final report at the end of each stage:**
+**Stage report contents (recorded in `docs/STATUS.md` and `docs/DEPLOYMENT.md`):**
 
-- which stages and features are genuinely implemented vs pending, using the status vocabulary;
+- which stages and features are implemented vs pending, using the status vocabulary;
 - which Google Cloud credentials, OAuth consent and Sheet sharing actions the founders must perform;
 - exact setup commands for local development, demo and live mode;
 - tests run with their real results;
 - precise limitations of Google Sheets, LinkedIn/Instagram APIs and managerial accounting;
 - how to connect Google Sheets and access the live app;
 - what to build next without rebuilding the core.
-
-**START NOW:** inspect the repository, write the compact plan, then implement Stage 1A and proceed sequentially. Do not spend the response theorizing, do not make inert buttons and do not stop at a wireframe.

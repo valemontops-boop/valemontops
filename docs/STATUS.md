@@ -1,6 +1,6 @@
 # Status
 
-Updated: 2026-11-09 · Stage: **Stages 1–4 complete (fake-verified) + founder feedback round 11** · Next: live validation with real credentials (docs/DEPLOYMENT.md, docs/ACCEPTANCE.md).
+Updated: 2026-11-09 · Stage: **Stages 1–4 complete (fake-verified) + iteration 11** · Next: live validation with real credentials (docs/DEPLOYMENT.md, docs/ACCEPTANCE.md).
 
 ## Stage 4B · backups, audit log, observability, security, deployment (D084, 2026-11-09)
 | Feature | Status |
@@ -13,16 +13,16 @@ Updated: 2026-11-09 · Stage: **Stages 1–4 complete (fake-verified) + founder 
 | docs/DEPLOYMENT.md (Vercel Pro + Fluid Compute, Google Cloud, env, webhooks, crons in vercel.json, first run, backups, restore, rollback), docs/ACCEPTANCE.md (all 24 scenarios mapped) | done; live gate (`npm run test:live`) NOT RUN — no credentials |
 
 
-## Stage 4 + feedback round 11 (2026-11-09)
+## Stage 4 + iteration 11 (2026-11-09)
 | Change | Status |
 |---|---|
 | Calls: missed-call panel (mail "j'ai essayé de vous appeler" with preview, callback scheduling with chips, next call); callbacks first in queue, in My Day/Agenda and bell; objection reply one step at a time in a framed card, shorter texts | VERIFIED_FAKE (calls tests, e2e) |
 | Content planner: Kanban, week/month calendar, composer per account × language, Drive media picker, deterministic optimizer score per platform (D081) | VERIFIED_FAKE (content tests, e2e) |
-| EUR/USD and ECB removed (D082) — spec scenario 9 dropped by founders | n/a |
+| EUR/USD and ECB removed (D082) — spec scenario 9 dropped | n/a |
 | Integration Hub, signed website webhook, CSV export/import per list (D083) | VERIFIED_FAKE |
 | Backups (Drive copy + verify + retention, restore to a new Sheet), audit log, JSON logs with request ids, health endpoints, security review + fixes, deployment guide, acceptance map (D084) | VERIFIED_FAKE — live drill needs credentials |
 
-## Stage 3 + feedback round 10 (2026-11-09)
+## Stage 3 + iteration 10 (2026-11-09)
 | Change | Status |
 |---|---|
 | Call screen: mail preview before sending (and after a missed call), visible Back / Undo, back on "New call" after each call, objections all visible without scrolling (two columns, grouped) | VERIFIED_FAKE (e2e at 1280×720, preview) |
@@ -40,7 +40,7 @@ Updated: 2026-11-09 · Stage: **Stages 1–4 complete (fake-verified) + founder 
 | Quote PDF (pdf-lib, FR/ES, legal fields required and named when missing), preview + download, Save to Drive with the founder's drive.file grant | VERIFIED_FAKE — real legal details and Drive grant needed for VERIFIED_LIVE |
 | Settings › Commercial (legal details, policy, taxes, price book versions) | VERIFIED_FAKE (preview) |
 
-## Feedback round 9 (2026-11-09)
+## Iteration 9 (2026-11-09)
 | Change | Status |
 |---|---|
 | Business seeds: Consulting priority (100 % effort), Local = entry offer, ladder Consulting → Local → 30/30, phone + LinkedIn, no Instagram DMs, ads 0 €, hour cost 30 €; emails counted with no daily target | VERIFIED_FAKE (brief-seeds tests) |
@@ -48,10 +48,10 @@ Updated: 2026-11-09 · Stage: **Stages 1–4 complete (fake-verified) + founder 
 | CAC per channel, fully loaded (founder time + all Money expenses), cost per meeting, payback, LTV:CAC, call economics vs researched benchmarks | VERIFIED_FAKE (cac.test.ts) — real expenses needed for meaningful numbers |
 | SEO: Search Console CSV import, optimisation points, site audit, AI-engines checklist | VERIFIED_FAKE (seo.test.ts; demo site) — audit runs on the real site in LIVE only |
 
-## Feedback round 8 (2026-11-09)
+## Iteration 8 (2026-11-09)
 | Change | Status |
 |---|---|
-| Founder brief applied: modes FULL_TIME / REDUCED (old values read as aliases), targets, LinkedIn limits first, KPI targets, sprint 9 Nov → 4 Dec (2 clients, 3 000 € HT), conversion by channel, time split, daily checklist + one-off tasks, content plan, WhatsApp report, Friday rules | VERIFIED_FAKE (brief-seeds, conversion, friday, report tests; preview) |
+| Iteration 8 seeds applied: modes FULL_TIME / REDUCED (old values read as aliases), targets, LinkedIn limits first, KPI targets, sprint 9 Nov → 4 Dec (2 clients, 3 000 € HT), conversion by channel, time split, daily checklist + one-off tasks, content plan, WhatsApp report, Friday rules | VERIFIED_FAKE (brief-seeds, conversion, friday, report tests; preview) |
 | Offers: one Valemont offer (Consulting, default 1 500 €), Local = downsell 100 €/month; no brand choice when prospecting; 490 € removed | VERIFIED_FAKE |
 | Export over a period: Markdown for AI (founder's language), Excel option; no prospect phone/email | VERIFIED_FAKE (export-tracker.test.ts; preview MD only) |
 | Personal tracker connector: signed webhook per activity + backfill + daily summary; bearer-token feed | VERIFIED_FAKE — needs the tracker URL/secret for VERIFIED_LIVE |
@@ -60,7 +60,7 @@ Updated: 2026-11-09 · Stage: **Stages 1–4 complete (fake-verified) + founder 
 | Calls: before / during / after flow, 6 most-heard objections first, undo 10 s; inline message card, WhatsApp Web, "Sent?" on return; message session | VERIFIED_FAKE (e2e, preview) |
 | LinkedIn prospecting session: queue, profile, step message to copy, results by key, follow-ups J+3/J+7, hard invitation/InMail limits | VERIFIED_FAKE (linkedin.test.ts, e2e) |
 
-## Feedback round 7 (2026-11-09)
+## Iteration 7 (2026-11-09)
 | Change | Status |
 |---|---|
 | Objection replies easier to read: 3 numbered steps (Reformule / Demande / Propose), large text, the question in bold | VERIFIED_FAKE (preview) |
@@ -71,7 +71,7 @@ Updated: 2026-11-09 · Stage: **Stages 1–4 complete (fake-verified) + founder 
 | Weekly review simplified (4 totals, went well / to improve, 3 fields) | VERIFIED_FAKE |
 | Task recurrence: daily, weekdays, weekly, monthly, chosen weekdays (e.g. every Tuesday) | VERIFIED_FAKE (tasks.test.ts) |
 
-## Feedback round 6 (2026-11-09)
+## Iteration 6 (2026-11-09)
 | Change | Status |
 |---|---|
 | Call session error after a reload fixed (session recreated, no lost tap) | VERIFIED_FAKE (calls.test.ts, preview reload check) |
@@ -80,7 +80,7 @@ Updated: 2026-11-09 · Stage: **Stages 1–4 complete (fake-verified) + founder 
 | Verdicts (what works / to watch / to improve + next step) on Reports, Growth, Money, Command Center | VERIFIED_FAKE (verdicts.test.ts) |
 | Growth (renamed Marketing); six social accounts with an overview | VERIFIED_FAKE |
 
-## Feedback round 5 (2026-11-09)
+## Iteration 5 (2026-11-09)
 | Change | Status |
 |---|---|
 | No English UI: French for Théo, Spanish for Pablo (UI, server messages, WhatsApp report, dates, money format) | VERIFIED_FAKE (i18n.test.ts, preview scan FR/ES) |
@@ -88,7 +88,7 @@ Updated: 2026-11-09 · Stage: **Stages 1–4 complete (fake-verified) + founder 
 | Simpler call screen and sober UI (one blue, green for results) | VERIFIED_FAKE (e2e, preview) |
 | Marketing = funnels across calls, visits, LinkedIn, email, WhatsApp, website/social, meetings per hour | VERIFIED_FAKE (funnels.test.ts) |
 
-## Feedback round 4 (2026-11-09)
+## Iteration 4 (2026-11-09)
 | Change | Status |
 |---|---|
 | Objections v3: brush-off vs real, 12 objections (keys A…T), 3-step replies (Label / Ask / Next step) × 2 variants FR/ES, best reply learned from results (← → to switch), pause cue, objection drill, analytics by country | VERIFIED_FAKE (playbook.test.ts, followups.test.ts, e2e) |
@@ -96,7 +96,7 @@ Updated: 2026-11-09 · Stage: **Stages 1–4 complete (fake-verified) + founder 
 | One color system across the app (sales blue, results green, marketing violet, ops teal), tinted tiles, colored menu and section headers | VERIFIED_FAKE (preview screenshots) |
 | Dashboards: sparklines on KPIs, visual funnels (Reports, CRM, Command Center, Call summary, Marketing), founder bars instead of tables, weekday columns and trade bars in Email | VERIFIED_FAKE (preview) |
 
-## Feedback round 3 (2026-11-09)
+## Iteration 3 (2026-11-09)
 | Change | Status |
 |---|---|
 | Call mode v2: objections on any outcome (multi-select, keys A–L), live reply in FR/ES, "won over" rate per objection | VERIFIED_FAKE (followups.test.ts, e2e) |
@@ -106,7 +106,7 @@ Updated: 2026-11-09 · Stage: **Stages 1–4 complete (fake-verified) + founder 
 | Settings › Playbook (editable scripts and templates) and Calendly/deck links | VERIFIED_FAKE |
 | Reports: blue = volume, teal = conversions, palette validated for colour blindness | VERIFIED_FAKE (preview) |
 
-## Feedback round 2 (2026-11-09)
+## Iteration 2 (2026-11-09)
 | Change | Status |
 |---|---|
 | Call mode: sessions, one-tap outcomes (keys 1–7), objection in one tap, live counters, session summary vs your average | VERIFIED_FAKE (calls.test.ts, e2e) |

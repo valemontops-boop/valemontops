@@ -1,4 +1,4 @@
-# Schema (Stage 1B + feedback round 3)
+# Schema (Stage 1B + iteration 3)
 
 Generated from `src/data/schema/tables.ts`. Every tab also has the base columns `id` (UUID), `created_at`, `updated_at`, `updated_by`, `version`, `is_archived`, `write_id`.
 

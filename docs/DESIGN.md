@@ -23,7 +23,7 @@ semantic (`--canvas`, `--panel`, …) so a dark theme can be added later.
 | win / win-soft | #16946A / #E3F3EC | results: yes, meetings, won, targets reached, passed days |
 | mkt / mkt-soft | #7A4FD6 / #EFE9FB | marketing: traffic, audience, content, ideas |
 | ops / ops-soft | #0E8FA3 / #E0F2F5 | ops: tasks, agenda, files |
-| brand-consulting / brand-local / brand-thirty | #2F5FBF / #D6457A / #7A4FD6 | brand dots only (Local was orange; founders asked for no orange) |
+| brand-consulting / brand-local / brand-thirty | #2F5FBF / #D6457A / #7A4FD6 | brand dots only (Local was orange; the palette has no orange) |
 | market FR / ES | ink / #8E8A92 | direct-labelled |
 
 Type: Geist (via the `geist` package, `next/font/local` under the hood), `tabular-nums` on every number.

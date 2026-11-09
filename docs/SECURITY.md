@@ -127,7 +127,7 @@ Residual: `'unsafe-inline'` scripts weaken XSS protection compared with nonces.
 ## 11. Preview build (`preview/`)
 
 A static HTML file with the services and an in-memory repository; no server, no secret, no network except Google
-Fonts; `process.env.NODE_ENV` is the only env value bundled. Synthetic data only. It is a feedback tool, never a
+Fonts; `process.env.NODE_ENV` is the only env value bundled. Synthetic data only. It is a review tool, never a
 delivery target (spec 3.15).
 
 ## 12. Secrets
