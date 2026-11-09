@@ -39,6 +39,20 @@ export async function seedBaseline(repo: DataRepository, timezones: Record<Found
   const settings = SETTINGS_SEEDS.map((s) => ({ id: childId("setting", s.key), ...s })).filter((s) => !has(t.SystemSettings.rows, s.id));
   if (settings.length) added.SystemSettings = (await repo.insert("SystemSettings", settings, SYSTEM)).length;
 
+  // One-time setup values from the hosting environment (SETTING_<KEY>, e.g. SETTING_CALENDLY_URL_THEO): they fill a
+  // setting only while it is missing or empty, so anything a founder later edits in Settings always wins.
+  const fromEnv = settingsFromEnv(process.env);
+  if (fromEnv.length) {
+    const rows = settings.length ? (await repo.list("SystemSettings", { fresh: true })).rows : t.SystemSettings.rows;
+    const inserts = [];
+    for (const { key, value } of fromEnv) {
+      const row = rows.find((r) => r.key === key && !r.is_archived);
+      if (!row) inserts.push({ id: childId("setting", key), key, value, description: "" });
+      else if (!row.value.trim()) await repo.update("SystemSettings", row.id, row.version, { value }, SYSTEM);
+    }
+    if (inserts.length) await repo.insert("SystemSettings", inserts, SYSTEM);
+  }
+
   const rules = channelRuleSeeds()
     .map((r) => ({ id: childId("rule", r.market, r.contact_type, r.channel), ...r, review_date: null }))
     .filter((r) => !has(t.ChannelRules.rows, r.id));
@@ -141,4 +155,11 @@ function seedTasks(existing: { id: string; source: string; source_id: string; ow
       });
     }
   return out;
+}
+
+/** SETTING_<KEY>=value pairs from the environment, for keys made of lowercase letters, digits and underscores. */
+export function settingsFromEnv(env: Record<string, string | undefined>): { key: string; value: string }[] {
+  return Object.entries(env)
+    .filter(([k, v]) => /^SETTING_[A-Z0-9_]+$/.test(k) && typeof v === "string" && v.trim() !== "")
+    .map(([k, v]) => ({ key: k.slice("SETTING_".length).toLowerCase(), value: (v as string).trim() }));
 }
