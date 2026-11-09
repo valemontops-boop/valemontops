@@ -16,7 +16,7 @@ beforeEach(async () => {
   fake = env.fake;
   ctx = { repo: env.repo, privateRepo: () => null, calendar: null, drive: null, uploaderFor: () => null, mailerFor: () => null, baseUrl: "", mode: "demo" };
   await seedBaseline(env.repo, { theo: "Europe/Paris", pablo: "Europe/Madrid" });
-  await setMode(env.repo, "theo", { mode: "JOB_SEARCHING", reason: "" });
+  await setMode(env.repo, "theo", { mode: "FULL_TIME", reason: "" });
 });
 afterEach(async () => fake.stop());
 

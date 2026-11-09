@@ -73,3 +73,7 @@ export function serializeCell(value: unknown): string {
 /** Enum with a fallback for empty cells (columns added after rows already existed). */
 export const oneOfOr = <T extends readonly [string, ...string[]]>(values: T, fallback: T[number]) =>
   z.preprocess((v) => (toStr(v).trim() === "" ? fallback : toStr(v).trim()), z.enum(values));
+
+/** Enum cell that also accepts renamed values (old → new), so rows written before a rename keep working (round 8 work modes). */
+export const oneOfAlias = <T extends readonly [string, ...string[]]>(values: T, aliases: Readonly<Record<string, T[number]>>) =>
+  z.preprocess((v) => { const s = toStr(v).trim(); return aliases[s] ?? s; }, z.enum(values));

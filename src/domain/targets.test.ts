@@ -28,17 +28,17 @@ describe("prospective targets", () => {
   const base = { created_at: "2026-11-01T00:00:00.000Z", founder_key: "theo" };
   it("resolves the latest effective mode and targets", () => {
     const modes = [
-      { ...base, mode: "EMPLOYED_35H" as const, effective_from: "2026-11-01" },
-      { ...base, mode: "JOB_SEARCHING" as const, effective_from: "2026-11-10" },
+      { ...base, mode: "REDUCED" as const, effective_from: "2026-11-01" },
+      { ...base, mode: "FULL_TIME" as const, effective_from: "2026-11-10" },
     ];
-    expect(resolveMode(modes, "theo", "2026-11-09")).toBe("EMPLOYED_35H");
-    expect(resolveMode(modes, "theo", "2026-11-10")).toBe("JOB_SEARCHING");
+    expect(resolveMode(modes, "theo", "2026-11-09")).toBe("REDUCED");
+    expect(resolveMode(modes, "theo", "2026-11-10")).toBe("FULL_TIME");
     expect(resolveMode(modes, "pablo", "2026-11-10")).toBeNull();
     const rows = [
-      { ...base, mode: "JOB_SEARCHING" as const, metric: "calls" as const, target: 35, weight: 1, minutes_per_action: 4, effective_from: "2026-11-01" },
-      { ...base, created_at: "2026-11-05T00:00:00.000Z", mode: "JOB_SEARCHING" as const, metric: "calls" as const, target: 30, weight: 1, minutes_per_action: 4, effective_from: "2026-11-01" },
+      { ...base, mode: "FULL_TIME" as const, metric: "calls" as const, target: 35, weight: 1, minutes_per_action: 4, effective_from: "2026-11-01" },
+      { ...base, created_at: "2026-11-05T00:00:00.000Z", mode: "FULL_TIME" as const, metric: "calls" as const, target: 30, weight: 1, minutes_per_action: 4, effective_from: "2026-11-01" },
     ];
-    expect(resolveTargets(rows, "theo", "JOB_SEARCHING", "2026-11-09").calls).toEqual({ target: 30, weight: 1, minutes: 4 });
+    expect(resolveTargets(rows, "theo", "FULL_TIME", "2026-11-09").calls).toEqual({ target: 30, weight: 1, minutes: 4 });
   });
   it("an edit after today's plan exists applies tomorrow", () => {
     expect(effectiveFromForEdit("2026-11-09", true, "2026-11-10")).toBe("2026-11-10");
@@ -48,5 +48,15 @@ describe("prospective targets", () => {
     const f = feasibility({ calls: spec(35, 1, 4), dms: spec(12, 1, 3) }, 120);
     expect(f).toEqual({ plannedMinutes: 176, capacityMinutes: 120, overBy: 56, feasible: false });
     expect(emptyTally().calls).toBe(0);
+  });
+});
+
+describe("LinkedIn limits take priority over targets (brief round 8)", () => {
+  it("caps the invitation target by the daily limit and what is left of the weekly limit", async () => {
+    const { linkedinCap } = await import("./seeds");
+    expect(linkedinCap(15, { daily: 20, weekly: 100 }, 0)).toEqual({ target: 15, capped: false });
+    expect(linkedinCap(25, { daily: 20, weekly: 100 }, 0)).toEqual({ target: 20, capped: true });
+    expect(linkedinCap(15, { daily: 20, weekly: 100 }, 92)).toEqual({ target: 8, capped: true });
+    expect(linkedinCap(15, { daily: 20, weekly: 100 }, 140)).toEqual({ target: 0, capped: true });
   });
 });

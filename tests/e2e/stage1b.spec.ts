@@ -83,36 +83,80 @@ test("scenario 23: Command Center Now shows exactly five primary numbers", async
   await expect(page.getByText(fr("Audience, latest figures"))).toBeVisible();
 });
 
-test("call mode: objections on any outcome, one-key outcomes, yes goes to the pipeline with a message ready", async ({ page }) => {
+test("call mode: before / during / after, undo, objections on any outcome, yes goes to the pipeline with the message card", async ({ page }) => {
   await signIn(page, "theo");
   await page.goto("/call");
   await page.getByRole("button", { name: fr("Start free session") }).click();
   const outcome = (o: string) => page.getByRole("button", { name: new RegExp(`^${fr(o)}`) });
+  // Before: one big Call button. Logging without dialling is one tap away.
+  await expect(page.getByRole("button", { name: new RegExp(`^${fr("Call")}`) })).toBeVisible();
+  await page.getByRole("button", { name: fr("Already called? Log the outcome") }).click();
   await outcome("No answer").click();
   await expect(page.getByText(fr("No answer"), { exact: true }).last()).toBeVisible();
-  // A refusal with its objection, by keyboard: G = too expensive, 4 = not interested (physical key, works on AZERTY).
+  // Undo for 10 seconds: the tap no longer counts.
+  await page.getByRole("button", { name: new RegExp(`^${fr("Undo")}`) }).click();
+  await expect(page.getByText(fr("Undone: the call no longer counts."))).toBeVisible();
+  // During: Enter dials, G = too expensive (reply card), 4 = not interested (physical key, works on AZERTY).
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: new RegExp(`^${fr("Hang up")}`) })).toBeVisible();
   const tooExpensive = page.getByRole("button", { name: new RegExp(`^${fr("Too expensive")}`) });
-  await expect(tooExpensive).toBeVisible();
   await page.keyboard.press("g");
   await expect(tooExpensive).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByText(/paie les 99 €/)).toBeVisible(); // live three-step reply from the playbook
   await page.keyboard.press("Digit4");
-  await expect(tooExpensive).toHaveAttribute("aria-pressed", "false");
-  // A yes can carry objections too: D = send me info, then 7 = meeting.
+  await expect(page.getByRole("button", { name: new RegExp(`^${fr("Call")}`) })).toBeVisible(); // next call: back to Before
+  // A yes can carry objections too: Enter, D = send me info, X hang up, then 7 = meeting.
+  await page.keyboard.press("Enter");
   await page.keyboard.press("d");
+  await page.keyboard.press("x");
+  await expect(outcome("Meeting booked")).toBeVisible();
   await page.keyboard.press("Digit7");
   await page.getByLabel(fr("Business name")).fill("Carrosserie Rapide (e2e)");
   await page.getByRole("button", { name: fr("Save · {outcome}", { outcome: fr("Meeting booked") }) }).click();
   await expect(page.getByText(fr("{outcome}: added to your pipeline", { outcome: fr("Meeting booked") }))).toBeVisible();
-  // The message for the person just called is ready (meeting → confirmation); E opens it in their language.
-  await expect(page.getByText(fr("Send to {name}", { name: "Carrosserie Rapide (e2e)" }), { exact: false })).toBeVisible();
-  await page.keyboard.press("e");
-  await expect(page.getByLabel(fr("Subject"))).toHaveValue(/Carrosserie Rapide/);
-  await page.keyboard.press("Escape");
+  // The message card is inline, in the founder's language (meeting → confirmation); the missing address is asked right there.
+  const card = page.getByRole("region", { name: fr("Message card") });
+  await expect(card.getByText(fr("Message for {name}", { name: "Carrosserie Rapide (e2e)" }))).toBeVisible();
+  await expect(card.getByLabel(fr("Subject"))).toHaveValue(/Carrosserie Rapide/);
+  await expect(card.getByRole("radio", { name: new RegExp(fr("Confirm")) })).toHaveAttribute("aria-checked", "true");
+  await card.getByLabel(fr("To")).fill("contact@carrosserie-e2e.example.com");
+  await page.context().route("https://mail.google.com/**", (r) => r.fulfill({ body: "Gmail (e2e stub)", contentType: "text/plain" }));
+  const popup = page.waitForEvent("popup");
+  await card.getByRole("button", { name: new RegExp(fr("Open in Gmail")) }).click();
+  await (await popup).close();
+  await page.getByRole("button", { name: new RegExp(`^${fr("Yes, sent")}`) }).click();
+  await expect(page.getByText(fr("Email sent and logged"))).toBeVisible();
   await page.getByRole("button", { name: fr("End session") }).click();
   await expect(page.getByRole("heading", { name: fr("Session summary") })).toBeVisible();
   await expect(page.getByText(fr("Too expensive")).first()).toBeVisible();
   await expect(page.getByRole("listitem").filter({ hasText: fr("Send me info") })).toContainText(fr("{n} heard · {won} won over", { n: 1, won: 1 })); // still a yes
+  await expect(page.getByText(fr("{n} messages sent during this session.", { n: 1 }))).toBeVisible();
   await page.goto("/crm");
   await expect(page.getByRole("region", { name: fr("Meeting booked") })).toContainText("Carrosserie Rapide (e2e)");
+});
+
+test("LinkedIn session: follow-ups first, copy the message, one tap per result, limits shown", async ({ page }) => {
+  await signIn(page, "pablo");
+  await page.goto("/call");
+  await page.getByRole("radio", { name: "LinkedIn" }).click();
+  await expect(page.getByText(es("LinkedIn follow-ups due"))).toBeVisible();
+  await expect(page.getByText(es("Invitations: {n}/{total} today", { n: 0, total: 20 }))).toBeVisible();
+  await page.getByRole("button", { name: es("Start the session") }).click();
+  await expect(page.getByRole("heading", { level: 1, name: es("LinkedIn session") })).toBeVisible();
+  // Follow-ups due come first: an invitation to check (Lucas). "Accepted" brings his first message, first name filled in.
+  await expect(page.getByText(es("Check if the invitation was accepted"), { exact: true })).toBeVisible();
+  await expect(page.getByText("Lucas Ejemplo").first()).toBeVisible();
+  await page.getByRole("button", { name: new RegExp(`^${es("Accepted")}`) }).click();
+  await expect(page.getByText(es("Send the first message"), { exact: true })).toBeVisible();
+  await expect(page.getByLabel(es("Message to copy"))).toHaveValue(/Lucas/);
+  await page.keyboard.press("m");
+  await expect(page.getByText(es("Message sent"), { exact: true }).first()).toBeVisible();
+  // Next due: Sara (accepted yesterday). S skips her; then a new prospect, I logs an invitation against the limit.
+  await expect(page.getByLabel(es("Message to copy"))).toHaveValue(/Sara/);
+  await page.keyboard.press("s");
+  await expect(page.getByText(es("New prospect"))).toBeVisible();
+  await page.keyboard.press("i");
+  await expect(page.getByText(es("Invitations: {n}/{total} today", { n: 1, total: 20 }))).toBeVisible();
+  await page.getByRole("button", { name: es("End session") }).click();
+  await expect(page.getByRole("heading", { name: es("LinkedIn session summary") })).toBeVisible();
 });

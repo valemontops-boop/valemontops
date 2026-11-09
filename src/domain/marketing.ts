@@ -152,3 +152,83 @@ export function mapLocationSheet(grid: unknown[][]): { key: string; value: numbe
   }
   return [...m.entries()].map(([key, value]) => ({ key, value }));
 }
+
+/* ---------------- traffic source groups: web browser, AI engines, social networks ---------------- */
+
+/** Where a website visit comes from. "web" = a browser visit from search, direct, referral or paid; "ai" = an AI engine; "social" = a social network. */
+export type TrafficGroup = "web" | "ai" | "social";
+export type TrafficKind = "search" | "paid" | "direct" | "referral" | "other" | "ai" | "social";
+export interface TrafficClass { group: TrafficGroup; kind: TrafficKind; engine: string | null }
+
+/** AI engines: matched on the host (and its subdomains) or the bare name used in utm_source. */
+export const AI_ENGINES: { name: string; domains: string[]; names: string[] }[] = [
+  { name: "ChatGPT", domains: ["chatgpt.com", "chat.openai.com", "openai.com"], names: ["chatgpt", "openai"] },
+  { name: "Perplexity", domains: ["perplexity.ai", "perplexity.com"], names: ["perplexity"] },
+  { name: "Claude", domains: ["claude.ai"], names: ["claude"] },
+  { name: "Gemini", domains: ["gemini.google.com", "bard.google.com"], names: ["gemini", "bard"] },
+  { name: "Copilot", domains: ["copilot.microsoft.com", "copilot.cloud.microsoft", "edgeservices.bing.com"], names: ["copilot", "bingchat", "bing chat"] },
+  { name: "DeepSeek", domains: ["deepseek.com"], names: ["deepseek"] },
+  { name: "Mistral Le Chat", domains: ["chat.mistral.ai", "mistral.ai"], names: ["mistral", "lechat", "le chat"] },
+  { name: "You.com", domains: ["you.com"], names: [] },
+  { name: "Phind", domains: ["phind.com"], names: ["phind"] },
+  { name: "Grok", domains: ["grok.com", "x.ai"], names: ["grok"] },
+];
+const SOCIAL: { domains: string[]; names: string[] } = {
+  domains: ["instagram.com", "facebook.com", "fb.com", "fb.me", "linkedin.com", "lnkd.in", "tiktok.com", "youtube.com", "youtu.be", "x.com", "twitter.com", "t.co", "pinterest.com", "pin.it", "threads.net", "reddit.com", "snapchat.com", "whatsapp.com", "wa.me"],
+  names: ["instagram", "ig", "facebook", "fb", "meta", "linkedin", "tiktok", "youtube", "yt", "x", "twitter", "pinterest", "threads", "reddit", "snapchat", "whatsapp"],
+};
+const SEARCH = ["google", "bing", "duckduckgo", "yahoo", "ecosia", "qwant", "baidu", "yandex", "brave", "startpage", "lilo", "search"];
+
+/** "https://www.ChatGPT.com/c/1", "utm_source=chatgpt.com&utm_medium=x", "chatgpt.com / referral" → "chatgpt.com". */
+function cleanSource(raw: string): string {
+  let s = String(raw ?? "").trim().toLowerCase();
+  const utm = /(?:^|[?&\s])utm_source=([^&\s]+)/.exec(s);
+  if (utm) s = decodeURIComponent(utm[1]);
+  s = s.split(" / ")[0].trim();
+  s = s.replace(/^[a-z]+:\/\//, "").split(/[/?#]/)[0].replace(/^www\./, "").replace(/:\d+$/, "");
+  return s;
+}
+const hostIs = (host: string, domain: string) => host === domain || host.endsWith(`.${domain}`);
+const nameIs = (host: string, names: string[]) => names.includes(host);
+
+/** Which AI engine a source points to (case-insensitive; accepts a host, a URL, "source / medium" or utm_source=…), else null. */
+export function aiEngineOf(source: string): string | null {
+  const host = cleanSource(source);
+  if (!host) return null;
+  for (const e of AI_ENGINES) if (e.domains.some((d) => hostIs(host, d)) || nameIs(host, e.names)) return e.name;
+  return null;
+}
+
+/** Classifies a GA4 row (source, medium) into web browser / AI engine / social network, with a sub-kind for the web. */
+export function classifyTraffic(source: string, medium = ""): TrafficClass {
+  const raw = String(source ?? "");
+  // "source / medium" in a single field.
+  if (!medium && raw.includes(" / ") && !/utm_source=/i.test(raw)) medium = raw.split(" / ")[1] ?? "";
+  const host = cleanSource(raw);
+  const med = String(medium ?? "").trim().toLowerCase();
+  const engine = aiEngineOf(raw);
+  if (engine) return { group: "ai", kind: "ai", engine };
+  if (SOCIAL.domains.some((d) => hostIs(host, d)) || nameIs(host, SOCIAL.names) || /(^|[_\s-])social/.test(med) || /^(sm|social-network|social-media)$/.test(med)) return { group: "social", kind: "social", engine: null };
+  if (/^(cpc|ppc|paid|paidsearch|paid_search|paid-search|sem|display|cpm)$/.test(med)) return { group: "web", kind: "paid", engine: null };
+  if (med === "organic" || SEARCH.some((s) => host === s || host.startsWith(`${s}.`) || host.includes(`.${s}.`))) return { group: "web", kind: "search", engine: null };
+  if (!host || host === "(direct)" || host === "direct" || med === "(none)" || med === "none") return { group: "web", kind: "direct", engine: null };
+  if (med === "referral" || host.includes(".")) return { group: "web", kind: "referral", engine: null };
+  return { group: "web", kind: "other", engine: null };
+}
+
+/** Sessions, leads, meetings and purchases per group and per web kind, plus the AI engines one by one. */
+export function trafficSplit(rows: Pick<TrafficRow, "source" | "medium" | "sessions" | "leads" | "meetings" | "purchases" | "revenue_minor">[]) {
+  type Sum = { sessions: number; leads: number; meetings: number; purchases: number; revenue_minor: number };
+  const zero = (): Sum => ({ sessions: 0, leads: 0, meetings: 0, purchases: 0, revenue_minor: 0 });
+  const add = (s: Sum, r: (typeof rows)[number]) => { s.sessions += r.sessions ?? 0; s.leads += r.leads ?? 0; s.meetings += r.meetings ?? 0; s.purchases += r.purchases ?? 0; s.revenue_minor += r.revenue_minor ?? 0; };
+  const groups: Record<TrafficGroup, Sum> = { web: zero(), ai: zero(), social: zero() };
+  const kinds: Record<TrafficKind, Sum> = { search: zero(), paid: zero(), direct: zero(), referral: zero(), other: zero(), ai: zero(), social: zero() };
+  const engines = new Map<string, Sum>();
+  for (const r of rows) {
+    const c = classifyTraffic(r.source, r.medium);
+    add(groups[c.group], r);
+    add(kinds[c.kind], r);
+    if (c.engine) { const e = engines.get(c.engine) ?? zero(); add(e, r); engines.set(c.engine, e); }
+  }
+  return { groups, kinds, engines: [...engines.entries()].map(([engine, s]) => ({ engine, ...s })).sort((a, b) => b.sessions - a.sessions) };
+}

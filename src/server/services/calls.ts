@@ -13,11 +13,13 @@ import type { AppContext } from "../context";
 import { logActivity, logActivitySchema } from "./activities";
 import { userRow } from "./common";
 
-export const startSessionSchema = z.object({ id: z.string().uuid(), list_id: z.string().max(40).default("") });
-export async function startSession(ctx: AppContext, founder: FounderKey, input: z.infer<typeof startSessionSchema>) {
+/** LinkedIn sessions reuse the CallSessions tab, marked in `notes` (no new table). */
+export const LINKEDIN_SESSION = "linkedin";
+export const startSessionSchema = z.object({ id: z.string().uuid(), list_id: z.string().max(40).default(""), kind: z.enum(["calls", "linkedin"]).default("calls") });
+export async function startSession(ctx: AppContext, founder: FounderKey, input: z.input<typeof startSessionSchema>) {
   const cur = await ctx.repo.get("CallSessions", input.id, { fresh: true });
   if (cur) return cur;
-  return (await ctx.repo.insert("CallSessions", [{ id: input.id, founder_key: founder, list_id: input.list_id, started_at: new Date().toISOString(), ended_at: null, notes: "" }], { founder }))[0];
+  return (await ctx.repo.insert("CallSessions", [{ id: input.id, founder_key: founder, list_id: input.list_id ?? "", started_at: new Date().toISOString(), ended_at: null, notes: input.kind === "linkedin" ? LINKEDIN_SESSION : "" }], { founder }))[0];
 }
 export const endSessionSchema = z.object({ id: z.string().uuid() });
 export async function endSession(ctx: AppContext, founder: FounderKey, id: string) {
@@ -118,25 +120,65 @@ export async function logCall(ctx: AppContext, founder: FounderKey, input: z.inf
     fast_contact: positiveNew ? { company_name: input.business_name, contact_name: input.contact_name, phone: input.phone, email: "", country: input.market ?? "FR", contact_type: input.contact_type, niche: "" } : null,
   }));
   if (res.duplicate || !isPositive(input.outcome)) return { ...res, opportunityId: null };
-  const accountId = res.event.account_id;
-  const target: Stage = input.outcome === "meeting" ? "discovery_scheduled" : "replied";
+  const opportunityId = await advanceDeal(ctx, founder, {
+    key: input.idempotency_key, eventId: res.event.id, accountId: res.event.account_id, contactId: res.event.contact_id, target: input.outcome === "meeting" ? "discovery_scheduled" : "replied",
+    nextAction, due, high: input.outcome === "meeting", name: input.business_name, market: input.market, reason: "Call mode",
+  });
+  return { ...res, opportunityId };
+}
+
+/**
+ * A "yes" (phone or LinkedIn) creates the deal, or moves the open one forward (never backwards), with a dated next step.
+ * Ids derive from the tap's idempotency key, so a retry never creates a second deal.
+ */
+export async function advanceDeal(ctx: AppContext, founder: FounderKey, d: { key: string; eventId: string; accountId: string; contactId: string; target: Stage; nextAction: string; due: string; high: boolean; name: string; market: "FR" | "ES" | null; reason: string }) {
   const { rows } = await ctx.repo.list("Opportunities", { fresh: true });
-  const opp = rows.find((o) => o.account_id === accountId && isOpen(o));
-  const acc = await ctx.repo.get("Accounts", accountId);
+  const opp = rows.find((o) => o.account_id === d.accountId && isOpen(o));
+  const acc = await ctx.repo.get("Accounts", d.accountId);
   if (!opp) {
-    const id = childId(input.idempotency_key, "opportunity");
+    const id = childId(d.key, "opportunity");
+    if (rows.some((o) => o.id === id)) return id;
     await ctx.repo.insert("Opportunities", [{
-      id, account_id: accountId, primary_contact_id: res.event.contact_id, name: acc?.name ?? input.business_name, brand: acc?.brand ?? "local", market: acc?.country ?? input.market,
-      stage: target, owner_founder: founder, value_minor: null, currency: "EUR", expected_close: null, next_action: nextAction, next_action_due: due || null,
-      next_action_priority: input.outcome === "meeting" ? "high" : "normal", next_action_reason: "", lost_reason: "", anum_authority: "", anum_need: "", anum_urgency: "", anum_money: "",
+      id, account_id: d.accountId, primary_contact_id: d.contactId, name: acc?.name ?? d.name, brand: acc?.brand ?? "local", market: acc?.country ?? d.market,
+      stage: d.target, owner_founder: founder, value_minor: null, currency: "EUR", expected_close: null, next_action: d.nextAction, next_action_due: d.due || null,
+      next_action_priority: d.high ? "high" : "normal", next_action_reason: "", lost_reason: "", anum_authority: "", anum_need: "", anum_urgency: "", anum_money: "",
     }], { founder });
-    await ctx.repo.insert("OpportunityStageEvents", [{ id: childId(id, "created"), opportunity_id: id, from_stage: null, to_stage: target, changed_at: new Date().toISOString(), changed_by: founder, reason: "Call mode" }], { founder });
-    return { ...res, opportunityId: id };
+    await ctx.repo.insert("OpportunityStageEvents", [{ id: childId(id, "created"), opportunity_id: id, from_stage: null, to_stage: d.target, changed_at: new Date().toISOString(), changed_by: founder, reason: d.reason }], { founder });
+    return id;
   }
-  const stage = forward(opp.stage, target);
-  await ctx.repo.update("Opportunities", opp.id, opp.version, { stage, next_action: nextAction, next_action_due: due || null, owner_founder: opp.owner_founder ?? founder }, { founder });
-  if (stage !== opp.stage) await ctx.repo.insert("OpportunityStageEvents", [{ id: childId(opp.id, "stage", res.event.id), opportunity_id: opp.id, from_stage: opp.stage, to_stage: stage, changed_at: new Date().toISOString(), changed_by: founder, reason: "Call mode" }], { founder });
-  return { ...res, opportunityId: opp.id };
+  const stage = forward(opp.stage, d.target);
+  await ctx.repo.update("Opportunities", opp.id, opp.version, { stage, next_action: d.nextAction, next_action_due: d.due || null, owner_founder: opp.owner_founder ?? founder }, { founder });
+  if (stage !== opp.stage) await ctx.repo.insert("OpportunityStageEvents", [{ id: childId(opp.id, "stage", d.eventId), opportunity_id: opp.id, from_stage: opp.stage, to_stage: stage, changed_at: new Date().toISOString(), changed_by: founder, reason: d.reason }], { founder });
+  return opp.id;
+}
+
+/** "Undo" right after a tap (call mode shows it for 10 seconds; the server accepts it for 2 minutes). */
+export const UNDO_WINDOW_MS = 120_000;
+export const undoSchema = z.object({ idempotency_key: z.string().uuid() });
+/**
+ * Undoes the founder's last tap: the event is archived (the row stays, it no longer counts, D069). A deal created by
+ * that tap is archived too; a deal it moved forward goes back to its previous stage.
+ */
+export async function undoCall(ctx: AppContext, founder: FounderKey, input: z.infer<typeof undoSchema>) {
+  const { rows } = await ctx.repo.list("ActivityEvents", { fresh: true });
+  const ev = dedupeEvents(rows).find((e) => e.idempotency_key === input.idempotency_key);
+  if (!ev || ev.founder_key !== founder) throw new RuleError("Nothing to undo.");
+  if (Date.now() - Date.parse(ev.logged_at) > UNDO_WINDOW_MS) throw new RuleError("Too late to undo: correct it in the CRM.");
+  const sends = (await ctx.repo.list("EmailSends", { fresh: true })).rows;
+  if (ev.account_id && sends.some((x) => x.account_id === ev.account_id && x.status === "sent" && !x.is_archived && (x.sent_at ?? "") >= ev.occurred_at)) throw new RuleError("A message already went out after this call: correct it in the CRM.");
+  await ctx.repo.update("ActivityEvents", ev.id, ev.version, { is_archived: true }, { founder });
+  const oppId = childId(input.idempotency_key, "opportunity");
+  const created = await ctx.repo.get("Opportunities", oppId, { fresh: true });
+  if (created && !created.is_archived) await ctx.repo.update("Opportunities", oppId, created.version, { is_archived: true }, { founder });
+  else {
+    const stageEvents = (await ctx.repo.list("OpportunityStageEvents", { fresh: true })).rows.filter((x) => !x.is_archived && x.id === childId(x.opportunity_id, "stage", ev.id));
+    for (const se of stageEvents) {
+      const opp = await ctx.repo.get("Opportunities", se.opportunity_id, { fresh: true });
+      if (opp && opp.stage === se.to_stage && se.from_stage) await ctx.repo.update("Opportunities", opp.id, opp.version, { stage: se.from_stage }, { founder });
+      await ctx.repo.update("OpportunityStageEvents", se.id, se.version, { is_archived: true }, { founder });
+    }
+  }
+  return { undone: true, eventId: ev.id };
 }
 
 export async function sessionSummary(ctx: AppContext, founder: FounderKey, id: string) {
@@ -160,7 +202,7 @@ export async function listSessions(ctx: AppContext, founder: FounderKey) {
   const t = await ctx.repo.listMany(["CallSessions", "ActivityEvents"]);
   const u = await userRow(ctx.repo, founder);
   const events = dedupeEvents(t.ActivityEvents.rows);
-  return t.CallSessions.rows.filter((s) => s.founder_key === founder).sort((a, b) => b.started_at.localeCompare(a.started_at)).slice(0, 20)
+  return t.CallSessions.rows.filter((s) => s.founder_key === founder && s.notes !== LINKEDIN_SESSION).sort((a, b) => b.started_at.localeCompare(a.started_at)).slice(0, 20)
     .map((s) => ({ session: s, stats: callStats(events.filter((e) => e.call_session_id === s.id), u.timezone, s) }));
 }
 

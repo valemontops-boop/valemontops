@@ -7,13 +7,14 @@ import {
   ACTIVITY_LABELS, METRICS, METRIC_LABELS, STAGE_LABELS, WORK_MODES, type ActivityType, type FounderKey, type Metric,
   type WorkMode, FOUNDER_NAMES,
 } from "@/domain/constants";
-import { dedupeEvents, tallyDay, type Tally } from "@/domain/activity";
+import { dedupeEvents, funnelCounts, newBusinessesContacted, tallyDay, type Tally } from "@/domain/activity";
 import { effectiveFromForEdit, feasibility, resolveMode, resolveTargets, weightedAttainment, type TargetSet } from "@/domain/targets";
-import { addDays, cutoffOf, localDate, weekday } from "@/domain/time";
+import { addDays, cutoffOf, localDate, startOfWeek, weekday } from "@/domain/time";
 import { isOpen } from "@/domain/pipeline";
 import { formatWhatsAppReport } from "@/domain/report";
-import { CAPACITY_SEED_MINUTES, MINUTES_PER_ACTION_SEED, seedTargetsFor } from "@/domain/seeds";
-import { userRow } from "./common";
+import { CAPACITY_SEED_MINUTES, MINUTES_PER_ACTION_SEED, linkedinCap, seedTargetsFor } from "@/domain/seeds";
+import { contentBrandOf } from "@/domain/content";
+import { numSetting, userRow } from "./common";
 import { callStats } from "@/domain/calls";
 
 function earliest<R extends { created_at: string; id: string }>(rows: R[]): R | undefined {
@@ -82,6 +83,8 @@ export interface MyDay {
   nextAction: { kind: "follow_up" | "metric" | "onboarding" | "done"; title: string; detail: string; followUp?: FollowUp; metric?: Metric };
   byType: Partial<Record<ActivityType, number>>;
   calls: ReturnType<typeof callStats>;
+  /** LinkedIn limits take priority over targets: set when today's invitation target was lowered to the limit. */
+  linkedinCap: { planned: number; shown: number } | null;
 }
 
 export async function getMyDay(repo: DataRepository, founder: FounderKey, now = new Date()): Promise<MyDay> {
@@ -94,7 +97,18 @@ export async function getMyDay(repo: DataRepository, founder: FounderKey, now = 
   const accountName = new Map(t.Accounts.rows.map((a) => [a.id, a.name]));
   const accountPhone = new Map(t.Accounts.rows.map((a) => [a.id, a.phone]));
   const mode = plan?.mode ?? resolveMode(t.WorkModes.rows, founder, today);
-  const targets = plan && plan.is_workday ? fillTargets(plan.targets) : null;
+  let targets = plan && plan.is_workday ? fillTargets(plan.targets) : null;
+  let capInfo: MyDay["linkedinCap"] = null;
+  if (targets && targets.invitations.target > 0) {
+    const limits = { daily: await numSetting(repo, "linkedin_daily_invitation_limit", 20), weekly: await numSetting(repo, "linkedin_weekly_invitation_limit", 100) };
+    const week = startOfWeek(today);
+    const sentBefore = events.filter((e) => e.founder_key === founder && e.activity_type === "linkedin_invitation" && e.local_date >= week && e.local_date < today).length;
+    const c = linkedinCap(targets.invitations.target, limits, sentBefore);
+    if (c.capped) {
+      capInfo = { planned: targets.invitations.target, shown: c.target };
+      targets = { ...targets, invitations: { ...targets.invitations, target: c.target } };
+    }
+  }
 
   // Follow-ups: opportunity next actions owned by this founder, then event next actions not superseded by a later touch.
   const followUps: FollowUp[] = [];
@@ -175,6 +189,7 @@ export async function getMyDay(repo: DataRepository, founder: FounderKey, now = 
     nextAction,
     byType,
     calls: callStats(todays, user.timezone),
+    linkedinCap: capInfo,
   };
 }
 
@@ -262,19 +277,31 @@ export const profileSchema = z.object({
 
 export async function whatsappReport(repo: DataRepository, founder: FounderKey, nextDayPriority: string, now = new Date()) {
   const day = await getMyDay(repo, founder, now);
-  const { rows: opps } = await repo.list("Opportunities");
-  const { rows: accounts } = await repo.list("Accounts");
-  const name = new Map(accounts.map((a) => [a.id, a.name]));
-  const mine = opps.filter((o) => isOpen(o) && o.owner_founder === founder).sort((a, b) => (a.next_action_due ?? "9999").localeCompare(b.next_action_due ?? "9999"));
-  const targets = day.targets ? Object.fromEntries(METRICS.map((m) => [m, day.targets![m].target])) : {};
+  const t = await repo.listMany(["ActivityEvents", "ContentLog", "BankTransactions", "TrafficDaily", "RevenueSnapshots"]);
+  const events = dedupeEvents(t.ActivityEvents.rows);
+  const today = day.today;
+  const mine = funnelCounts(events, founder, today, today);
+  const team = funnelCounts(events, null, today, today);
+  const count = (type: ActivityType, who: FounderKey | null) => events.filter((e) => e.activity_type === type && e.local_date === today && (!who || e.founder_key === who)).length;
+  const seen = new Set<string>();
+  const content = t.ContentLog.rows.filter((c) => !c.is_archived && c.local_date === today && !seen.has(c.idempotency_key) && Boolean(seen.add(c.idempotency_key)));
+  const revenue = t.BankTransactions.rows.filter((b) => !b.is_archived && b.date === today && b.direction === "credit" && b.category === "revenue" && b.currency === "EUR");
+  const traffic = t.TrafficDaily.rows.filter((r) => !r.is_archived && r.date === today && r.brand === "thirty");
+  const sumOrNull = (k: "sessions" | "purchases") => (traffic.some((r) => r[k] !== null) ? traffic.reduce((a, r) => a + (r[k] ?? 0), 0) : null);
+  const snapshot = [...t.RevenueSnapshots.rows].filter((r) => !r.is_archived).sort((a, b) => a.date.localeCompare(b.date) || a.created_at.localeCompare(b.created_at)).at(-1);
   return formatWhatsAppReport({
     founderName: day.founderName,
-    date: day.today,
+    date: today,
     tally: day.tally,
-    targets,
-    byType: day.byType,
-    openOpportunities: mine.map((o) => ({ name: o.name || name.get(o.account_id) || "", stage: STAGE_LABELS[o.stage], nextAction: o.next_action })),
-    openOpportunityCount: mine.length,
+    qualifiedConversations: count("qualified_conversation", founder),
+    meetingsBooked: mine.meetingsBooked,
+    proposalsSent: mine.proposals,
+    postsPublished: content.filter((c) => c.founder_key === founder).length,
+    cashCollectedMinor: revenue.reduce((a, b) => a + b.amount_minor, 0),
     nextDayPriority,
+    // VAT is not recorded on bank movements yet, so revenue ex VAT stays "—" rather than a guess.
+    valemont: { newContacts: newBusinessesContacted(events, null, today, today).length, qualifiedConversations: count("qualified_conversation", null), meetingsHeld: team.meetingsHeld, proposalsSent: team.proposals, revenueExVatMinor: null },
+    thirty: { videosPublished: content.filter((c) => contentBrandOf(c.brand) === "thirty" && ["reel", "story"].includes(c.deliverable)).length, siteVisits: sumOrNull("sessions"), checkouts: null, reportsSold: sumOrNull("purchases") },
+    local: { activeSubscriptions: snapshot ? snapshot.active_subscriptions : null, setupFeesMinor: null, aiUsage: null, marginAfterSupportMinor: null },
   }, tFor(LOCALE_OF[founder]));
 }

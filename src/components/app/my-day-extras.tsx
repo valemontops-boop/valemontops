@@ -113,33 +113,62 @@ export function TasksFor({ area }: { area: Area }) {
   );
 }
 
-type Week = { weekStart: string; items: { deliverable: string; label: string; done: number; target: number }[] };
-/** Weekly marketing deliverables: one tap = one piece published. */
+type Piece = { deliverable: string | null; brand: string | null; language: string | null };
+type Week = {
+  weekStart: string;
+  items: (Piece & { key: string; label: string; done: number; target: number })[];
+  todayPosts: (Piece & { key: string; label: string; done: boolean })[];
+  calendar: { weekday: number; posts: string[] }[];
+};
+const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+/** Content plan (brief round 8): today's planned posts, the week's video goals (team) and the weekday calendar. One tap = one piece published. */
 export function MarketingWeek() {
   const t = useT();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["marketing-week"], queryFn: () => api<Week>("/api/marketing/week") });
   const log = useMutation({
-    mutationFn: (deliverable: string) => api("/api/marketing/week", { body: { idempotency_key: crypto.randomUUID(), deliverable } }),
+    mutationFn: (p: Piece) => api("/api/marketing/week", { body: { idempotency_key: crypto.randomUUID(), deliverable: p.deliverable, brand: p.brand, language: p.language } }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["marketing-week"] }); toast(t("Published · counted")); },
   });
   if (q.isPending) return <Skeleton className="h-28" />;
   if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
+  const d = q.data;
   return (
-    <div>
-      <h3 className="mb-2 text-[13px] font-semibold text-text-2">{t("This week's content (team)")}</h3>
-      <ul className="flex flex-col gap-2">
-        {q.data.items.map((i) => (
-          <li key={i.deliverable} className="grid grid-cols-[1fr_auto_auto] items-center gap-3">
-            <div className="min-w-0">
-              <p className="flex justify-between text-sm"><span>{t(i.label)}</span><span className={cn("num", i.done >= i.target ? "font-semibold text-ink" : "text-text-2")}>{i.done}/{i.target}</span></p>
-              <div className="mt-1 flex gap-[3px]" aria-hidden>{Array.from({ length: Math.max(i.target, i.done) }, (_, k) => <span key={k} className={cn("h-2 flex-1 rounded-[2px]", k < i.done ? "bg-ink" : "hatch")} />)}</div>
-            </div>
-            <span />
-            <button type="button" onClick={() => log.mutate(i.deliverable)} disabled={log.isPending} aria-label={t("Log one {what}", { what: t(i.label) })} className="h-9 rounded-full border border-control px-3 text-[13px] font-medium hover:bg-subtle disabled:opacity-50">+1</button>
-          </li>
-        ))}
-      </ul>
+    <div className="flex flex-col gap-4">
+      <div>
+        <h3 className="mb-1 text-[13px] font-semibold text-text-2">{t("Today's posts")}</h3>
+        {d.todayPosts.length === 0 ? <p className="py-1 text-sm text-text-3">{t("No post planned today.")}</p> : (
+          <ul className="flex flex-col">
+            {d.todayPosts.map((p) => (
+              <li key={p.key} className="flex items-center justify-between gap-3 border-t border-hairline py-1.5 text-sm first:border-t-0">
+                <span className={cn(p.done && "text-text-3 line-through")}>{t(p.label)}</span>
+                {p.deliverable ? (p.done ? <span className="text-[12px] text-text-3">{t("Published")}</span> : <button type="button" onClick={() => log.mutate(p)} disabled={log.isPending} className="h-8 rounded-full border border-control px-3 text-[12px] font-medium hover:bg-subtle disabled:opacity-50">{t("Mark as published")}</button>) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div>
+        <h3 className="mb-2 text-[13px] font-semibold text-text-2">{t("This week's videos (team)")}</h3>
+        <ul className="flex flex-col gap-2">
+          {d.items.map((i) => (
+            <li key={i.key} className="grid grid-cols-[1fr_auto] items-center gap-3">
+              <div className="min-w-0">
+                <p className="flex justify-between text-sm"><span>{t(i.label)}</span><span className={cn("num", i.done >= i.target ? "font-semibold text-ink" : "text-text-2")}>{i.done}/{i.target}</span></p>
+                <div className="mt-1 flex gap-[3px]" aria-hidden>{Array.from({ length: Math.max(i.target, i.done) }, (_, k) => <span key={k} className={cn("h-2 flex-1 rounded-[2px]", k < i.done ? "bg-ink" : "hatch")} />)}</div>
+              </div>
+              <button type="button" onClick={() => log.mutate(i)} disabled={log.isPending} aria-label={t("Log one {what}", { what: t(i.label) })} className="h-9 rounded-full border border-control px-3 text-[13px] font-medium hover:bg-subtle disabled:opacity-50">+1</button>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-2 text-[12px] text-text-3">{t("Produce in batches: one concept gives a Reel in French and one in Spanish.")}</p>
+      </div>
+      <details className="text-sm">
+        <summary className="cursor-pointer text-[13px] font-semibold text-text-2">{t("Publishing calendar")}</summary>
+        <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+          {d.calendar.map((c) => <React.Fragment key={c.weekday}><dt className="text-text-3">{t(WEEKDAY_NAMES[c.weekday])}</dt><dd>{c.posts.map((p) => t(p)).join(" · ")}</dd></React.Fragment>)}
+        </dl>
+      </details>
     </div>
   );
 }

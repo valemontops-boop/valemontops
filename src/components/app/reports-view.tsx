@@ -19,6 +19,10 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import type { reportsDashboard as dashboard } from "@/server/services/dashboard";
 import { useT } from "@/i18n/react";
 import { useMe } from "./providers";
+import { CONVERSION_STEPS, CONVERSION_STEP_LABELS, TIME_AREA_LABELS } from "@/domain/conversion";
+import { CHANNEL_LABELS } from "@/domain/funnels";
+import { cn, formatEur } from "@/lib/utils";
+import { ExportButton } from "./export-dialog";
 
 type Weekly = Awaited<ReturnType<typeof weeklyReview>>;
 type Streaks = Awaited<ReturnType<typeof streakSummary>>;
@@ -33,6 +37,7 @@ export function ReportsView() {
     <div className="flex max-w-6xl flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold tracking-tight">{t("Reports")}</h1>
+        <ExportButton />
         <SegmentedSwitch label={t("Report")} value={tab} onChange={setTab} options={[{ value: "dashboard", label: t("Dashboard") }, { value: "weekly", label: t("Weekly review") }]} />
       </div>
       {tab === "dashboard" ? <Dashboard /> : <WeeklyReview week={week} setWeek={setWeek} />}
@@ -92,6 +97,7 @@ function DashboardBody({ d }: { d: Dash }) {
         </div>
         <p className="mt-1 flex gap-4 text-[12px] text-text-3"><span className="flex items-center gap-1"><span className="size-2.5 rounded-sm bg-sales" />{t("Dials")} <b className="num font-medium text-text-2">{d.daily.reduce((a, x) => a + x.dials, 0)}</b></span><span className="flex items-center gap-1"><span className="size-2.5 rounded-sm bg-win" />{t("Yes")} <b className="num font-medium text-text-2">{d.daily.reduce((a, x) => a + x.yes, 0)}</b></span></p>
       </Panel>
+      <ConversionPanel rows={d.conversion} split={d.timeSplit} />
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <Panel><PanelTitle>{t("Funnel")}</PanelTitle><Funnel steps={d.funnel.map((f, i) => ({ ...f, label: t(f.label), tone: i < 2 ? ("sales" as const) : ("win" as const) }))} /></Panel>
         <Panel><PanelTitle>{t("Objections heard")}</PanelTitle>{d.objections.length ? <><ObjectionRows rows={d.objections} /><p className="mt-2 text-[12px] text-text-3">{t("Green = the call still ended in a yes. Heard on any call, not only refusals. Practise the weak ones in Call mode › Objection drill.")}</p></> : <p className="text-sm text-text-2">{t("No objection recorded in this period.")}</p>}</Panel>
@@ -111,6 +117,35 @@ function DashboardBody({ d }: { d: Dash }) {
         </Panel>
       </div>
     </>
+  );
+}
+
+/** Brief round 8: conversion by channel (one compact table) and the time split against its target. */
+function ConversionPanel({ rows, split }: { rows: Dash["conversion"]; split: Dash["timeSplit"] }) {
+  const t = useT();
+  return (
+    <Panel>
+      <PanelTitle>{t("Conversion by channel")}</PanelTitle>
+      {rows.length === 0 ? <p className="text-sm text-text-2">{t("No outreach in this period.")}</p> : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] text-sm">
+            <thead><tr className="text-left text-[12px] text-text-3"><th className="py-1 font-medium">{t("Channel")}</th>{CONVERSION_STEPS.map((s) => <th key={s} className="py-1 text-right font-medium">{t(CONVERSION_STEP_LABELS[s])}</th>)}</tr></thead>
+            <tbody>{rows.map((r) => (
+              <tr key={r.channel} className="border-t border-hairline">
+                <td className="py-1.5">{t(CHANNEL_LABELS[r.channel])}</td>
+                {CONVERSION_STEPS.map((s) => <td key={s} className="num py-1.5 text-right">{s === "cashMinor" ? (r.cashMinor ? formatEur(r.cashMinor) : "—") : r[s]}</td>)}
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+      <p className="mt-2 text-[12px] text-text-3">{t("Contacts = different businesses touched on the channel. Later steps go to the channel of the last touch; cash = deals won (value, or the offer's default).")}</p>
+      <h3 className="mt-4 text-[13px] font-semibold text-text-2">{t("Time split")}</h3>
+      <p className="mt-1 flex flex-wrap gap-x-5 gap-y-1 text-sm">
+        {split.map((x) => <span key={x.area}>{t(TIME_AREA_LABELS[x.area])} <span className={cn("num font-semibold", x.share !== null && Math.abs(x.share - x.target) > 0.1 ? "text-bad" : "text-ink")}>{pctTxt(x.share)}</span> <span className="text-text-3">/ {pctTxt(x.target)}</span></span>)}
+      </p>
+      <p className="mt-1 text-[12px] text-text-3">{t("Actual / target. Sales = logged outreach × minutes per action and done sales tasks; other areas = done tasks' estimated minutes.")}</p>
+    </Panel>
   );
 }
 
@@ -164,9 +199,9 @@ function WeeklyReview({ week, setWeek }: { week?: string; setWeek: (w: string) =
       <WeekPicker start={d.weekStart} setWeek={setWeek} />
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Kpi label={t("Calls")} value={String(sum((p) => p.actual.calls ?? 0))} dark />
-        <Kpi label={t("Conversations")} value={String(sum((p) => p.funnel.conversations))} />
-        <Kpi label={t("Meetings booked")} value={String(sum((p) => p.funnel.meetingsBooked))} />
-        <Kpi label={t("New businesses contacted")} value={String(sum((p) => p.actual.new_businesses ?? 0))} />
+        <Kpi label={t("Qualified conversations")} value={String(d.kpi.qualified)} note={t("target {n}", { n: d.kpi.qualifiedTarget })} />
+        <Kpi label={t("Meetings booked")} value={String(sum((p) => p.funnel.meetingsBooked))} note={t("target {n}", { n: d.kpi.meetingsTarget })} />
+        <Kpi label={t("New businesses contacted")} value={String(sum((p) => p.actual.new_businesses ?? 0))} note={t("theoretical volume {n}", { n: d.kpi.contactsTheoretical })} />
       </div>
       <Panel>
         {good.length || fix.length ? (
@@ -176,8 +211,31 @@ function WeeklyReview({ week, setWeek }: { week?: string; setWeek: (w: string) =
           </div>
         ) : <p className="text-sm text-text-2">{t("Not enough activity this week to draw conclusions.")}</p>}
       </Panel>
+      <FridayRules rules={d.friday} />
       <WeeklyForm key={d.weekStart + (d.saved?.version ?? 0)} d={d} />
     </div>
+  );
+}
+
+/** Friday review rules (brief round 8): the ones this week's numbers point to are marked. */
+function FridayRules({ rules }: { rules: Weekly["friday"] }) {
+  const t = useT();
+  return (
+    <Panel>
+      <PanelTitle>{t("Friday rules")}</PanelTitle>
+      <ul className="flex flex-col gap-1.5 text-sm">
+        {rules.map((r) => (
+          <li key={r.key} className={cn("flex gap-2", r.applies === false && "text-text-3")}>
+            <span aria-hidden className={cn("mt-1.5 size-2 shrink-0 rounded-full", r.applies ? "bg-sales" : "bg-hairline")} />
+            <span>
+              <span className={cn(r.applies && "font-semibold")}>{t(r.text)}</span>
+              {r.applies ? <span className="text-text-2"> — {t("applies this week")}{r.detail ? ` · ${t(r.detail)}` : ""}{r.evidence ? ` · ${t(r.evidence.key, r.evidence.vars)}` : ""}</span> : null}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-[12px] text-text-3">{t("Marked when this week's numbers point to the rule; nothing is concluded below the minimum sample.")}</p>
+    </Panel>
   );
 }
 

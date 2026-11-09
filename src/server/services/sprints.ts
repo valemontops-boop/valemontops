@@ -4,6 +4,8 @@ import { BRANDS, FOUNDERS, type FounderKey } from "@/domain/constants";
 import { dedupeEvents, isOutreach, newBusinessesContacted } from "@/domain/activity";
 import { localDate } from "@/domain/time";
 import type { AppContext } from "../context";
+import { dealValue } from "@/domain/conversion";
+import { numSetting, offerDefaults } from "./common";
 
 const targets = z.object({ contacted: z.number().int().min(0).max(1_000), replies: z.number().int().min(0).max(1_000), demos: z.number().int().min(0).max(500), pilots: z.number().int().min(0).max(100) });
 export const sprintSchema = z.object({
@@ -31,7 +33,7 @@ export async function activeSprint(ctx: AppContext) {
 export async function sprintProgress(ctx: AppContext) {
   const sprint = await activeSprint(ctx);
   if (!sprint) return null;
-  const t = await ctx.repo.listMany(["ActivityEvents", "Opportunities"]);
+  const t = await ctx.repo.listMany(["ActivityEvents", "Opportunities", "OpportunityStageEvents"]);
   const events = dedupeEvents(t.ActivityEvents.rows).filter((e) => e.local_date >= sprint.start_date && e.local_date <= sprint.end_date);
   const all = dedupeEvents(t.ActivityEvents.rows);
   const per = Object.fromEntries(FOUNDERS.map((f) => {
@@ -48,5 +50,15 @@ export async function sprintProgress(ctx: AppContext) {
   const withBrand = outreach.filter((e) => e.brand);
   const split = Object.fromEntries(BRANDS.map((b) => [b, { actual: withBrand.length ? withBrand.filter((e) => e.brand === b).length / withBrand.length : null, target: sprint.brand_split[b] ?? 0 }]));
   const today = localDate(new Date(), "Europe/Paris");
-  return { sprint, perFounder: per, brandSplit: split, outreachWithBrand: withBrand.length, outreachTotal: outreach.length, daysLeft: Math.max(0, Math.round((Date.parse(sprint.end_date) - Date.parse(today)) / 86_400_000)) };
+  // Sprint goals (brief round 8): paying clients and EUR signed ex VAT = deals moved to Won during the sprint.
+  const wonIds = new Set(t.OpportunityStageEvents.rows.filter((x) => x.to_stage === "won" && x.changed_at.slice(0, 10) >= sprint.start_date && x.changed_at.slice(0, 10) <= sprint.end_date).map((x) => x.opportunity_id));
+  const won = t.Opportunities.rows.filter((o) => wonIds.has(o.id) && o.stage === "won");
+  const defaults = await offerDefaults(ctx.repo);
+  const signed = {
+    clients: new Set(won.map((o) => o.account_id)).size,
+    eurMinor: won.reduce((a, o) => a + dealValue(o, defaults), 0),
+    goalClients: await numSetting(ctx.repo, "sprint_goal_paying_clients", 2),
+    goalEurMinor: Math.round((await numSetting(ctx.repo, "sprint_goal_signed_eur", 3000)) * 100),
+  };
+  return { sprint, signed, perFounder: per, brandSplit: split, outreachWithBrand: withBrand.length, outreachTotal: outreach.length, daysLeft: Math.max(0, Math.round((Date.parse(sprint.end_date) - Date.parse(today)) / 86_400_000)) };
 }

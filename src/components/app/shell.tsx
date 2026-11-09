@@ -3,6 +3,7 @@ import { PhoneCall, Bell, CalendarDays, ChevronDown, Command, FileText, Gauge, L
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { IdeaCapture } from "./idea-capture";
+import { InboxBell } from "./inbox-panel";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import * as React from "react";
@@ -218,16 +219,17 @@ function Frame({ children }: { children: React.ReactNode }) {
 
         <div className="min-w-0 flex-1">
           <header className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b border-hairline bg-canvas/95 px-4 backdrop-blur sm:px-6">
-            <span className="text-[15px] font-semibold md:hidden">Valemont OS</span>
+            <span className="shrink-0 truncate text-[15px] font-semibold md:hidden">Valemont</span>
             <button type="button" onClick={() => setPalette(true)} className="hidden h-9 w-72 items-center gap-2 rounded-full border border-hairline bg-panel px-3 text-sm text-text-3 hover:border-control sm:flex">
               <Command className="size-4" /> {t("Search or run a command")} <kbd className="ml-auto text-[12px]">⌘K</kbd>
             </button>
-            <div className="ml-auto flex items-center gap-3">
+            <div className="ml-auto flex min-w-0 items-center gap-1 sm:gap-3">
               <div className="hidden sm:block"><SyncBadge /></div>
+              <InboxBell />
               <Notifications />
-              <Button variant="ghost" size="icon" onClick={() => setIdea(true)} aria-label={t("New idea (I)")} title={t("New idea (I)")}><Lightbulb /></Button>
+              <Button variant="ghost" size="icon" className="hidden sm:inline-flex" onClick={() => setIdea(true)} aria-label={t("New idea (I)")} title={t("New idea (I)")}><Lightbulb /></Button>
               <Button variant="primary" size="md" onClick={() => qa.open()} aria-keyshortcuts="c v d l n e f s m">
-                <Plus /> {t("Log activity")}
+                <Plus /> <span className="sr-only sm:not-sr-only">{t("Log activity")}</span>
               </Button>
             </div>
           </header>

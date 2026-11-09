@@ -16,9 +16,14 @@ export interface ExportColumn<R> {
  * Formula-injection escaping for free text (spec 4.5): a leading = + - @ tab or CR is neutralised
  * with an apostrophe. Typed columns (phone, amount, date, id) are left intact and always quoted.
  */
+/** True when a spreadsheet would read this text as a formula (spec 4.5). Shared by the CSV and Excel exports. */
+export const looksLikeFormula = (s: string) => /^[=+\-@\t\r]/.test(s);
+/** Neutralises a leading = + - @ tab or CR with an apostrophe. */
+export const neutralizeFormula = (s: string) => (looksLikeFormula(s) ? "'" + s : s);
+
 export function escapeCsvCell(value: string | number | null | undefined, kind: ColumnKind): string {
   let s = value === null || value === undefined ? "" : String(value);
-  if (kind === "text" && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  if (kind === "text") s = neutralizeFormula(s);
   return `"${s.replace(/"/g, '""')}"`;
 }
 

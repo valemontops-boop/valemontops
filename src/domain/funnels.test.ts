@@ -31,4 +31,20 @@ describe("channel funnels", () => {
     expect(r.inbound.steps.map((s) => s.value)).toEqual([100, 3, 1, 0]);
     expect(r.totalMeetings).toBe(3);
   });
+  it("splits inbound traffic into web browser, AI engines and social networks, each with its own funnel", () => {
+    const traffic = [
+      { date: "2026-11-02", source: "google", medium: "organic", sessions: 40, leads: 2, meetings: 1, purchases: 0 },
+      { date: "2026-11-02", source: "(direct)", medium: "(none)", sessions: 10, leads: 0, meetings: null, purchases: 1 },
+      { date: "2026-11-02", source: "chatgpt.com", medium: "referral", sessions: 5, leads: 1, meetings: null, purchases: 0 },
+      { date: "2026-11-02", source: "instagram", medium: "social", sessions: 20, leads: 0, meetings: null, purchases: 0 },
+      { date: "2026-10-01", source: "perplexity.ai", medium: "referral", sessions: 99, leads: 9, meetings: null, purchases: 0 },
+    ];
+    const r = channelFunnels({ events: [], sends: [], opps: [], stageEvents: [], traffic, from: "2026-11-01", to: "2026-11-30", minutes: {}, socialReach: 1200 });
+    const by = (k: string) => r.sources.find((c) => c.key === k)!;
+    expect(by("web").steps.map((s) => s.value)).toEqual([50, 2, 1, 1]);
+    expect(by("ai").steps.map((s) => s.value)).toEqual([5, 1, 0, 0]);
+    expect(by("social").steps.map((s) => [s.label, s.value])).toEqual([["Views & impressions", 1200], ["Visits", 20], ["Leads", 0], ["Meetings", 0], ["Purchases", 0]]);
+    expect(r.inbound.touches).toBe(75); // every website visit, once
+    expect(r.totalMeetings).toBe(1);
+  });
 });

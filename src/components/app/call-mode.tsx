@@ -1,49 +1,53 @@
 "use client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Phone } from "lucide-react";
+import { ChevronLeft, ChevronRight, Phone, Send } from "lucide-react";
 import Link from "next/link";
 import * as React from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState, Panel, PanelTitle, SegmentedSwitch, Skeleton } from "@/components/ui/form";
 import { type CallStats } from "@/domain/calls";
-import { CallLog } from "./call-log";
-import { ConfirmSent, messageFor, useInstantSend } from "./instant-send";
-import { ActiveSession, FollowUpComposer, type ObjectionReport, type Playbook } from "./call-live";
-import { OBJECTION_GUIDE, guideOf, replySteps } from "@/domain/objections";
-import { Modal } from "@/components/ui/overlay";
-import { useDateTag, useLocale, useT } from "@/i18n/react";
-import { EMAIL_TEMPLATE_LABELS, fill, findItem, type TemplateKey } from "@/domain/playbook";
-import { Mail, MessageCircle, Send } from "lucide-react";
-import { toast } from "sonner";
-import { ApiError } from "@/lib/api";
 import { OBJECTION_LABELS } from "@/domain/constants";
-import { api } from "@/lib/api";
+import { messageFor, nextInSession, templateChips } from "@/domain/messages";
+import { OBJECTION_GUIDE, guideOf, replySteps } from "@/domain/objections";
+import { EMAIL_TEMPLATE_LABELS, fill, findItem, type TemplateKey } from "@/domain/playbook";
+import { useDateTag, useLocale, useT } from "@/i18n/react";
+import { ApiError, api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { ActiveSession, type ObjectionReport, type Playbook } from "./call-live";
+import { CallLog } from "./call-log";
 import { Bars, Funnel } from "./charts";
+import { ConfirmSent, ConnectGmail, MessageCard, useInstantSend } from "./instant-send";
+import { LinkedInSession, LinkedInStart, LinkedInSummary } from "./linkedin-session";
 
 type ListRow = { list: { id: string; name: string; niche: string; market: string | null }; total: number; called: number; reached: number; positive: number; meetings: number; remaining: number };
 type Summary = { session: { id: string; started_at: string; ended_at: string | null; list_id: string }; stats: CallStats; messages: number; previous: { sessions: number; pickupRate: number | null; positiveRate: number | null; dials: number | null } };
+type Kind = "calls" | "linkedin";
+type Sess = { id: string; listId: string; kind?: Kind };
 const SESSION_KEY = "vos-call-session";
 const pct = (n: number | null) => (n === null ? "—" : `${Math.round(n * 100)}%`);
+type Tab = "call" | "linkedin" | "messages" | "objections" | "log";
 
 export function CallMode() {
-  const [session, setSession] = React.useState<{ id: string; listId: string } | null>(() => {
+  const [session, setSession] = React.useState<Sess | null>(() => {
     try { const v = typeof window !== "undefined" ? sessionStorage.getItem(SESSION_KEY) : null; return v ? JSON.parse(v) : null; } catch { return null; }
   });
-  const [ended, setEnded] = React.useState<string | null>(null);
-  const keep = (s: { id: string; listId: string } | null) => {
+  const [ended, setEnded] = React.useState<{ id: string; kind: Kind } | null>(null);
+  const [tab, setTab] = React.useState<Tab>(() => (session?.kind === "linkedin" ? "linkedin" : "call"));
+  const keep = (s: Sess | null) => {
     setSession(s);
     try { if (s) sessionStorage.setItem(SESSION_KEY, JSON.stringify(s)); else sessionStorage.removeItem(SESSION_KEY); } catch { /* convenience only */ }
   };
-  if (ended) return <SessionSummary id={ended} onNew={() => setEnded(null)} />;
-  if (session) return <ActiveSession id={session.id} listId={session.listId} onEnd={() => { setEnded(session.id); keep(null); }} />;
-  return <StartScreen onStart={(s) => keep(s)} />;
+  const close = (s: Sess) => { setEnded({ id: s.id, kind: s.kind ?? "calls" }); keep(null); };
+  if (ended) return ended.kind === "linkedin" ? <LinkedInSummary id={ended.id} onNew={() => { setEnded(null); setTab("linkedin"); }} /> : <SessionSummary id={ended.id} onNew={() => setEnded(null)} />;
+  if (session?.kind === "linkedin") return <LinkedInSession id={session.id} listId={session.listId} onEnd={() => close(session)} />;
+  if (session) return <ActiveSession id={session.id} listId={session.listId} onEnd={() => close(session)} />;
+  return <StartScreen tab={tab} setTab={setTab} onStart={(s) => keep(s)} />;
 }
 
-function StartScreen({ onStart }: { onStart: (s: { id: string; listId: string }) => void }) {
+function StartScreen({ tab, setTab, onStart }: { tab: Tab; setTab: (t: Tab) => void; onStart: (s: Sess) => void }) {
   const t = useT();
   const dt = useDateTag();
-  const [tab, setTab] = React.useState<"call" | "messages" | "objections" | "log">("call");
   const queueCount = useQuery({ queryKey: ["email-queue"], queryFn: () => api<{ items: unknown[] }>("/api/email/queue") }).data?.items.length ?? 0;
   const lists = useQuery({ queryKey: ["call-lists"], queryFn: () => api<ListRow[]>("/api/call-lists") });
   const sessions = useQuery({ queryKey: ["call-sessions"], queryFn: () => api<{ session: { id: string; started_at: string }; stats: CallStats }[]>("/api/calls/sessions") });
@@ -55,9 +59,11 @@ function StartScreen({ onStart }: { onStart: (s: { id: string; listId: string })
     <div className="mx-auto flex max-w-3xl flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold tracking-tight">{t("Call mode")}</h1>
-        <SegmentedSwitch label={t("Section")} value={tab} onChange={setTab} options={[{ value: "call", label: t("Call") }, { value: "messages", label: queueCount ? `${t("Messages")} · ${queueCount}` : t("Messages") }, { value: "objections", label: t("Objections") }, { value: "log", label: t("Call log") }]} />
+        <div className="max-w-full overflow-x-auto">
+          <SegmentedSwitch label={t("Section")} value={tab} onChange={setTab} options={[{ value: "call", label: t("Call") }, { value: "linkedin", label: "LinkedIn" }, { value: "messages", label: queueCount ? `${t("Messages")} · ${queueCount}` : t("Messages") }, { value: "objections", label: t("Objections") }, { value: "log", label: t("Call log") }]} />
+        </div>
       </div>
-      {tab === "log" ? <CallLog days={14} /> : tab === "messages" ? <MessageQueue /> : tab === "objections" ? <><ObjectionsPanel /><ObjectionDrill /></> : <>
+      {tab === "log" ? <CallLog days={14} /> : tab === "linkedin" ? <LinkedInStart onStart={onStart} /> : tab === "messages" ? <MessageSession /> : tab === "objections" ? <><ObjectionsPanel /><ObjectionDrill /></> : <>
       <Panel>
         <PanelTitle>{t("Call from a list")}</PanelTitle>
         {lists.isPending ? <Skeleton className="h-24" /> : lists.isError ? <ErrorState error={lists.error} onRetry={() => lists.refetch()} /> : lists.data.length === 0 ? (
@@ -220,68 +226,98 @@ type QItem = { key: string; accountId: string; name: string; contact: string; em
 const REASON: Record<QItem["reason"], string> = { talked: "Talked on the phone", no_answer: "Did not pick up today", no_reply: "No reply after 3 days" };
 
 /**
- * Everyone who should get a message and has not: one click each, or send every email at once by Gmail.
- * The founder reviews the list first; WhatsApp still opens one by one and counts after "Yes, sent".
+ * A message session: everyone owed a message, one by one, with the same inline card as after a call (next / next),
+ * counts done and left. "Send all by Gmail" stays for a reviewed batch; WhatsApp still opens one by one.
  */
-function MessageQueue() {
+function MessageSession() {
   const t = useT();
   const lang: "FR" | "ES" = useLocale() === "es" ? "ES" : "FR";
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["email-queue"], queryFn: () => api<{ items: QItem[]; sentToday: number }>("/api/email/queue") });
-  const pb = useQuery({ queryKey: ["playbook"], queryFn: () => api<Playbook>("/api/playbook") });
-  const gmail = useQuery({ queryKey: ["gmail-status"], queryFn: () => api<{ connected: boolean }>("/api/email/status") });
-  const [keys] = React.useState(() => new Map<string, string>());
-  const [open, setOpen] = React.useState<{ item: QItem; channel: "email" | "whatsapp" } | null>(null);
-  const idemFor = (k: string) => { if (!keys.has(k)) keys.set(k, crypto.randomUUID()); return keys.get(k)!; };
   const instant = useInstantSend();
-  const sendNow = (it: QItem, channel: "email" | "whatsapp") => {
-    const target = { accountId: it.accountId, name: it.name, contact: it.contact, email: it.email, phone: it.phone, market: it.market };
-    if (!instant.send(channel, target, it.template, channel === "email" ? idemFor(it.key) : crypto.randomUUID())) setOpen({ item: it, channel });
-  };
-  const textFor = (it: QItem) => (pb.data ? messageFor(pb.data as never, lang, "email", it.template, { accountId: it.accountId, name: it.name, contact: it.contact, email: it.email, phone: it.phone, market: it.market }) : { subject: "", body: "" });
-  const emailable = (q.data?.items ?? []).filter((it) => it.email);
+  // The queue is frozen when the session starts, so items do not jump while the founder works through them.
+  const [items, setItems] = React.useState<QItem[] | null>(null);
+  const [done, setDone] = React.useState<Set<string>>(() => new Set());
+  const [skipped, setSkipped] = React.useState<Set<string>>(() => new Set());
+  const [at, setAt] = React.useState<string | null>(null);
+  const [keys] = React.useState(() => new Map<string, string>());
+  const idemFor = (k: string) => { if (!keys.has(k)) keys.set(k, crypto.randomUUID()); return keys.get(k)!; };
+  const list = items ?? q.data?.items ?? [];
+  const freeze = () => { if (!items) setItems(list); };
+  const current = (at ? list.find((i) => i.key === at && !done.has(i.key)) : null) ?? nextInSession(list, done, skipped);
+  const idx = current ? list.indexOf(current) : -1;
+  const emailable = list.filter((it) => it.email && !done.has(it.key));
   const batch = useMutation({
     mutationFn: () => api<{ sent: number; failed: number; results: { idempotency_key: string; ok: boolean; message?: string }[] }>("/api/email/batch", {
-      body: { items: emailable.map((it) => ({ idempotency_key: idemFor(it.key), channel: "email", via: "gmail", context: it.context, account_id: it.accountId, to: it.email, ...textFor(it), template_key: it.template, language: lang, market: it.market })) },
+      body: { items: emailable.map((it) => ({ idempotency_key: idemFor(it.key), channel: "email", via: "gmail", context: it.context, account_id: it.accountId, to: it.email, ...messageFor(instant.playbook!, lang, "email", it.template, it), template_key: it.template, language: lang, market: it.market })) },
     }),
-    onSuccess: (r) => { toast(r.failed ? t("{sent} emails sent, {failed} skipped (see why on each line)", { sent: r.sent, failed: r.failed }) : t("{sent} emails sent", { sent: r.sent })); qc.invalidateQueries({ queryKey: ["email-queue"] }); qc.invalidateQueries({ queryKey: ["my-day"] }); qc.invalidateQueries({ queryKey: ["email-benchmarks"] }); },
+    onSuccess: (r) => {
+      toast(r.failed ? t("{sent} emails sent, {failed} skipped (see why on each line)", { sent: r.sent, failed: r.failed }) : t("{sent} emails sent", { sent: r.sent }));
+      const ok = new Set(r.results.filter((x) => x.ok).map((x) => x.idempotency_key));
+      freeze();
+      setDone((d) => new Set([...d, ...emailable.filter((it) => ok.has(idemFor(it.key))).map((it) => it.key)]));
+      ["email-queue", "my-day", "email-benchmarks", "email-sends"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+    },
     onError: (e) => toast(e instanceof ApiError && e.body.error === "consent_required" ? t("Connect Gmail first") : (e as Error).message),
   });
-  if (!q.data) return null;
-  const items = q.data.items;
+  if (q.isPending) return <Skeleton className="h-64" />;
+  if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
   const failed = new Map((batch.data?.results ?? []).filter((r) => !r.ok).map((r) => [r.idempotency_key, r.message ?? ""]));
+  const left = list.filter((i) => !done.has(i.key)).length;
+  const go = (dir: 1 | -1) => {
+    if (!list.length) return;
+    freeze();
+    let j = idx;
+    for (let n = 0; n < list.length; n++) { j = (j + dir + list.length) % list.length; if (!done.has(list[j].key)) { setAt(list[j].key); setSkipped((s) => { const x = new Set(s); x.delete(list[j].key); return x; }); return; } }
+  };
+  const restart = () => { setItems(q.data?.items ?? []); setDone(new Set()); setSkipped(new Set()); setAt(null); };
   return (
-    <Panel>
-      <div className="mb-3"><ConfirmSent s={instant} /></div>
-      <PanelTitle action={<span className="num text-[13px] text-text-2">{t("{n} sent today", { n: q.data.sentToday })}</span>}>{t("Messages to send")} <span className="num text-text-3">{items.length}</span></PanelTitle>
-      {items.length === 0 ? <p className="text-sm text-text-2">{t("Everyone you reached has had a message. Each call adds one here.")}</p> : (
-        <>
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            {gmail.data?.connected ? (
-              <Button variant="primary" disabled={batch.isPending || emailable.length === 0} onClick={() => batch.mutate()}><Send /> {batch.isPending ? t("Sending…") : t("Send {n} emails by Gmail", { n: emailable.length })}</Button>
-            ) : <Button asChild variant="primary"><a href="/api/auth/google/gmail?back=/call">{t("Connect Gmail to send all at once")}</a></Button>}
-          </div>
-          <ul className="flex flex-col divide-y divide-hairline">
-            {items.slice(0, 25).map((it) => (
-              <li key={it.key} className="flex flex-wrap items-center gap-2 py-2">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{it.name} <span className="font-normal text-text-3">· {it.market}</span></p>
-                  <p className="text-[12px] text-text-3">{t(REASON[it.reason])} · {t(EMAIL_TEMPLATE_LABELS[it.template])}{failed.has(keys.get(it.key) ?? "") ? <span className="text-bad"> · {failed.get(keys.get(it.key)!)}</span> : null}</p>
-                </div>
-                {it.email ? <Button size="sm" variant="outline" onClick={() => sendNow(it, "email")}><Mail /> {t("Email")}</Button> : null}
-                {it.phone ? <Button size="sm" variant="outline" onClick={() => sendNow(it, "whatsapp")}><MessageCircle /> WhatsApp</Button> : null}
-                <Button size="sm" variant="ghost" onClick={() => setOpen({ item: it, channel: it.email ? "email" : "whatsapp" })}>{t("Edit")}</Button>
+    <div className="flex flex-col gap-4">
+      <ConfirmSent s={instant} />
+      <Panel className="flex flex-col gap-3">
+        <PanelTitle action={<span className="num text-[13px] text-text-2">{t("{n} sent today", { n: q.data.sentToday })}</span>}>{t("Message session")}</PanelTitle>
+        {list.length === 0 ? <p className="text-sm text-text-2">{t("Everyone you reached has had a message. Each call adds one here.")}</p> : (
+          <>
+            <div aria-label={t("Progress")}>
+              <div className="flex h-2 overflow-hidden rounded-full bg-subtle"><div className="bg-sales" style={{ width: `${(done.size / list.length) * 100}%` }} /></div>
+              <p className="num mt-1 text-[13px] text-text-2">{t("{n} done · {left} left", { n: done.size, left })}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {instant.gmailConnected ? (
+                <Button variant="outline" disabled={batch.isPending || emailable.length === 0 || !instant.playbook} onClick={() => batch.mutate()}><Send /> {batch.isPending ? t("Sending…") : t("Send {n} emails by Gmail", { n: emailable.length })}</Button>
+              ) : instant.gmailKnown ? <ConnectGmail /> : null}
+            </div>
+          </>
+        )}
+      </Panel>
+      {current && instant.ready ? (
+        <MessageCard key={current.key} s={instant} sendKey={idemFor(current.key)} keys gmailHint={false}
+          target={{ accountId: current.accountId, name: current.name, contact: current.contact, email: current.email, phone: current.phone, market: current.market }}
+          chips={templateChips(current.outcome || null, [], current.market).chips.includes(current.template) ? [current.template, ...templateChips(current.outcome || null, [], current.market).chips.filter((k) => k !== current.template)] : [current.template, ...templateChips(null, [], current.market).chips.filter((k) => k !== current.template)]}
+          suggested={current.template}
+          title={<span>{current.name} <span className="num font-normal text-text-3">· {idx + 1}/{list.length}</span><span className="block text-[12px] font-normal text-text-2">{t(REASON[current.reason])} · {t(EMAIL_TEMPLATE_LABELS[current.template])}{failed.has(keys.get(current.key) ?? "") ? <span className="text-bad"> · {failed.get(keys.get(current.key)!)}</span> : null}</span></span>}
+          onDone={() => { freeze(); setDone((d) => new Set([...d, current.key])); setAt(null); }}
+          onSkip={() => { freeze(); setSkipped((s) => new Set([...s, current.key])); setAt(null); }}
+          footer={<span className="ml-auto flex gap-1"><Button size="icon" variant="ghost" aria-label={t("Previous")} onClick={() => go(-1)}><ChevronLeft /></Button><Button size="icon" variant="ghost" aria-label={t("Next")} onClick={() => go(1)}><ChevronRight /></Button></span>} />
+      ) : list.length ? (
+        <Panel className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm">{left === 0 ? t("All done: every message of this session went out.") : t("{n} skipped. Go back to them, or reload the list.", { n: left })}</p>
+          <Button variant="outline" onClick={restart}>{t("Reload the list")}</Button>
+        </Panel>
+      ) : null}
+      {list.length > 1 ? (
+        <details className="rounded-[20px] bg-panel p-4">
+          <summary className="cursor-pointer text-sm font-medium">{t("Everyone in this session")} <span className="num text-text-3">{list.length}</span></summary>
+          <ul className="mt-2 flex flex-col divide-y divide-hairline">
+            {list.map((it, i) => (
+              <li key={it.key} className="flex items-center gap-2 py-1.5 text-sm">
+                <button type="button" onClick={() => { freeze(); setAt(it.key); }} disabled={done.has(it.key)} className={cn("min-w-0 flex-1 truncate text-left", done.has(it.key) ? "text-text-3 line-through" : "hover:underline", current?.key === it.key && "font-semibold")}>{i + 1}. {it.name}</button>
+                <span className="text-[12px] text-text-3">{t(EMAIL_TEMPLATE_LABELS[it.template])}</span>
               </li>
             ))}
           </ul>
-        </>
-      )}
-      <Modal open={Boolean(open && pb.data)} onOpenChange={(o) => { if (!o) setOpen(null); }} title={open?.item.name ?? ""}>
-        {open && pb.data ? (
-          <FollowUpComposer key={open.item.key + open.channel} channel={open.channel} template={open.item.template} sendKey={open.channel === "email" ? idemFor(open.item.key) : undefined} gmailConnected={Boolean(gmail.data?.connected)} playbook={pb.data}
-            target={{ accountId: open.item.accountId, name: open.item.name, contact: open.item.contact, email: open.item.email, phone: open.item.phone, market: open.item.market }} onClose={() => setOpen(null)} />
-        ) : null}
-      </Modal>
-    </Panel>
+        </details>
+      ) : null}
+    </div>
   );
 }

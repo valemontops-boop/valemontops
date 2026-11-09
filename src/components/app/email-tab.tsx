@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState, Panel, PanelTitle, Skeleton } from "@/components/ui/form";
 import { Bars, Columns } from "./charts";
+import { InboxList } from "./inbox-panel";
 import { StatStrip, StepFunnel, pctOf, useFunnels, type GrowthFilter } from "./growth-common";
 import type { EmailBenchmarks, Rate } from "@/domain/email";
 import { EMAIL_TEMPLATE_LABELS } from "@/domain/playbook";
@@ -23,7 +24,7 @@ const weekdayName = (key: string, tag: string) => {
   return i < 0 ? key : new Intl.DateTimeFormat(tag, { weekday: "short", timeZone: "UTC" }).format(new Date(Date.UTC(2023, 0, 1 + i)));
 };
 
-/** Growth › Messages: email and WhatsApp numbers for the period → both funnels → who still owes a reply → are our emails good. */
+/** Growth › Messages: email and WhatsApp numbers for the period → both funnels → what we still have to reply to → who still owes a reply → are our emails good. */
 export function MessagesTab({ filter }: { filter: GrowthFilter }) {
   const t = useT();
   const tag = useDateTag();
@@ -52,6 +53,7 @@ export function MessagesTab({ filter }: { filter: GrowthFilter }) {
           </div>
         </>
       )}
+      <InboxList />
       <SendsList />
       <Panel className="flex flex-wrap items-center justify-between gap-3">
         <div className="max-w-2xl">

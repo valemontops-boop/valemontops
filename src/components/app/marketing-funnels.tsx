@@ -11,7 +11,7 @@ import { StatStrip, StepFunnel, useFunnels, type FunnelData, type GrowthFilter, 
 import { useDateTag, useT } from "@/i18n/react";
 
 /** Where a row of "Channels compared" leads: its Growth tab, or Call mode for calls and visits. */
-const TARGET: Record<ChannelFunnel["key"], GrowthTab | "/call"> = { phone: "/call", field: "/call", linkedin: "linkedin", email: "messages", whatsapp: "messages", inbound: "website" };
+const TARGET: Record<ChannelFunnel["key"], GrowthTab | "/call"> = { phone: "/call", field: "/call", linkedin: "linkedin", email: "messages", whatsapp: "messages", web: "website", ai: "website", social: "instagram", inbound: "website" };
 
 /** Growth › Overview: key numbers → what the numbers say → every channel compared → one funnel per active channel. */
 export function GrowthOverviewTab({ filter, onOpen }: { filter: GrowthFilter; onOpen: (tab: GrowthTab) => void }) {
@@ -24,8 +24,10 @@ export function GrowthOverviewTab({ filter, onOpen }: { filter: GrowthFilter; on
 function Body({ d, onOpen }: { d: FunnelData; onOpen: (tab: GrowthTab) => void }) {
   const t = useT();
   const tag = useDateTag();
-  const rows = [...d.all, d.inbound];
-  const active = rows.filter((c) => c.touches > 0);
+  // Inbound is split by source (round 8): web browser, AI engines, social networks; older payloads only have the total.
+  const rows = [...d.all, ...(d.sources ?? [d.inbound])];
+  const active = rows.filter((c) => c.touches > 0 || c.steps.some((s) => s.value > 0));
+  const inboundKeys = new Set<string>(["web", "ai", "social", "inbound"]);
   const touches = d.all.reduce((s, c) => s + c.touches, 0);
   const won = d.all.reduce((s, c) => s + c.won, 0);
   const hours = d.all.reduce((s, c) => s + (c.hours ?? 0), 0);
@@ -41,7 +43,7 @@ function Body({ d, onOpen }: { d: FunnelData; onOpen: (tab: GrowthTab) => void }
       ]} />
       {active.length === 0 ? (
         <EmptyState title={t("Nothing logged in this period yet")} action={<Button asChild size="sm" variant="primary"><Link href="/call">{t("Open Call mode")}</Link></Button>}>
-          {t("Calls, emails, WhatsApp, LinkedIn and visits all show up here as soon as you log them. Website visits come from the GA4 import in the Website tab.")}
+          {t("Calls, emails, WhatsApp, LinkedIn and visits all show up here as soon as you log them. Website visits come from the GA4 import in the Web tab.")}
         </EmptyState>
       ) : (
         <VerdictPanel verdicts={growthVerdicts(d, (k) => t(CHANNEL_LABELS[k as keyof typeof CHANNEL_LABELS] ?? k))} />
@@ -75,7 +77,7 @@ function Body({ d, onOpen }: { d: FunnelData; onOpen: (tab: GrowthTab) => void }
                     <td className={c.meetings ? "num text-right font-semibold text-win" : "num text-right"}>{c.meetings}</td>
                     <td className={c.won ? "num text-right font-semibold text-win" : "num text-right"}>{c.won}</td>
                     <td className="pl-6">
-                      {c.meetingsPerHour === null ? <span className="text-[12px] text-text-3">{c.key === "inbound" ? t("no time cost") : "—"}</span> : (
+                      {c.meetingsPerHour === null ? <span className="text-[12px] text-text-3">{inboundKeys.has(c.key) ? t("no time cost") : "—"}</span> : (
                         <span className="flex items-center gap-2">
                           <span className="h-2 rounded-full bg-sales" style={{ width: `${(c.meetingsPerHour / maxMph) * 80}%`, minWidth: c.meetingsPerHour ? 4 : 0 }} />
                           <span className="num text-[12px]">{c.meetingsPerHour.toLocaleString(tag)}</span>
@@ -92,7 +94,7 @@ function Body({ d, onOpen }: { d: FunnelData; onOpen: (tab: GrowthTab) => void }
             </tbody>
           </table>
         </div>
-        <p className="mt-3 text-[12px] text-text-3">{t("Website & social: touches are website visits and won are 30/30 purchases. Click a channel to see its details.")}</p>
+        <p className="mt-3 text-[12px] text-text-3">{t("Web (browser), AI engines and social networks: touches are website visits from that source and won are 30/30 purchases. Click a channel to see its details.")}</p>
       </Panel>
       {active.length ? (
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">

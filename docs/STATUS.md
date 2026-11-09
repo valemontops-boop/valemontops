@@ -1,6 +1,18 @@
 # Status
 
-Updated: 2026-11-09 · Stage: **1B complete + founder feedback round 7 (fake-verified)** · Next: Stage 2 (revenue operations).
+Updated: 2026-11-09 · Stage: **1B complete + founder feedback round 8 (fake-verified)** · Next: Stage 2 (revenue operations).
+
+## Feedback round 8 (2026-11-09)
+| Change | Status |
+|---|---|
+| Founder brief applied: modes FULL_TIME / REDUCED (old values read as aliases), targets, LinkedIn limits first, KPI targets, sprint 9 Nov → 4 Dec (2 clients, 3 000 € HT), conversion by channel, time split, daily checklist + one-off tasks, content plan, WhatsApp report, Friday rules | VERIFIED_FAKE (brief-seeds, conversion, friday, report tests; preview) |
+| Offers: one Valemont offer (Consulting, default 1 500 €), Local = downsell 100 €/month; no brand choice when prospecting; 490 € removed | VERIFIED_FAKE |
+| Export over a period: Markdown for AI (founder's language), Excel option; no prospect phone/email | VERIFIED_FAKE (export-tracker.test.ts; preview MD only) |
+| Personal tracker connector: signed webhook per activity + backfill + daily summary; bearer-token feed | VERIFIED_FAKE — needs the tracker URL/secret for VERIFIED_LIVE |
+| Growth: Web (browser) vs AI engines vs social networks, each with its funnel | VERIFIED_FAKE (traffic-sources.test.ts) |
+| "To reply" inbox: signed webhook (Make/Zapier/n8n), Instagram (Meta) adapter, automatic items from replies/leads, suggested replies; nothing sent automatically | VERIFIED_FAKE — Meta app review needed for live Instagram |
+| Calls: before / during / after flow, 6 most-heard objections first, undo 10 s; inline message card, WhatsApp Web, "Sent?" on return; message session | VERIFIED_FAKE (e2e, preview) |
+| LinkedIn prospecting session: queue, profile, step message to copy, results by key, follow-ups J+3/J+7, hard invitation/InMail limits | VERIFIED_FAKE (linkedin.test.ts, e2e) |
 
 ## Feedback round 7 (2026-11-09)
 | Change | Status |

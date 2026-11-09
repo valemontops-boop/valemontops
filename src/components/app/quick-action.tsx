@@ -332,7 +332,7 @@ function QuickActionForm({ prefill, onDone }: { prefill: QuickPrefill; onDone: (
           <Field label={t("Brand")} htmlFor="qa-brand">
             <Select id="qa-brand" value={brand} onChange={(e) => setBrand(e.target.value as Brand)}>
               <option value="">{t("From the business or opportunity")}</option>
-              {BRANDS.map((b) => <option key={b} value={b}>{t(BRAND_LABELS[b])}</option>)}
+              {BRANDS.filter((b) => b !== "local").map((b) => <option key={b} value={b}>{t(BRAND_LABELS[b])}</option>)}
             </Select>
           </Field>
         </div>
@@ -350,7 +350,7 @@ function QuickActionForm({ prefill, onDone }: { prefill: QuickPrefill; onDone: (
 
       {formError ? <p role="alert" className="rounded-[12px] bg-[#fbeceb] p-3 text-sm text-bad">{formError}</p> : null}
 
-      <div className="sticky bottom-0 -mx-5 flex items-center justify-between gap-3 border-t border-hairline bg-panel px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="sticky bottom-0 z-10 -mx-5 flex items-center justify-between gap-3 border-t border-hairline bg-panel px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <span className="text-[13px] text-text-3">{t("Logged by {name} · Enter to save", { name: me.name })}</span>
         <Button type="submit" variant="primary" size="lg" disabled={!canSave} className="min-w-36">
           {mutation.isPending ? t("Saving…") : formError && mutation.isError ? t("Retry") : t("Save")}

@@ -17,6 +17,7 @@ import { api } from "@/lib/api";
 import { fmtDay } from "./bits";
 import { CountrySplitButton, WebsiteTab, useMarketingOverview } from "./marketing-overview";
 import { MarketingWeek, TasksFor } from "./my-day-extras";
+import { ExportButton } from "./export-dialog";
 
 type Account = { id: string; platform: "instagram" | "linkedin_page" | "linkedin_personal"; handle: string; brand: string | null; market: string | null; visibility: string; owner_founder: string | null };
 type Series = { account: Account; metric: string; allowedMetrics: string[]; points: { date: string; value: number | null; source: string | null }[]; gaps: number; latest: { date: string; value: number; source: string } | null };
@@ -45,12 +46,13 @@ export function MarketingView() {
         <div className="flex flex-wrap gap-2">
           {usesPeriod ? <SegmentedSwitch size="sm" label={t("Period")} value={days} onChange={setDays} options={[{ value: "7", label: t("7 days") }, { value: "30", label: t("30 days") }, { value: "90", label: t("90 days") }]} /> : null}
           {usesScope ? <SegmentedSwitch size="sm" label={t("Scope")} value={scope} onChange={setScope} options={[{ value: "team", label: t("Team") }, { value: "me", label: t("Me") }]} /> : null}
+          <ExportButton />
         </div>
       </div>
       <div className="-mx-1 overflow-x-auto px-1 [&_button]:whitespace-nowrap">
         <SegmentedSwitch label={t("Section")} value={tab} onChange={setTab} options={[
           { value: "overview", label: t("Overview") }, { value: "messages", label: t("Messages") }, { value: "linkedin", label: "LinkedIn" },
-          { value: "instagram", label: "Instagram" }, { value: "website", label: t("Website") }, { value: "content", label: t("Content") },
+          { value: "instagram", label: "Instagram" }, { value: "website", label: t("Web") }, { value: "content", label: t("Content") },
         ]} />
       </div>
       {tab === "overview" ? <GrowthOverviewTab filter={filter} onOpen={setTab} />

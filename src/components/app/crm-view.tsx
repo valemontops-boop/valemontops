@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState, Field, Input, Panel, SegmentedSwitch, Select, Skeleton, Textarea } from "@/components/ui/form";
 import { DetailPanel, Modal } from "@/components/ui/overlay";
 import {
-  ACTIVITY_LABELS, BRANDS, BRAND_LABELS, CONTACT_TYPES, CONTACT_TYPE_LABELS, FOUNDERS, FOUNDER_NAMES, MARKETS, OUTCOME_LABELS, STAGES,
+  ACTIVITY_LABELS, BRAND_LABELS, OFFERS, OFFER_LABELS, type Offer, CONTACT_TYPES, CONTACT_TYPE_LABELS, FOUNDERS, FOUNDER_NAMES, MARKETS, OUTCOME_LABELS, STAGES,
   STAGE_EXIT_CRITERIA, STAGE_LABELS, type Stage,
 } from "@/domain/constants";
 import { isOpen, leadStatus, nextGroup, PIPELINE_GROUPS, PRE_PIPELINE, stageForGroup, type LeadStatus } from "@/domain/pipeline";
@@ -23,6 +23,15 @@ import { useQuickAction } from "./quick-action";
 import { useCrm, type Crm, type CrmAccount, type CrmContact, type CrmOpp } from "./use-crm";
 import type { T } from "@/i18n";
 import { useDateTag, useT } from "@/i18n/react";
+import { ExportButton } from "./export-dialog";
+import { dealValue } from "@/domain/conversion";
+
+/** Default deal values per offer from Settings › Workspace (Consulting value, Local monthly price), in cents. */
+function useOfferDefaults() {
+  const q = useQuery({ queryKey: ["system-settings"], queryFn: () => api<Record<string, string>>("/api/settings/system"), staleTime: 60_000 });
+  const n = (k: string, d: number) => { const x = Number(q.data?.[k]); return Number.isFinite(x) && q.data?.[k] ? x : d; };
+  return { consulting: Math.round(n("offer_consulting_value_eur", 1500) * 100), local: Math.round(n("offer_local_monthly_eur", 100) * 100) };
+}
 
 
 function shortDate(d: string | null, tag: string): string {
@@ -74,6 +83,7 @@ export function CrmView() {
           <div className="ml-auto flex gap-1">
             <Button asChild variant="ghost" size="sm"><Link href="/crm/import"><Upload /> {t("Import list")}</Link></Button>
             <Button asChild variant="ghost" size="sm"><a href="/api/crm/export"><Download /> {t("Export")}</a></Button>
+            <ExportButton />
           </div>
         </div>
         {tab === "pipeline" ? (
@@ -122,6 +132,7 @@ function dueLabel(due: string | null, today: string, t: T, tag: string): { text:
 const daysSince = (iso: string | null) => (iso ? Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 86_400_000)) : null);
 
 function Board({ opps, accounts, today, selected, onSelect, showLost, onToggleLost }: { opps: CrmOpp[]; accounts: Map<string, CrmAccount>; today: string; selected: string | null; onSelect: (id: string) => void; showLost: boolean; onToggleLost: () => void }) {
+  const offers = useOfferDefaults();
   const t = useT();
   const qc = useQueryClient();
   const [qualify, setQualify] = React.useState<{ opp: CrmOpp; to: Stage } | null>(null);
@@ -148,7 +159,7 @@ function Board({ opps, accounts, today, selected, onSelect, showLost, onToggleLo
       <div className="-mx-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0">
         <div className="grid min-w-[1000px] grid-cols-5 gap-3">
           {columns.map((c) => {
-            const value = c.items.reduce((s, o) => s + (o.value_minor ?? 0), 0);
+            const value = c.items.reduce((s, o) => s + dealValue(o, offers), 0);
             return (
               <section key={c.key} aria-label={t(c.label)}
                 onDragOver={(e) => { e.preventDefault(); setDragOver(c.key); }} onDragLeave={() => setDragOver((k) => (k === c.key ? null : k))}
@@ -179,6 +190,7 @@ function Board({ opps, accounts, today, selected, onSelect, showLost, onToggleLo
 }
 
 function DealCard({ opp, account, today, active, onOpen, onAdvance, busy }: { opp: CrmOpp; account?: CrmAccount; today: string; active: boolean; onOpen: () => void; onAdvance?: () => void; busy: boolean }) {
+  const offers = useOfferDefaults();
   const t = useT();
   const tag = useDateTag();
   const qa = useQuickAction();
@@ -196,7 +208,7 @@ function DealCard({ opp, account, today, active, onOpen, onAdvance, busy }: { op
         <span className={cn("num rounded-full px-2 py-0.5 font-medium", due.tone === "bad" ? "bg-[#fbeceb] text-bad" : due.tone === "normal" ? "bg-ink text-panel" : "bg-subtle text-text-2")}>{due.text}</span>
         {inStage !== null ? <span className="num text-text-3">{t("{n}d here", { n: inStage })}</span> : null}
         {idle !== null && idle >= 7 ? <span className="num text-text-3">· {t("no touch {n}d", { n: idle })}</span> : null}
-        <span className="ml-auto text-text-3">{opp.owner_founder ? FOUNDER_NAMES[opp.owner_founder] : "—"}{opp.value_minor ? ` · ${formatEur(opp.value_minor)}` : ""}</span>
+        <span className="ml-auto text-text-3">{opp.owner_founder ? FOUNDER_NAMES[opp.owner_founder] : "—"}{dealValue(opp, offers) ? ` · ${formatEur(dealValue(opp, offers))}${opp.brand === "local" ? t("/month") : ""}` : ""}</span>
       </div>
       <div className="flex gap-1.5">
         {account?.phone ? <a href={`tel:${account.phone}`} aria-label={t("Call {name}", { name: account.name })} className="flex h-8 w-9 items-center justify-center rounded-full border border-control hover:bg-subtle"><Phone className="size-3.5" /></a> : null}
@@ -445,7 +457,7 @@ function OpportunityEditor({ opp }: { opp: CrmOpp }) {
   const t = useT();
   const qc = useQueryClient();
   const [v, setV] = React.useState({
-    stage: opp.stage, value_eur: opp.value_minor === null ? "" : String(opp.value_minor / 100), next_action: opp.next_action, next_action_due: opp.next_action_due ?? "",
+    stage: opp.stage, brand: opp.brand, value_eur: opp.value_minor === null ? "" : String(opp.value_minor / 100), next_action: opp.next_action, next_action_due: opp.next_action_due ?? "",
     next_action_priority: opp.next_action_priority ?? "normal", owner_founder: opp.owner_founder ?? "", lost_reason: opp.lost_reason,
     anum_authority: opp.anum_authority, anum_need: opp.anum_need, anum_urgency: opp.anum_urgency, anum_money: opp.anum_money,
   });
@@ -458,7 +470,12 @@ function OpportunityEditor({ opp }: { opp: CrmOpp }) {
   const needsAnum = ["qualified", "demo_shown", "proposal_sent", "negotiation", "won"].includes(v.stage);
   return (
     <form className="mb-3 flex flex-col gap-3 rounded-[12px] border border-hairline p-3" onSubmit={(e) => { e.preventDefault(); m.mutate(version); }}>
-      <div className="flex items-baseline justify-between gap-2"><p className="font-medium">{opp.name}</p><span className="text-[12px] text-text-3">{t(BRAND_LABELS[opp.brand])}</span></div>
+      <div className="flex items-baseline justify-between gap-2"><p className="font-medium">{opp.name}</p>{opp.brand === "thirty" ? <span className="text-[12px] text-text-3">{t(BRAND_LABELS[opp.brand])}</span> : null}</div>
+      {opp.brand !== "thirty" ? (
+        <Field label={t("Offer")} htmlFor={`of-${opp.id}`} hint={v.brand === "local" ? t("Last resort, for a business with really no budget.") : undefined}>
+          <Select id={`of-${opp.id}`} value={v.brand} onChange={(e) => setV({ ...v, brand: e.target.value as typeof v.brand })}>{OFFERS.map((o) => <option key={o} value={o}>{t(OFFER_LABELS[o])}</option>)}</Select>
+        </Field>
+      ) : null}
       <div className="grid grid-cols-2 gap-3">
         <Field label={t("Stage")} htmlFor={`st-${opp.id}`} hint={t("To move on: {criteria}", { criteria: lowerFirst(t(STAGE_EXIT_CRITERIA[v.stage as Stage])) })}>
           <Select id={`st-${opp.id}`} value={v.stage} onChange={(e) => setV({ ...v, stage: e.target.value as Stage })}>{STAGES.map((s) => <option key={s} value={s}>{t(STAGE_LABELS[s])}</option>)}</Select>
@@ -492,7 +509,7 @@ function NewOpportunityForm({ account }: { account: CrmAccount }) {
   const qc = useQueryClient();
   const [id] = React.useState(() => crypto.randomUUID());
   const m = useMutation({
-    mutationFn: () => api("/api/crm/opportunities", { body: { id, account_id: account.id, opportunity: { name: `${account.name} · Local Essential`, brand: account.brand ?? "local", owner_founder: account.owner_founder } } }),
+    mutationFn: () => api("/api/crm/opportunities", { body: { id, account_id: account.id, opportunity: { name: account.name, brand: account.brand === "thirty" ? "thirty" : "consulting", owner_founder: account.owner_founder } } }),
     onSuccess: () => { qc.invalidateQueries(); toast(t("Saved")); },
   });
   return (
@@ -563,7 +580,7 @@ function NewBusinessModal({ open, onOpenChange, onCreated }: { open: boolean; on
   const qc = useQueryClient();
   const me = useMe();
   const [id, setId] = React.useState(() => crypto.randomUUID());
-  const blank = { name: "", country: "FR" as "FR" | "ES", phone: "", next_action: t("Call back"), due: "", meeting: false, email: "", website: "", niche: "", contact_name: "", brand: "local", owner_founder: me.founder as string };
+  const blank = { name: "", country: "FR" as "FR" | "ES", phone: "", next_action: t("Call back"), due: "", meeting: false, email: "", website: "", niche: "", contact_name: "", brand: "consulting" as Offer, owner_founder: me.founder as string };
   const [v, setV] = React.useState(blank);
   const [more, setMore] = React.useState(false);
   const today = new Date().toLocaleDateString("en-CA");
@@ -571,9 +588,9 @@ function NewBusinessModal({ open, onOpenChange, onCreated }: { open: boolean; on
     mutationFn: () => api("/api/crm/accounts", {
       body: {
         id,
-        account: { name: v.name, country: v.country, niche: v.niche, phone: v.phone, email: v.email, website: v.website, brand: v.brand, owner_founder: v.owner_founder || null, lead_type: "outbound", lead_status: "new" },
+        account: { name: v.name, country: v.country, niche: v.niche, phone: v.phone, email: v.email, website: v.website, brand: "consulting", owner_founder: v.owner_founder || null, lead_type: "outbound", lead_status: "new" },
         contact: v.contact_name || v.email ? { full_name: v.contact_name, phone: v.phone, email: v.email } : null,
-        opportunity: { name: `${v.name} · ${BRAND_LABELS[v.brand as "local"]}`, brand: v.brand, stage: v.meeting ? "discovery_scheduled" : "replied", owner_founder: v.owner_founder || null, next_action: v.next_action, next_action_due: v.next_action ? (v.due || today) : "" },
+        opportunity: { name: v.name, brand: v.brand, stage: v.meeting ? "discovery_scheduled" : "replied", owner_founder: v.owner_founder || null, next_action: v.next_action, next_action_due: v.next_action ? (v.due || today) : "" },
       },
     }),
     onSuccess: () => { qc.invalidateQueries(); toast(t("Saved")); const created = id; setId(crypto.randomUUID()); setV(blank); setMore(false); onCreated(created); },
@@ -598,7 +615,7 @@ function NewBusinessModal({ open, onOpenChange, onCreated }: { open: boolean; on
             <Field label={t("Email")} htmlFor="nb-email"><Input id="nb-email" type="email" value={v.email} onChange={(e) => setV({ ...v, email: e.target.value })} /></Field>
             <Field label={t("Website")} htmlFor="nb-web"><Input id="nb-web" value={v.website} onChange={(e) => setV({ ...v, website: e.target.value })} /></Field>
             <Field label={t("Trade / niche")} htmlFor="nb-niche"><Input id="nb-niche" value={v.niche} onChange={(e) => setV({ ...v, niche: e.target.value })} placeholder={t("e.g. Plumbers")} /></Field>
-            <Field label={t("Brand")} htmlFor="nb-brand"><Select id="nb-brand" value={v.brand} onChange={(e) => setV({ ...v, brand: e.target.value })}>{BRANDS.map((b) => <option key={b} value={b}>{t(BRAND_LABELS[b])}</option>)}</Select></Field>
+            <Field label={t("Offer")} htmlFor="nb-offer"><Select id="nb-offer" value={v.brand} onChange={(e) => setV({ ...v, brand: e.target.value as Offer })}>{OFFERS.map((o) => <option key={o} value={o}>{t(OFFER_LABELS[o])}</option>)}</Select></Field>
             <Field label={t("Owner")} htmlFor="nb-owner"><Select id="nb-owner" value={v.owner_founder} onChange={(e) => setV({ ...v, owner_founder: e.target.value })}><option value="">{t("Unassigned")}</option>{FOUNDERS.map((f) => <option key={f} value={f}>{FOUNDER_NAMES[f]}</option>)}</Select></Field>
           </div>
         ) : null}

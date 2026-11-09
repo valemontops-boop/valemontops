@@ -1,16 +1,22 @@
 import { objectionsOf } from "@/domain/calls";
 import { z } from "zod";
 import { childId } from "@/lib/ids";
-import { ACTIVITY_LABELS, FOUNDERS, MARKETS, METRICS, OBJECTION_LABELS, STAGES, STAGE_LABELS, type ActivityType, type FounderKey, type Metric } from "@/domain/constants";
+import { ACTIVITY_LABELS, FOUNDERS, MARKETS, METRICS, OBJECTION_LABELS, OFFER_LABELS, STAGES, STAGE_LABELS, type ActivityType, type FounderKey, type Metric, type WorkMode } from "@/domain/constants";
 import { dedupeEvents, funnelCounts, isOutreach, METRIC_OF_TYPE, newBusinessesContacted, tallyDay } from "@/domain/activity";
 import { nextBestActions, TIER_LABEL } from "@/domain/nba";
 import { deriveNotifications } from "@/domain/notifications";
 import { hygieneFlags, isOpen } from "@/domain/pipeline";
 import { outreachBlock } from "@/domain/suppression";
 import { todaysTasks, isOverdue } from "@/domain/tasks";
-import { addDays, localDate, startOfWeek } from "@/domain/time";
+import { addDays, localDate, startOfWeek, weekday } from "@/domain/time";
 import type { AppContext } from "../context";
-import { settingValue, stageProbabilities, userRow } from "./common";
+import { numSetting, offerDefaults, settingValue, stageProbabilities, userRow } from "./common";
+import { conversionByChannel, dealValue } from "@/domain/conversion";
+import { fridayRules } from "@/domain/friday";
+import { channelOf, minutesFor } from "@/domain/funnels";
+import { MINUTES_PER_ACTION_SEED } from "@/domain/seeds";
+import { resolveMode, resolveTargets } from "@/domain/targets";
+
 import { activeSprint, sprintProgress } from "./sprints";
 import { planFor } from "./results";
 import { listTasks } from "./tasks";
@@ -80,12 +86,15 @@ export async function commandCenter(ctx: AppContext, founder: FounderKey, now = 
   const week = startOfWeek(td);
   const t = await ctx.repo.listMany(["Opportunities", "Accounts", "ActivityEvents", "IntegrationStatuses", "BankBalances", "RevenueSnapshots"]);
   const probs = await stageProbabilities(ctx.repo);
+  // Pipeline value: the deal's value, else its offer's default (Consulting value / Local monthly price), brief round 8.
+  const defaults = await offerDefaults(ctx.repo);
+  const val = (o: { value_minor: number | null; brand: string }) => dealValue(o, defaults);
   const eur = t.BankBalances.rows.filter((b) => !b.is_archived && b.bank === "wise" && b.currency === "EUR");
   const cash = eur.length ? eur.reduce((a, b) => a + b.amount_minor, 0) : null;
   const mrrSnap = t.RevenueSnapshots.rows.filter((r) => !r.is_archived && r.currency === "EUR").sort((a, b) => a.date.localeCompare(b.date)).at(-1) ?? null;
   const events = dedupeEvents(t.ActivityEvents.rows);
   const open = t.Opportunities.rows.filter(isOpen);
-  const weighted = Math.round(open.reduce((s, o) => s + (o.value_minor ?? 0) * probs[o.stage], 0));
+  const weighted = Math.round(open.reduce((s, o) => s + val(o) * probs[o.stage], 0));
   const contacted = newBusinessesContacted(events, null, week, addDays(week, 6)).length;
   const nbTarget = await weeklyNewBusinessTarget(ctx, week);
   const upcoming = await upcomingEvents(ctx, founder, now, 7);
@@ -107,7 +116,7 @@ export async function commandCenter(ctx: AppContext, founder: FounderKey, now = 
   }));
   const market = Object.fromEntries(MARKETS.map((m) => [m, funnelCounts(events.filter((e) => e.market === m), null, week, addDays(week, 6))]));
   const brands = Object.fromEntries(["local", "consulting", "thirty"].map((b) => [b, events.filter((e) => e.brand === b && e.local_date >= week && isOutreach(e.activity_type)).length]));
-  const byStage = STAGES.filter((s) => s !== "lost").map((s) => ({ stage: s, label: STAGE_LABELS[s], count: t.Opportunities.rows.filter((o) => !o.is_archived && o.stage === s).length, valueMinor: t.Opportunities.rows.filter((o) => !o.is_archived && o.stage === s).reduce((a, o) => a + (o.value_minor ?? 0), 0) }));
+  const byStage = STAGES.filter((s) => s !== "lost").map((s) => ({ stage: s, label: STAGE_LABELS[s], count: t.Opportunities.rows.filter((o) => !o.is_archived && o.stage === s).length, valueMinor: t.Opportunities.rows.filter((o) => !o.is_archived && o.stage === s).reduce((a, o) => a + val(o), 0) }));
   const monthStart = td.slice(0, 8) + "01";
   const wonThisMonth = t.Opportunities.rows.filter((o) => o.stage === "won" && o.updated_at.slice(0, 10) >= monthStart);
 
@@ -134,9 +143,9 @@ export async function commandCenter(ctx: AppContext, founder: FounderKey, now = 
     },
     sales: { perFounder, market, brands, byStage, sinceLabel: `Week of ${week}`, last7From: sevenDays },
     money: {
-      pipelineValue: open.reduce((s, o) => s + (o.value_minor ?? 0), 0),
+      pipelineValue: open.reduce((s, o) => s + val(o), 0),
       weighted,
-      wonThisMonth: { count: wonThisMonth.length, valueMinor: wonThisMonth.reduce((s, o) => s + (o.value_minor ?? 0), 0) },
+      wonThisMonth: { count: wonThisMonth.length, valueMinor: wonThisMonth.reduce((s, o) => s + val(o), 0) },
       byStage,
       notTracked: ["Revenue recognized", "Cash collected", "Operating expenses", "Gross profit", "Estimated EBITDA", "Cash balance", "MRR", "ARR"],
     },
@@ -151,7 +160,7 @@ export async function weeklyReview(ctx: AppContext, founder: FounderKey, weekSta
   const td = await today(ctx, founder, now);
   const week = weekStart ? startOfWeek(weekStart) : startOfWeek(td);
   const end = addDays(week, 6);
-  const t = await ctx.repo.listMany(["ActivityEvents", "DailyPlans", "WorkModes", "DailyTargets", "Users", "DailyResults", "WeeklyReviews", "FounderPointItems", "FounderPoints", "Opportunities", "DailyReviews", "DailyResultCorrections"]);
+  const t = await ctx.repo.listMany(["ActivityEvents", "DailyPlans", "WorkModes", "DailyTargets", "Users", "DailyResults", "WeeklyReviews", "FounderPointItems", "FounderPoints", "Opportunities", "DailyReviews", "DailyResultCorrections", "Accounts", "TrafficDaily", "OpportunityStageEvents"]);
   const events = dedupeEvents(t.ActivityEvents.rows);
   const perFounder = Object.fromEntries(FOUNDERS.map((f) => {
     const u = t.Users.rows.find((x) => x.founder_key === f)!;
@@ -178,8 +187,55 @@ export async function weeklyReview(ctx: AppContext, founder: FounderKey, weekSta
   const pointsThisWeek = new Set(t.FounderPoints.rows.filter((p) => p.start_at && p.start_at.slice(0, 10) >= week && p.start_at.slice(0, 10) <= end).map((p) => p.id));
   const decisions = t.FounderPointItems.rows.filter((i) => i.kind === "decision" && (pointsThisWeek.has(i.point_id) || (i.created_at.slice(0, 10) >= week && i.created_at.slice(0, 10) <= end)));
   const saved = t.WeeklyReviews.rows.find((w) => w.id === childId("weekly", week)) ?? null;
+
+  // KPI targets (brief round 8): per founder qualified conversations per workday and qualified meetings per week;
+  // team new contacts = the sum of the daily new-business targets over the week's workdays (a theoretical volume).
+  const perDay = await numSetting(ctx.repo, "kpi_qualified_conversations_per_workday", 1);
+  const perWeek = await numSetting(ctx.repo, "kpi_qualified_meetings_per_week", 2);
+  const kpi = { qualified: 0, qualifiedTarget: 0, meetingsTarget: 0, contactsTheoretical: 0 };
+  for (const f of FOUNDERS) {
+    const u = t.Users.rows.find((x) => x.founder_key === f);
+    let workdays = 0;
+    for (let d = week; d <= end; d = addDays(d, 1)) {
+      const mode = resolveMode(t.WorkModes.rows, f, d) as WorkMode | null;
+      if (!mode || mode === "DAY_OFF" || mode === "VACATION" || !u?.workdays.includes(weekday(d))) continue;
+      workdays++;
+      kpi.contactsTheoretical += resolveTargets(t.DailyTargets.rows, f, mode, d).new_businesses.target;
+    }
+    kpi.qualifiedTarget += perDay * workdays;
+    if (workdays) kpi.meetingsTarget += perWeek;
+  }
+  const inWeek = events.filter((e) => e.local_date >= week && e.local_date <= end);
+  kpi.qualified = inWeek.filter((e) => e.activity_type === "qualified_conversation").length;
+
+  // Friday review rules, highlighted from this week's numbers.
+  const conversion = conversionByChannel({ events: t.ActivityEvents.rows, opps: t.Opportunities.rows, stageEvents: t.OpportunityStageEvents.rows, from: week, to: end, offerDefaults: await offerDefaults(ctx.repo) });
+  const hours = { phone: 0, linkedin: 0 };
+  for (const e of inWeek) { const ch = channelOf(e); if (ch === "phone" || ch === "linkedin") hours[ch] += minutesFor(e, MINUTES_PER_ACTION_SEED) / 60; }
+  const nicheOf = new Map(t.Accounts.rows.map((a) => [a.id, a.niche.trim()]));
+  const niches = new Map<string, { contacts: Set<string>; conversations: Set<string> }>();
+  for (const e of inWeek) {
+    const niche = nicheOf.get(e.account_id);
+    if (!niche) continue;
+    const n = niches.get(niche) ?? { contacts: new Set(), conversations: new Set() };
+    if (isOutreach(e.activity_type)) n.contacts.add(e.account_id);
+    if (e.activity_type === "qualified_conversation" || e.activity_type === "reply" || ["conversation", "interested", "callback_requested", "meeting_booked", "met_owner"].includes(e.outcome ?? "")) n.conversations.add(e.account_id);
+    niches.set(niche, n);
+  }
+  const monthAgo = addDays(end, -29);
+  const wonIds = new Set(t.OpportunityStageEvents.rows.filter((x) => x.to_stage === "won" && x.changed_at.slice(0, 10) >= monthAgo && x.changed_at.slice(0, 10) <= end).map((x) => x.opportunity_id));
+  const won = t.Opportunities.rows.filter((o) => wonIds.has(o.id));
+  const traffic = t.TrafficDaily.rows.filter((r) => !r.is_archived && r.brand === "thirty" && r.date >= week && r.date <= end);
+  const friday = fridayRules({
+    conversion, hours,
+    seriousLocalRequests: t.Opportunities.rows.filter((o) => !o.is_archived && o.brand === "local" && isOpen(o) && ["discovery_scheduled", "qualified", "demo_shown", "proposal_sent", "negotiation"].includes(o.stage)).length,
+    thirty: { visits: traffic.reduce((a, r) => a + (r.sessions ?? 0), 0), purchases: traffic.reduce((a, r) => a + (r.purchases ?? 0), 0) },
+    niches: [...niches.entries()].map(([niche, n]) => ({ niche, contacts: n.contacts.size, conversations: n.conversations.size })),
+    wonByOffer: (["consulting", "local"] as const).map((o) => ({ offer: OFFER_LABELS[o], won: won.filter((x) => (x.brand === "local" ? "local" : "consulting") === o).length })),
+    minSample: Number(await settingValue(ctx.repo, "conversion_min_sample")) || 20,
+  });
   return {
-    weekStart: week, weekEnd: end, perFounder,
+    weekStart: week, weekEnd: end, perFounder, kpi, friday,
     topObjections: [...objections.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([label, count]) => ({ label, count })),
     decisions: decisions.map((d) => ({ id: d.id, text: d.text, at: d.created_at })),
     saved,

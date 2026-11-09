@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { childId } from "@/lib/ids";
 import type { FounderKey } from "@/domain/constants";
-import { mergePlaybook, type PlaybookItem } from "@/domain/playbook";
+import { PLAYBOOK_KINDS, mergePlaybook, type PlaybookItem } from "@/domain/playbook";
 import type { AppContext } from "../context";
 import { userRow } from "./common";
 
@@ -27,7 +27,7 @@ export async function getPlaybook(ctx: AppContext, founder: FounderKey): Promise
 }
 
 export const playbookEditSchema = z.object({
-  kind: z.enum(["opener", "objection", "email", "whatsapp"]),
+  kind: z.enum(PLAYBOOK_KINDS),
   key: z.string().trim().min(1).max(60),
   language: z.enum(["FR", "ES"]),
   subject: z.string().trim().max(300).default(""),

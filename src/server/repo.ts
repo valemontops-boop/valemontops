@@ -8,6 +8,7 @@ import { setupSpreadsheet } from "@/data/sheets/setup";
 import { getConfig, type AppConfig } from "./config";
 import { seedBaseline } from "./services/baseline";
 import { seedDemo } from "./services/demo-seed";
+import { seedDemoLinkedIn } from "./services/demo-linkedin";
 import type { AppContext } from "./context";
 import { GoogleHttp } from "@/data/google/http";
 import { GmailSender, GoogleCalendarAdapter, GoogleDriveAdapter, GoogleDriveUploader } from "@/data/google/adapters";
@@ -18,6 +19,8 @@ import { MemoryStripe, demoStripeStore } from "@/fake-stripe";
 import { MemoryCalendar, MemoryDrive, MemoryDriveUploader, MemoryMailer } from "@/fake-google/store";
 import { demoGoogleStore } from "./services/demo-google";
 import { seedDemoWork } from "./services/demo-seed";
+import { setActivitySink } from "./activity-hooks";
+import { trackerSink } from "./services/tracker";
 
 export class SetupRequiredError extends Error {
   readonly code = "setup_required";
@@ -39,6 +42,7 @@ async function build(cfg: AppConfig): Promise<DataRepository> {
       const repo = new InMemoryRepository();
       await seedBaseline(repo, tz);
       await seedDemo(repo);
+      await seedDemoLinkedIn(repo);
       return repo;
     }
     const client = new SheetsClient({ baseUrl: cfg.demo.fakeUrl, spreadsheetId: cfg.demo.fakeSpreadsheetId, getToken: async () => "fake-demo-token" });
@@ -46,6 +50,7 @@ async function build(cfg: AppConfig): Promise<DataRepository> {
     const repo = new GoogleSheetsRepository(client);
     await seedBaseline(repo, tz);
     await seedDemo(repo);
+    await seedDemoLinkedIn(repo);
     return repo;
   }
   // LIVE: never seeds demo data and never creates the spreadsheet; setup:sheets prepares it.
@@ -96,6 +101,7 @@ async function buildContext(cfg: AppConfig): Promise<AppContext> {
       }
     }
     await seedDemoWork(repo, privateRepo);
+    setActivitySink(null); // DEMO never sends anything to a founder's tracker
     return {
       repo,
       privateRepo,
@@ -109,6 +115,7 @@ async function buildContext(cfg: AppConfig): Promise<AppContext> {
       mode: "demo",
     };
   }
+  setActivitySink(trackerSink()); // founder trackers (TRACKER_WEBHOOK_URL_*), no-op when not configured
   const key = decodeServiceAccountKey(cfg.sheets.serviceAccountB64);
   const privateIds: Record<string, string> = { theo: process.env.PRIVATE_SHEET_ID_THEO ?? "", pablo: process.env.PRIVATE_SHEET_ID_PABLO ?? "" };
   const privates = new Map<string, DataRepository>();

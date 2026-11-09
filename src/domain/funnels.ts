@@ -1,20 +1,25 @@
+import { classifyTraffic, type TrafficGroup } from "./marketing";
+
 /**
  * Funnels across every channel (founder feedback round 5): calls, field visits, LinkedIn, email, WhatsApp
- * (outbound) and website / social (inbound). Results (meetings, deals won) are credited to the channel of
+ * (outbound) and three inbound sources (round 8): web browser (search, direct, referral, paid), AI engines
+ * (ChatGPT, Perplexity, Claude, Gemini…) and social networks (audience, then the website visits they bring). Results (meetings, deals won) are credited to the channel of
  * the last touch on that business before the result ("last touch"), so each meeting counts once.
  * Time cost uses the minutes-per-action settings, which gives "meetings per hour of work" per channel.
  */
 
 export type ChannelKey = "phone" | "field" | "linkedin" | "email" | "whatsapp";
-export const CHANNEL_LABELS: Record<ChannelKey | "inbound", string> = {
-  phone: "Cold calls", field: "Field visits", linkedin: "LinkedIn", email: "Email", whatsapp: "WhatsApp", inbound: "Website & social",
+export type InboundKey = TrafficGroup;
+export const CHANNEL_LABELS: Record<ChannelKey | InboundKey | "inbound", string> = {
+  phone: "Cold calls", field: "Field visits", linkedin: "LinkedIn", email: "Email", whatsapp: "WhatsApp",
+  web: "Web (browser)", ai: "AI engines", social: "Social networks", inbound: "All website visits",
 };
 
 interface Ev { activity_type: string; channel: string | null; outcome: string | null; account_id: string; target_key?: string; occurred_at: string; local_date: string }
 interface Send { channel: "email" | "whatsapp"; status: string; account_id: string; sent_at: string | null; local_date: string | null; replied_at: string | null; reply_kind: string | null; is_archived?: boolean }
 interface StageEv { opportunity_id: string; to_stage: string; changed_at: string }
 interface Opp { id: string; account_id: string }
-interface Traffic { date: string; sessions: number | null; leads: number | null; meetings: number | null; purchases: number | null }
+interface Traffic { date: string; source?: string; medium?: string; sessions: number | null; leads: number | null; meetings: number | null; purchases: number | null }
 
 /** Which channel an activity belongs to, or null for non-outreach events. */
 export function channelOf(e: { activity_type: string; channel: string | null }): ChannelKey | null {
@@ -37,7 +42,7 @@ const YES = ["interested", "callback_requested", "meeting_booked"];
 const isMeeting = (e: Ev) => e.activity_type === "meeting_booked" || e.outcome === "meeting_booked";
 
 export interface ChannelFunnel {
-  key: ChannelKey | "inbound";
+  key: ChannelKey | InboundKey | "inbound";
   steps: { label: string; value: number }[];
   touches: number;
   meetings: number;
@@ -47,7 +52,7 @@ export interface ChannelFunnel {
   touchesPerMeeting: number | null;
 }
 
-export function channelFunnels(input: { events: Ev[]; sends: Send[]; opps: Opp[]; stageEvents: StageEv[]; traffic: Traffic[]; from: string; to: string; minutes: Partial<Record<string, number>> }) {
+export function channelFunnels(input: { events: Ev[]; sends: Send[]; opps: Opp[]; stageEvents: StageEv[]; traffic: Traffic[]; from: string; to: string; minutes: Partial<Record<string, number>>; socialReach?: number }) {
   const { from, to } = input;
   const inPeriod = (d: string | null) => Boolean(d && d >= from && d <= to);
   const events = input.events.filter((e) => inPeriod(e.local_date));
@@ -123,12 +128,22 @@ export function channelFunnels(input: { events: Ev[]; sends: Send[]; opps: Opp[]
     ]);
   }
   const tr = input.traffic.filter((x) => inPeriod(x.date));
-  const sum = (k: keyof Traffic) => tr.reduce((a, x) => a + (Number(x[k]) || 0), 0);
-  const inbound: ChannelFunnel = {
-    key: "inbound",
-    steps: [{ label: "Visits", value: sum("sessions") }, { label: "Leads", value: sum("leads") }, { label: "Meetings", value: sum("meetings") }, { label: "Purchases", value: sum("purchases") }],
-    touches: sum("sessions"), meetings: sum("meetings"), won: sum("purchases"), hours: null, meetingsPerHour: null, touchesPerMeeting: sum("meetings") ? Math.round(sum("sessions") / sum("meetings")) : null,
+  const webFunnel = (key: InboundKey | "inbound", rows: Traffic[], first: { label: string; value: number }[] = []): ChannelFunnel => {
+    const sum = (k: keyof Traffic) => rows.reduce((a, x) => a + (Number(x[k]) || 0), 0);
+    return {
+      key,
+      steps: [...first, { label: "Visits", value: sum("sessions") }, { label: "Leads", value: sum("leads") }, { label: "Meetings", value: sum("meetings") }, { label: "Purchases", value: sum("purchases") }],
+      touches: sum("sessions"), meetings: sum("meetings"), won: sum("purchases"), hours: null, meetingsPerHour: null, touchesPerMeeting: sum("meetings") ? Math.round(sum("sessions") / sum("meetings")) : null,
+    };
   };
+  // All website visits (kept for the website verdicts), then one funnel per source group.
+  const inbound = webFunnel("inbound", tr);
+  const groupOf = (x: Traffic) => classifyTraffic(x.source ?? "", x.medium ?? "").group;
+  const inboundSources: ChannelFunnel[] = [
+    webFunnel("web", tr.filter((x) => groupOf(x) === "web")),
+    webFunnel("ai", tr.filter((x) => groupOf(x) === "ai")),
+    webFunnel("social", tr.filter((x) => groupOf(x) === "social"), input.socialReach ? [{ label: "Views & impressions", value: input.socialReach }] : []),
+  ];
 
   const outbound = out.filter((c) => c.touches > 0);
   const ranked = outbound.filter((c) => c.meetingsPerHour !== null && c.meetings > 0).sort((a, b) => (b.meetingsPerHour ?? 0) - (a.meetingsPerHour ?? 0));
@@ -137,6 +152,6 @@ export function channelFunnels(input: { events: Ev[]; sends: Send[]; opps: Opp[]
   for (const c of outbound.filter((x) => x.touches >= 20 && x.meetings === 0)) insights.push(`${CHANNEL_LABELS[c.key]}: ${c.touches} touches and no meeting yet. Change the message or the target.`);
   const totalMeetings = outbound.reduce((a, c) => a + c.meetings, 0) + inbound.meetings;
   if (totalMeetings === 0 && outbound.length) insights.push("No meeting in this period yet: keep volume up on the channel with the most replies.");
-  return { channels: outbound, all: out, inbound, best: ranked[0]?.key ?? null, totalMeetings, insights };
+  return { channels: outbound, all: out, inbound, sources: inboundSources, best: ranked[0]?.key ?? null, totalMeetings, insights };
 }
 export type Funnels = ReturnType<typeof channelFunnels>;

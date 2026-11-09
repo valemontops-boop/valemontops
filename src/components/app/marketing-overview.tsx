@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState, Field, Input, Panel, PanelTitle, Select, Skeleton } from "@/components/ui/form";
 import { BRANDS, BRAND_LABELS } from "@/domain/constants";
+import { classifyTraffic, type TrafficGroup } from "@/domain/marketing";
 import { api } from "@/lib/api";
 import { cn, formatEur } from "@/lib/utils";
 import type { marketingOverview } from "@/server/services/marketing";
@@ -20,15 +21,16 @@ export function useMarketingOverview(days: Days) {
   return useQuery({ queryKey: ["marketing-overview", days, "all"], queryFn: () => api<Overview>(`/api/marketing/overview?days=${days}&brand=all`) });
 }
 
-/** Growth › Website: traffic numbers → the website funnel → sources, countries → GA4 import. */
+/** Growth › Web: browser visits (search, direct, referral, paid) and AI engines, each with its funnel → where visits come from → GA4 import. Social stays in the LinkedIn and Instagram tabs. */
 export function WebsiteTab({ filter }: { filter: GrowthFilter }) {
   const t = useT();
   const q = useMarketingOverview(filter.days);
   const f = useFunnels(filter);
+  const src = (k: string) => f.data?.sources?.find((c) => c.key === k)?.steps ?? [];
   return (
     <div className="flex flex-col gap-5">
       {q.isPending ? <Skeleton className="h-[420px]" /> : q.isError ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : (
-        <WebsiteBody d={q.data} steps={f.data?.inbound.steps ?? []} />
+        <WebsiteBody d={q.data} web={src("web")} ai={src("ai")} />
       )}
       <div className="pt-2"><h2 className="text-lg font-semibold tracking-tight">{t("Add website numbers")}</h2><p className="text-sm text-text-2">{t("Import a GA4 export once a week, or type the numbers of a day.")}</p></div>
       <TrafficTab />
@@ -36,25 +38,40 @@ export function WebsiteTab({ filter }: { filter: GrowthFilter }) {
   );
 }
 
-function WebsiteBody({ d, steps }: { d: Overview; steps: { label: string; value: number }[] }) {
+/** Web sub-split labels, in the order shown. */
+const KIND_LABELS = [["search", "Search engines"], ["paid", "Paid search"], ["direct", "Direct"], ["referral", "Referral sites"], ["other", "Other (email, campaigns)"], ["ai", "AI engines"]] as const;
+
+function WebsiteBody({ d, web, ai }: { d: Overview; web: { label: string; value: number }[]; ai: { label: string; value: number }[] }) {
   const t = useT();
   const tag = useDateTag();
-  const conv = d.totals.sessions ? (d.totals.leads + d.totals.purchases) / d.totals.sessions : null;
+  const g = d.split?.groups;
+  const browser = g ? { sessions: g.web.sessions + g.ai.sessions, leads: g.web.leads + g.ai.leads, purchases: g.web.purchases + g.ai.purchases, revenue: g.web.revenue_minor + g.ai.revenue_minor } : { sessions: d.totals.sessions, leads: d.totals.leads, purchases: d.totals.purchases, revenue: d.totals.revenue_minor };
+  const conv = browser.sessions ? (browser.leads + browser.purchases) / browser.sessions : null;
+  const topEngine = d.split?.engines[0];
   const fits = d.fits.filter((f) => f.fit);
+  const kinds = d.split ? KIND_LABELS.map(([k, label]) => ({ k, label: t(label), ...d.split!.kinds[k] })).filter((x) => x.sessions > 0) : [];
   return (
     <>
       <StatStrip stats={[
-        { label: t("Website visits"), value: d.totals.sessions.toLocaleString(tag), note: d.hasTraffic ? t("sessions, all sites") : t("import GA4 below to see this") },
-        { label: t("Leads"), value: d.totals.leads.toLocaleString(tag), note: t("forms and calls from the website") },
-        { label: t("30/30 purchases"), value: d.totals.purchases.toLocaleString(tag), note: d.totals.revenue_minor ? formatEur(d.totals.revenue_minor) : t("revenue not imported"), result: true },
-        { label: t("Visit → lead or sale"), value: pct(conv, 1), note: t("conversion of website sessions") },
+        { label: t("Web visits"), value: (g?.web.sessions ?? d.totals.sessions).toLocaleString(tag), note: d.hasTraffic ? t("search, direct, referral and paid") : t("import GA4 below to see this") },
+        { label: t("From AI engines"), value: (g?.ai.sessions ?? 0).toLocaleString(tag), note: topEngine ? `${topEngine.engine} · ${t("{n} visits", { n: topEngine.sessions })}` : t("ChatGPT, Perplexity, Claude, Gemini…") },
+        { label: t("Leads"), value: browser.leads.toLocaleString(tag), note: t("forms and calls from the website") },
+        { label: t("Visit → lead or sale"), value: pct(conv, 1), note: browser.revenue ? `${t("{n} purchases", { n: browser.purchases })} · ${formatEur(browser.revenue)}` : t("{n} purchases", { n: browser.purchases }), result: browser.purchases > 0 },
       ]} />
-      <StepFunnel title={t("Website funnel")} steps={steps} empty={t("No website traffic in this period: import a GA4 export below.")} />
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <StepFunnel title={t("Web (browser)")} steps={web} empty={t("No website traffic in this period: import a GA4 export below.")} footnote={t("Search engines, direct visits, referral sites and paid search. The % is the share kept from the step before.")} />
+        <StepFunnel title={t("AI engines")} steps={ai} empty={t("No visit from an AI engine in this period. They show up when GA4 sees chatgpt.com, perplexity.ai, claude.ai, gemini.google.com… as source.")} footnote={t("ChatGPT, Perplexity, Claude, Gemini, Copilot, DeepSeek, Mistral, You.com, Phind and Grok. The % is the share kept from the step before.")} />
+      </div>
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <Panel>
           <PanelTitle>{t("Where visits come from")}</PanelTitle>
-          {d.sources.length ? <Bars tone="sales" data={d.sources.map((s) => ({ label: `${s.source}${s.medium ? ` / ${s.medium}` : ""}`, value: s.sessions, sub: t("{pct} convert · {n}", { pct: pct(s.conversion, 1), n: s.leads + s.purchases }) }))} /> : <p className="text-sm text-text-2">{t("No website traffic in this period: import a GA4 export below.")}</p>}
-          {d.sources.length ? <p className="mt-3 text-[12px] text-text-3">{t("Sessions per source; under each, the share that became a lead or a sale.")}</p> : null}
+          {kinds.length ? <Bars tone="sales" data={kinds.map((x) => ({ label: x.label, value: x.sessions, sub: t("{pct} convert · {n}", { pct: pct(x.sessions ? (x.leads + x.purchases) / x.sessions : null, 1), n: x.leads + x.purchases }) }))} /> : <p className="text-sm text-text-2">{t("No website traffic in this period: import a GA4 export below.")}</p>}
+          {d.split?.engines.length ? (
+            <ul className="mt-4 flex flex-col gap-1 border-t border-hairline pt-3 text-sm">
+              {d.split.engines.map((e) => <li key={e.engine} className="flex justify-between gap-3"><span className="text-text-2">{e.engine}</span><span className="num">{e.sessions.toLocaleString(tag)} <span className="text-[12px] text-text-3">· {t("{n} leads", { n: e.leads })}</span></span></li>)}
+            </ul>
+          ) : null}
+          {g?.social.sessions ? <p className="mt-3 text-[12px] text-text-3">{t("Plus {n} visits from social networks, shown in the LinkedIn and Instagram tabs.", { n: g.social.sessions })}</p> : null}
         </Panel>
         <Panel>
           <PanelTitle>{t("Visits by country")}</PanelTitle>
@@ -88,6 +105,21 @@ function WebsiteBody({ d, steps }: { d: Overview; steps: { label: string; value:
   );
 }
 
+/** Manual entry: common sources in one pick (AI engines included); "Other" keeps free typing. */
+const SOURCE_PRESETS = [
+  { label: "Google (search)", source: "google", medium: "organic" },
+  { label: "Google Ads (paid)", source: "google", medium: "cpc" },
+  { label: "Direct", source: "(direct)", medium: "(none)" },
+  { label: "ChatGPT (AI engine)", source: "chatgpt.com", medium: "referral" },
+  { label: "Perplexity (AI engine)", source: "perplexity.ai", medium: "referral" },
+  { label: "Claude (AI engine)", source: "claude.ai", medium: "referral" },
+  { label: "Gemini (AI engine)", source: "gemini.google.com", medium: "referral" },
+  { label: "Copilot (AI engine)", source: "copilot.microsoft.com", medium: "referral" },
+  { label: "Instagram (social network)", source: "instagram", medium: "social" },
+  { label: "LinkedIn (social network)", source: "linkedin.com", medium: "social" },
+] as const;
+const GROUP_LABELS: Record<TrafficGroup, string> = { web: "Web (browser)", ai: "AI engines", social: "Social networks" };
+
 type TrafficPreview = { mapped: Record<string, string>; unrecognized: string[]; rows: number; newRows: number; sessions: number; committed: boolean };
 export function TrafficTab() {
   const t = useT();
@@ -99,7 +131,8 @@ export function TrafficTab() {
     mutationFn: (commit: boolean) => api<TrafficPreview>("/api/marketing/traffic", { body: { brand: brand || null, csv: file!.text, period_end: end, file_name: file!.name, commit } }),
     onSuccess: (r) => { if (r.committed) { for (const k of ["marketing-overview", "funnels"]) qc.invalidateQueries({ queryKey: [k] }); toast(t("Imported {n} row(s)", { n: r.newRows })); } },
   });
-  const [v, setV] = React.useState({ date: new Date().toLocaleDateString("en-CA"), source: "instagram", medium: "social", country: "France", sessions: "", leads: "", purchases: "" });
+  const [v, setV] = React.useState({ date: new Date().toLocaleDateString("en-CA"), source: "google", medium: "organic", country: "France", sessions: "", leads: "", purchases: "" });
+  const detected = classifyTraffic(v.source, v.medium);
   const manual = useMutation({
     mutationFn: () => api("/api/marketing/traffic", { method: "PUT", body: { date: v.date, brand: brand || null, source: v.source, medium: v.medium, country: v.country, sessions: Number(v.sessions) || 0, leads: Number(v.leads) || 0, purchases: Number(v.purchases) || 0 } }),
     onSuccess: () => { for (const k of ["marketing-overview", "funnels"]) qc.invalidateQueries({ queryKey: [k] }); toast(t("Saved")); },
@@ -130,7 +163,13 @@ export function TrafficTab() {
         <form className="grid grid-cols-2 gap-3" onSubmit={(e) => { e.preventDefault(); manual.mutate(); }}>
           <Field label={t("Date")} htmlFor="tm-d"><Input id="tm-d" type="date" value={v.date} onChange={(e) => setV({ ...v, date: e.target.value })} /></Field>
           <Field label={t("Country")} htmlFor="tm-c"><Input id="tm-c" value={v.country} onChange={(e) => setV({ ...v, country: e.target.value })} /></Field>
-          <Field label={t("Source")} htmlFor="tm-s"><Input id="tm-s" value={v.source} onChange={(e) => setV({ ...v, source: e.target.value })} /></Field>
+          <Field label={t("Where from")} htmlFor="tm-p" className="col-span-2">
+            <Select id="tm-p" value={SOURCE_PRESETS.find((p) => p.source === v.source && p.medium === v.medium)?.source ?? ""} onChange={(e) => { const p = SOURCE_PRESETS.find((x) => x.source === e.target.value); if (p) setV({ ...v, source: p.source, medium: p.medium }); }}>
+              <option value="">{t("Other (type the source)")}</option>
+              {SOURCE_PRESETS.map((p) => <option key={p.source} value={p.source}>{t(p.label)}</option>)}
+            </Select>
+          </Field>
+          <Field label={t("Source")} htmlFor="tm-s" hint={`${t(GROUP_LABELS[detected.group])}${detected.engine ? ` · ${detected.engine}` : ""}`}><Input id="tm-s" value={v.source} onChange={(e) => setV({ ...v, source: e.target.value })} /></Field>
           <Field label={t("Medium")} htmlFor="tm-m"><Input id="tm-m" value={v.medium} onChange={(e) => setV({ ...v, medium: e.target.value })} /></Field>
           {(["sessions", "leads", "purchases"] as const).map((k) => <Field key={k} label={t(k[0].toUpperCase() + k.slice(1))} htmlFor={`tm-${k}`}><Input id={`tm-${k}`} inputMode="numeric" className="num" value={v[k]} onChange={(e) => setV({ ...v, [k]: e.target.value.replace(/\D/g, "") })} /></Field>)}
           {manual.isError ? <div className="col-span-2"><ErrorState error={manual.error} onRetry={() => manual.mutate()} /></div> : null}

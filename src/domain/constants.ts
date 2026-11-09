@@ -16,8 +16,8 @@ export const MARKETS = ["FR", "ES"] as const;
 export type Market = (typeof MARKETS)[number];
 
 export const WORK_MODES = [
-  "JOB_SEARCHING",
-  "EMPLOYED_35H",
+  "FULL_TIME",
+  "REDUCED",
   "LAUNCH_SPRINT",
   "CUSTOM",
   "DAY_OFF",
@@ -25,13 +25,31 @@ export const WORK_MODES = [
 ] as const;
 export type WorkMode = (typeof WORK_MODES)[number];
 export const WORK_MODE_LABELS: Record<WorkMode, string> = {
-  JOB_SEARCHING: "Flexible schedule",
-  EMPLOYED_35H: "Employed 35h",
+  FULL_TIME: "Full time",
+  REDUCED: "Reduced",
   LAUNCH_SPRINT: "Launch sprint",
   CUSTOM: "Custom",
   DAY_OFF: "Day off",
   VACATION: "Vacation",
 };
+export const WORK_MODE_HINTS: Partial<Record<WorkMode, string>> = {
+  REDUCED: "35h job, temp work or interviews",
+};
+/**
+ * Founder brief round 8: JOB_SEARCHING became FULL_TIME and EMPLOYED_35H became REDUCED. Sheets rows written before
+ * keep the old strings; reads map them to the new ones (src/data/schema/codecs.ts `workMode()`), the next write stores the new value.
+ */
+export const LEGACY_WORK_MODES: Readonly<Record<string, WorkMode>> = { JOB_SEARCHING: "FULL_TIME", EMPLOYED_35H: "REDUCED" };
+export const normalizeWorkMode = (v: string): string => LEGACY_WORK_MODES[v] ?? v;
+
+/**
+ * One Valemont offer (founders, round 8): Consulting. Local is a last-resort downsell at a monthly price for businesses
+ * that really have no budget. A deal's offer is stored in its `brand` column (consulting | local); values come from
+ * SystemSettings `offer_consulting_value_eur` and `offer_local_monthly_eur`.
+ */
+export const OFFERS = ["consulting", "local"] as const;
+export type Offer = (typeof OFFERS)[number];
+export const OFFER_LABELS: Record<Offer, string> = { consulting: "Consulting", local: "Local (100 €/month)" };
 
 /** Daily counters that can carry a target. */
 export const METRICS = [
@@ -67,6 +85,8 @@ export const ACTIVITY_TYPES = [
   "linkedin_invitation",
   "linkedin_dm",
   "inmail",
+  /** A LinkedIn invitation was accepted (tapped by the founder in a LinkedIn session; not outreach, not counted in targets). */
+  "linkedin_accepted",
   "cold_email",
   "follow_up",
   "reply",
@@ -87,6 +107,7 @@ export const ACTIVITY_LABELS: Record<ActivityType, string> = {
   linkedin_invitation: "LinkedIn invitation",
   linkedin_dm: "LinkedIn DM",
   inmail: "Sales Navigator InMail",
+  linkedin_accepted: "LinkedIn invitation accepted",
   cold_email: "Cold email",
   follow_up: "Follow-up",
   reply: "Reply received",

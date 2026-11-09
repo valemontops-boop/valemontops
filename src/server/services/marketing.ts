@@ -4,8 +4,9 @@ import { z } from "zod";
 import Papa from "papaparse";
 import { childId } from "@/lib/ids";
 import { BRANDS, BRAND_LABELS, type Brand, type FounderKey } from "@/domain/constants";
-import { audienceFit, byCountry, bySource, countryCode, mapTrafficGrid, recommendations, type TrafficRow } from "@/domain/marketing";
+import { audienceFit, byCountry, bySource, classifyTraffic, countryCode, mapTrafficGrid, recommendations, trafficSplit, type TrafficRow } from "@/domain/marketing";
 import { dedupeEvents } from "@/domain/activity";
+import { bestPerDay } from "@/domain/audience";
 import { addDays, localDate } from "@/domain/time";
 import { RuleError } from "../errors";
 import type { AppContext } from "../context";
@@ -74,7 +75,9 @@ export async function marketingOverview(ctx: AppContext, founder: FounderKey, in
   return {
     from, to: today,
     totals: { sessions: traffic.reduce((s, r) => s + (r.sessions ?? 0), 0), leads: traffic.reduce((s, r) => s + (r.leads ?? 0), 0), purchases: traffic.reduce((s, r) => s + (r.purchases ?? 0), 0), revenue_minor: traffic.reduce((s, r) => s + (r.revenue_minor ?? 0), 0) },
-    sources: sources.slice(0, 8),
+    sources: sources.slice(0, 8).map((x) => ({ ...x, ...classifyTraffic(x.source, x.medium) })),
+    // Round 8: web browser vs AI engines vs social networks, and the web split into search / paid / direct / referral.
+    split: trafficSplit(traffic),
     countries: byCountry(traffic).slice(0, 8).map((c) => ({ ...c, target: Object.values(markets).flat().includes(c.country) })),
     funnels,
     platforms,
@@ -124,17 +127,20 @@ export async function addBreakdown(ctx: AppContext, founder: FounderKey, input: 
 
 /* ---------------- funnels across every channel (round 5) ---------------- */
 export const funnelsSchema = z.object({ days: z.coerce.number().int().refine((d) => [7, 30, 90].includes(d)).default(30), scope: z.enum(["team", "me"]).default("team") });
-/** Calls, field visits, LinkedIn, email, WhatsApp and website/social funnels for the period, with meetings per hour of work. */
+/** Calls, field visits, LinkedIn, email, WhatsApp, web browser, AI engines and social funnels for the period, with meetings per hour of work. */
 export async function marketingFunnels(ctx: AppContext, founder: FounderKey, input: z.infer<typeof funnelsSchema>) {
   const u = await userRow(ctx.repo, founder);
   const today = localDate(new Date(), u.timezone);
   const from = addDays(today, -input.days + 1);
-  const t = await ctx.repo.listMany(["ActivityEvents", "EmailSends", "Opportunities", "OpportunityStageEvents", "TrafficDaily"]);
+  const t = await ctx.repo.listMany(["ActivityEvents", "EmailSends", "Opportunities", "OpportunityStageEvents", "TrafficDaily", "SocialAccounts", "SocialAccountDaily"]);
   const mine = (f: string) => input.scope === "team" || f === founder;
   const events = dedupeEvents(t.ActivityEvents.rows).filter((e) => mine(e.founder_key));
+  // Social audience of the accounts this founder can see (team pages + their own profile): views (Instagram) and impressions (LinkedIn).
+  const visible = new Set(t.SocialAccounts.rows.filter((a) => !a.is_archived && (a.visibility === "team" || a.owner_founder === founder)).map((a) => a.id));
+  const socialReach = [...visible].flatMap((id) => bestPerDay(t.SocialAccountDaily.rows.filter((r) => !r.is_archived && r.account_id === id && r.date >= from && r.date <= today))).reduce((a, r) => a + (r.views ?? 0) + (r.impressions ?? 0), 0);
   const r = channelFunnels({
     events, sends: t.EmailSends.rows.filter((s) => mine(s.founder_key)), opps: t.Opportunities.rows, stageEvents: t.OpportunityStageEvents.rows,
-    traffic: t.TrafficDaily.rows.filter((x) => !x.is_archived), from, to: today, minutes: MINUTES_PER_ACTION_SEED,
+    traffic: t.TrafficDaily.rows.filter((x) => !x.is_archived), from, to: today, minutes: MINUTES_PER_ACTION_SEED, socialReach,
   });
   return { from, to: today, ...r };
 }

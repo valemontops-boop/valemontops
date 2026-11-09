@@ -21,6 +21,6 @@ test("scenario 13: field visit on a phone with touch only counts one new busines
 
   await page.getByRole("button", { name: fr("WhatsApp") }).tap();
   await page.getByRole("button", { name: fr("Build report") }).tap();
-  await expect(page.getByLabel(fr("Report text"))).toHaveValue(/- Visite terrain: 1/);
-  await expect(page.getByLabel(fr("Report text"))).toHaveValue(/- Nouvelles entreprises contactées : 1/);
+  await expect(page.getByLabel(fr("Report text"))).toHaveValue(/- Visites terrain : 1/);
+  await expect(page.getByLabel(fr("Report text"))).toHaveValue(/- Nouveaux contacts : 1/);
 });

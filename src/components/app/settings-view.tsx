@@ -4,11 +4,11 @@ import * as React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ErrorState, Field, Input, Panel, PanelTitle, SegmentedSwitch, Select, Skeleton, Textarea } from "@/components/ui/form";
-import { DEFAULT_PLAYBOOK, EMAIL_TEMPLATE_LABELS, objectionLabel, type Lang, type PlaybookItem } from "@/domain/playbook";
+import { DEFAULT_PLAYBOOK, EMAIL_TEMPLATE_LABELS, LINKEDIN_TEMPLATE_LABELS, objectionLabel, type Lang, type PlaybookItem } from "@/domain/playbook";
 import { CONTACT_TYPE_LABELS, RULE_STATUSES } from "@/domain/constants";
 import { useLocale, useT } from "@/i18n/react";
 import { ApiError, api } from "@/lib/api";
-import { relTime } from "@/lib/utils";
+import { formatEur, relTime } from "@/lib/utils";
 import { useMe } from "./providers";
 import { TargetsEditor } from "./targets-editor";
 import { NewTaskModal, useRecurrenceText, useTasks } from "./tasks-view";
@@ -18,8 +18,9 @@ import { ConflictNotice } from "./conflict";
 import Link from "next/link";
 import { FOUNDERS, FOUNDER_NAMES } from "@/domain/constants";
 import { addDays } from "@/domain/time";
+import { TrackerPanel } from "./tracker-panel";
 
-type Tab = "profile" | "targets" | "calendars" | "sprint" | "workspace" | "playbook" | "rules" | "suppression" | "diagnostics" | "roadmap";
+type Tab = "profile" | "targets" | "calendars" | "sprint" | "workspace" | "playbook" | "rules" | "suppression" | "diagnostics" | "tracker" | "roadmap";
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export function SettingsView() {
@@ -36,10 +37,10 @@ export function SettingsView() {
       <div className="overflow-x-auto">
         <SegmentedSwitch label={t("Settings section")} value={tab} onChange={setTab} options={[
           { value: "profile", label: t("Profile") }, { value: "targets", label: t("Mode & targets") }, { value: "calendars", label: t("Calendars") }, { value: "sprint", label: t("Sprint") }, { value: "workspace", label: t("Workspace") }, { value: "playbook", label: t("Playbook") }, { value: "rules", label: t("Channel rules") },
-          { value: "suppression", label: t("Suppression") }, { value: "diagnostics", label: t("Diagnostics") }, { value: "roadmap", label: t("Roadmap") },
+          { value: "suppression", label: t("Suppression") }, { value: "diagnostics", label: t("Diagnostics") }, { value: "tracker", label: t("My tracker") }, { value: "roadmap", label: t("Roadmap") },
         ]} />
       </div>
-      {tab === "profile" ? <Profile /> : tab === "targets" ? <TargetsTab /> : tab === "calendars" ? <Calendars /> : tab === "sprint" ? <SprintTab /> : tab === "workspace" ? <Workspace /> : tab === "playbook" ? <PlaybookTab /> : tab === "rules" ? <Rules /> : tab === "suppression" ? <Suppression /> : tab === "diagnostics" ? <Diagnostics /> : <Roadmap />}
+      {tab === "profile" ? <Profile /> : tab === "targets" ? <TargetsTab /> : tab === "calendars" ? <Calendars /> : tab === "sprint" ? <SprintTab /> : tab === "workspace" ? <Workspace /> : tab === "playbook" ? <PlaybookTab /> : tab === "rules" ? <Rules /> : tab === "suppression" ? <Suppression /> : tab === "diagnostics" ? <Diagnostics /> : tab === "tracker" ? <TrackerPanel /> : <Roadmap />}
     </div>
   );
 }
@@ -228,7 +229,7 @@ function Diagnostics() {
 }
 
 const ROADMAP: [string, string][] = [
-  ["Stage 1B", "Tasks (P0–P3, views, Kanban), private job-search spreadsheets, daily scoring and streaks, sprints, Command Center, Next Best Action queue, weekly review, reports, notifications, Agenda and Founder Points (shared calendars), Idea Box, Files (Drive), Audience tracking with LinkedIn import."],
+  ["Stage 1B", "Tasks (P0–P3, views, Kanban), private task spreadsheets, daily scoring and streaks, sprints, Command Center, Next Best Action queue, weekly review, reports, notifications, Agenda and Founder Points (shared calendars), Idea Box, Files (Drive), Audience tracking with LinkedIn import."],
   ["Stage 2", "Audit questionnaires by sector, price book, PDF quotes with commercial policy, Won → Client & Project workflow, supplier bench, capacity, Local subscription usage and per-client margin."],
   ["Stage 3", "Managerial P&L, MRR/ARR, EBITDA estimate, EUR/USD with ECB rates, Ad Fund, content planning FR/ES, Instagram adapter and snapshot job."],
   ["Stage 4", "Integration Hub, website webhooks, optional Calendar/Gmail OAuth, backups with tested restore, security hardening, deployment."],
@@ -288,9 +289,10 @@ function SprintTab() {
   const t = useT();
   const qc = useQueryClient();
   const today = new Date().toLocaleDateString("en-CA");
-  const cur = useQuery({ queryKey: ["sprint"], queryFn: () => api<{ progress: { sprint: { name: string; start_date: string; end_date: string } } | null }>("/api/sprints") });
-  const blank = { contacted: 50, replies: 10, demos: 3, pilots: 1 };
-  const [v, setV] = React.useState({ name: t("14-day sprint"), start_date: today, end_date: addDays(today, 13), niche: "", theo: blank, pablo: blank, local: 70, consulting: 20, thirty: 10 });
+  const cur = useQuery({ queryKey: ["sprint"], queryFn: () => api<{ progress: { sprint: { name: string; start_date: string; end_date: string }; signed: { clients: number; eurMinor: number; goalClients: number; goalEurMinor: number } } | null }>("/api/sprints") });
+  // Brief round 8 over 10 workdays at FULL_TIME: 90 new businesses a day, 1 qualified conversation a day, 2 meetings a week; one offer (Consulting).
+  const blank = { contacted: 900, replies: 10, demos: 4, pilots: 1 };
+  const [v, setV] = React.useState({ name: t("14-day sprint"), start_date: today, end_date: addDays(today, 13), niche: "", theo: blank, pablo: blank, local: 0, consulting: 100, thirty: 0 });
   const m = useMutation({
     mutationFn: () => api("/api/sprints", { body: { name: v.name, start_date: v.start_date, end_date: v.end_date, niche: v.niche, targets: { theo: v.theo, pablo: v.pablo }, brand_split: { local: v.local / 100, consulting: v.consulting / 100, thirty: v.thirty / 100 } } }),
     onSuccess: () => { qc.invalidateQueries(); toast(t("Sprint started")); },
@@ -299,6 +301,7 @@ function SprintTab() {
     <Panel>
       <PanelTitle>{t("Sprint")}</PanelTitle>
       <p className="mb-4 text-sm text-text-2">{cur.data?.progress ? t("Active: {name} ({start} → {end}). Starting a new sprint closes it.", { name: cur.data.progress.sprint.name, start: cur.data.progress.sprint.start_date, end: cur.data.progress.sprint.end_date }) : t("No active sprint.")} {t("Targets are working targets, not forecasts.")}</p>
+      {cur.data?.progress ? <p className="-mt-2 mb-4 text-sm"><span className="font-medium">{t("Sprint goal")}</span> · {t("{n} of {total} paying clients", { n: cur.data.progress.signed.clients, total: cur.data.progress.signed.goalClients })} · {formatEur(cur.data.progress.signed.eurMinor)} / {formatEur(cur.data.progress.signed.goalEurMinor)} {t("signed ex VAT")}</p> : null}
       <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); m.mutate(); }}>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
           <Field label={t("Name")} htmlFor="sp-n" className="sm:col-span-2"><Input id="sp-n" value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} /></Field>
@@ -338,6 +341,11 @@ function Workspace() {
     calendly_url_pablo: ["Pablo's Calendly link", "Inserted in call follow-ups (email and WhatsApp)."],
     deck_url_fr: ["Commercial deck, French", "A Drive or PDF link shared “anyone with the link”."],
     deck_url_es: ["Commercial deck, Spanish", "A Drive or PDF link shared “anyone with the link”."],
+    offer_consulting_value_eur: ["Consulting deal value (€ ex VAT)", "The one Valemont offer. Used when a deal has no value. Seed 1,500 = sprint goal 3,000 € / 2 clients."],
+    offer_local_monthly_eur: ["Valemont Local price (€ per month)", "Last-resort downsell for businesses with no budget. Seed 100."],
+    linkedin_daily_invitation_limit: ["LinkedIn invitations per day (limit)", "LinkedIn limits always take priority over targets. Seed 20."],
+    linkedin_weekly_invitation_limit: ["LinkedIn invitations per week (limit)", "Seed 100."],
+    time_split_target: ["Time split target", "Sales / content / site, tools and analysis in %, e.g. 75/15/10."],
     [`signature_${me.founder}`]: ["Email signature", me.founder === "theo" ? "Théo's email signature (several lines allowed)." : "Pablo's email signature (several lines allowed)."],
   };
   if (q.isPending) return <Skeleton className="h-64" />;
@@ -363,7 +371,7 @@ function SettingField({ k, label, hint, initial, onSave }: { k: string; label: s
   );
 }
 
-const KIND_TITLES: Record<PlaybookItem["kind"], string> = { opener: "Call opener", objection: "Objection replies: 3 lines = Label · Ask · Next step (shown live in call mode, best reply first)", email: "Follow-up emails", whatsapp: "WhatsApp messages" };
+const KIND_TITLES: Record<PlaybookItem["kind"], string> = { opener: "Call opener", objection: "Objection replies: 3 lines = Label · Ask · Next step (shown live in call mode, best reply first)", email: "Follow-up emails", whatsapp: "WhatsApp messages", linkedin: "LinkedIn messages (invitation note ≤ 300 characters)" };
 function PlaybookTab() {
   const t = useT();
   const qc = useQueryClient();
@@ -377,9 +385,9 @@ function PlaybookTab() {
   return (
     <div className="flex flex-col gap-4">
       <Panel className="flex flex-wrap items-center justify-between gap-3">
-        <p className="max-w-xl text-sm text-text-2">{t("Scripts and templates used live in call mode. Placeholders:")} <code>{"{business}"}</code> <code>{"{contact}"}</code> <code>{"{founder}"}</code> <code>{"{calendly}"}</code> <code>{"{deck}"}</code>. {t("Links are set in Workspace. Nothing is ever sent without your click.")}</p>
+        <p className="max-w-xl text-sm text-text-2">{t("Scripts and templates used live in call mode. Placeholders:")} <code>{"{business}"}</code> <code>{"{contact}"}</code> <code>{"{founder}"}</code> <code>{"{calendly}"}</code> <code>{"{deck}"}</code> <code>{"{first_name}"}</code>. {t("Links are set in Workspace. Nothing is ever sent without your click.")}</p>
       </Panel>
-      {(["opener", "objection", "email", "whatsapp"] as const).map((kind) => (
+      {(["opener", "objection", "email", "whatsapp", "linkedin"] as const).map((kind) => (
         <Panel key={kind}>
           <PanelTitle>{t(KIND_TITLES[kind])}</PanelTitle>
           <div className="flex flex-col gap-4">
@@ -397,12 +405,12 @@ function PlaybookEditor({ item, busy, onSave }: { item: PlaybookItem; busy: bool
   const [body, setBody] = React.useState(item.body);
   const def = DEFAULT_PLAYBOOK.find((d) => d.kind === item.kind && d.key === item.key && d.language === item.language);
   const isDefault = def?.body === item.body && def?.subject === item.subject;
-  const title = item.kind === "objection" ? t(objectionLabel(item.key)) : item.kind === "email" ? t(EMAIL_TEMPLATE_LABELS[item.key as keyof typeof EMAIL_TEMPLATE_LABELS] ?? item.key) : item.kind === "whatsapp" ? (item.key === "deck" ? t("Deck") : "Calendly") : t("Opener");
+  const title = item.kind === "objection" ? t(objectionLabel(item.key)) : item.kind === "email" ? t(EMAIL_TEMPLATE_LABELS[item.key as keyof typeof EMAIL_TEMPLATE_LABELS] ?? item.key) : item.kind === "whatsapp" ? `WhatsApp · ${t(EMAIL_TEMPLATE_LABELS[item.key as keyof typeof EMAIL_TEMPLATE_LABELS] ?? item.key)}` : item.kind === "linkedin" ? t(LINKEDIN_TEMPLATE_LABELS[item.key as keyof typeof LINKEDIN_TEMPLATE_LABELS] ?? item.key) : t("Opener");
   const id = `pb-${item.kind}-${item.key}-${item.language}`;
   return (
     <form className="flex flex-col gap-2 border-t border-hairline pt-3 first:border-0 first:pt-0" onSubmit={(e) => { e.preventDefault(); onSave({ ...item, subject, body }); }}>
       <p className="text-sm font-medium">{title}{isDefault ? <span className="ml-2 text-[12px] font-normal text-text-3">{t("default")}</span> : null}</p>
-      {item.kind === "email" ? <Input aria-label={`${title} · ${t("Subject")}`} value={subject} onChange={(e) => setSubject(e.target.value)} /> : null}
+      {item.kind === "email" || (item.kind === "linkedin" && item.key === "inmail") ? <Input aria-label={`${title} · ${t("Subject")}`} value={subject} onChange={(e) => setSubject(e.target.value)} /> : null}
       <Textarea id={id} aria-label={`${title} · ${t("Text")}`} rows={item.kind === "email" ? 7 : 3} value={body} onChange={(e) => setBody(e.target.value)} />
       <div className="flex gap-2">
         <Button type="submit" size="sm" variant="outline" disabled={busy || (body === item.body && subject === item.subject)}>{t("Save")}</Button>

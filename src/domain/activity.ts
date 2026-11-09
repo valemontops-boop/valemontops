@@ -27,6 +27,8 @@ export const businessKey = (e: Pick<EventLike, "account_id" | "target_key">) => 
 export function dedupeEvents<E extends EventLike>(events: E[]): E[] {
   const best = new Map<string, E>();
   for (const e of events) {
+    // An undone tap (call mode "Undo", within seconds) is archived: the row stays for audit, it no longer counts.
+    if ((e as { is_archived?: boolean }).is_archived) continue;
     const prev = best.get(e.idempotency_key);
     if (!prev || e.created_at < prev.created_at || (e.created_at === prev.created_at && e.id < prev.id)) {
       best.set(e.idempotency_key, e);

@@ -16,7 +16,14 @@ const KEYS = {
   deck_url_es: "Commercial deck link (Spanish).",
   signature_theo: "Théo's email signature (several lines allowed).",
   signature_pablo: "Pablo's email signature (several lines allowed).",
+  offer_consulting_value_eur: "Default value of a Consulting deal ex VAT, in euros.",
+  offer_local_monthly_eur: "Valemont Local monthly price (last-resort downsell), in euros.",
+  linkedin_daily_invitation_limit: "LinkedIn invitations allowed per day (limits take priority over targets).",
+  linkedin_weekly_invitation_limit: "LinkedIn invitations allowed per week.",
+  time_split_target: "Target split of working time: sales / content / site, tools and analysis.",
 } as const;
+const NUMBER_KEYS = ["ideas_testing_limit", "hot_lead_stale_days", "conversion_min_sample", "linkedin_daily_invitation_limit", "linkedin_weekly_invitation_limit"];
+const EURO_KEYS = ["offer_consulting_value_eur", "offer_local_monthly_eur"];
 const URL_KEYS = ["calendly_url_theo", "calendly_url_pablo", "deck_url_fr", "deck_url_es"];
 
 export const GET = route(undefined, async ({ repo }) => {
@@ -25,8 +32,14 @@ export const GET = route(undefined, async ({ repo }) => {
 });
 
 export const POST = route(z.object({ key: z.enum(Object.keys(KEYS) as [keyof typeof KEYS, ...(keyof typeof KEYS)[]]), value: z.string().trim().max(500) }), async ({ repo, session, input }) => {
-  if (["ideas_testing_limit", "hot_lead_stale_days", "conversion_min_sample"].includes(input.key) && input.value && !/^\d{1,3}$/.test(input.value)) {
+  if (NUMBER_KEYS.includes(input.key) && input.value && !/^\d{1,3}$/.test(input.value)) {
     return Response.json({ error: "validation_error", message: "Enter a whole number" }, { status: 400 });
+  }
+  if (EURO_KEYS.includes(input.key) && input.value && !/^\d{1,6}$/.test(input.value)) {
+    return Response.json({ error: "validation_error", message: "Enter a whole number" }, { status: 400 });
+  }
+  if (input.key === "time_split_target" && input.value && !/^\d{1,3}\/\d{1,3}\/\d{1,3}$/.test(input.value)) {
+    return Response.json({ error: "validation_error", message: "Enter three percentages adding up to 100, e.g. 75/15/10" }, { status: 400 });
   }
   if (URL_KEYS.includes(input.key) && input.value && !/^https:\/\/[^\s"'<>]+$/.test(input.value)) {
     return Response.json({ error: "validation_error", message: "Enter a full https:// link" }, { status: 400 });

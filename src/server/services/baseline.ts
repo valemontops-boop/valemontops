@@ -5,6 +5,9 @@ import { schemaHash } from "@/data/sheets/setup";
 import { FOUNDERS, FOUNDER_NAMES, type FounderKey } from "@/domain/constants";
 import { CAPACITY_SEED_MINUTES, MINUTES_PER_ACTION_SEED, SETTINGS_SEEDS, SOCIAL_SEEDS, TARGET_SEEDS, channelRuleSeeds, seedTargetsFor } from "@/domain/seeds";
 import type { WorkMode } from "@/domain/constants";
+import { TASK_SEEDS } from "@/domain/task-seeds";
+import { nextDue } from "@/domain/tasks";
+import { addDays, localDate, weekday } from "@/domain/time";
 
 const SYSTEM: Actor = { founder: "system" };
 const SEED_DATE = "2000-01-01"; // seeds are effective from the beginning of time; edits supersede them
@@ -14,7 +17,7 @@ const SEED_DATE = "2000-01-01"; // seeds are effective from the beginning of tim
  * channel rules, target seeds, schema migration record. Never overwrites edited values.
  */
 export async function seedBaseline(repo: DataRepository, timezones: Record<FounderKey, string>) {
-  const t = await repo.listMany(["Users", "SystemSettings", "ChannelRules", "DailyTargets", "SchemaMigrations", "SocialAccounts"], { fresh: true });
+  const t = await repo.listMany(["Users", "SystemSettings", "ChannelRules", "DailyTargets", "SchemaMigrations", "SocialAccounts", "Tasks", "Sprints"], { fresh: true });
   const has = (rows: { id: string }[], id: string) => rows.some((r) => r.id === id);
   const added: Record<string, number> = {};
 
@@ -25,7 +28,7 @@ export async function seedBaseline(repo: DataRepository, timezones: Record<Found
     role: "founder" as const,
     timezone: timezones[f],
     workdays: [1, 2, 3, 4, 5],
-    capacity_minutes: CAPACITY_SEED_MINUTES.JOB_SEARCHING,
+    capacity_minutes: CAPACITY_SEED_MINUTES.FULL_TIME,
     onboarded_at: null,
     avail_start: "09:00",
     avail_end: "18:30",
@@ -53,6 +56,16 @@ export async function seedBaseline(repo: DataRepository, timezones: Record<Found
   const social = SOCIAL_SEEDS.map(({ key, ...a }) => ({ id: childId("social", key), ...a, market: null, visibility: "team" as const })).filter((a) => !has(t.SocialAccounts.rows, a.id));
   if (social.length) added.SocialAccounts = (await repo.insert("SocialAccounts", social, SYSTEM)).length;
 
+  const tasks = seedTasks(t.Tasks.rows, timezones);
+  if (tasks.length) added.Tasks = (await repo.insert("Tasks", tasks, SYSTEM)).length;
+
+  const sprintId = childId("sprint-seed", SPRINT_SEED.start_date);
+  if (!has(t.Sprints.rows, sprintId)) {
+    const otherActive = t.Sprints.rows.some((s) => s.status === "active" && !s.is_archived);
+    await repo.insert("Sprints", [{ id: sprintId, ...SPRINT_SEED, status: otherActive ? "planned" : "active" }], SYSTEM);
+    added.Sprints = 1;
+  }
+
   const migId = childId("schema", String(SCHEMA_VERSION), schemaHash());
   if (!has(t.SchemaMigrations.rows, migId)) {
     await repo.insert(
@@ -63,4 +76,43 @@ export async function seedBaseline(repo: DataRepository, timezones: Record<Found
     added.SchemaMigrations = 1;
   }
   return added;
+}
+
+/**
+ * Sprint from the founder brief (round 8): 9 Nov → 4 Dec 2026, goals 2 paying clients and EUR 3,000 ex VAT signed
+ * (SystemSettings `sprint_goal_paying_clients` / `sprint_goal_signed_eur`). Per founder, over 20 workdays at FULL_TIME:
+ * 1,800 new businesses (theoretical), 20 qualified conversations, 8 qualified meetings, 1 paying client. One offer: Consulting.
+ */
+export const SPRINT_SEED = {
+  name: "Sprint 09/11 → 04/12/2026",
+  start_date: "2026-11-09",
+  end_date: "2026-12-04",
+  niche: "",
+  targets: { theo: { contacted: 1800, replies: 20, demos: 8, pilots: 1 }, pablo: { contacted: 1800, replies: 20, demos: 8, pilots: 1 } },
+  brand_split: { consulting: 1, local: 0, thirty: 0 },
+};
+
+const nextWorkday = (d: string) => { let x = d; while ([0, 6].includes(weekday(x))) x = addDays(x, 1); return x; };
+const addWorkdays = (d: string, n: number) => { let x = nextWorkday(d); for (let i = 0; i < n; i++) x = nextWorkday(addDays(x, 1)); return x; };
+
+/** Brief task templates, one per founder in their language; an existing row (any status, archived included) is never re-seeded. */
+function seedTasks(existing: { id: string; source: string; source_id: string; owner: string | null }[], timezones: Record<FounderKey, string>) {
+  const out = [];
+  for (const seed of TASK_SEEDS)
+    for (const f of FOUNDERS) {
+      const title = seed.title[f];
+      if (!title) continue;
+      const id = childId("seed-task", seed.key, f);
+      if (existing.some((r) => r.id === id || (r.source === "system" && r.source_id === seed.key && r.owner === f))) continue;
+      const today = localDate(new Date(), timezones[f]);
+      const days = seed.recurrence === "weekly" ? seed.days ?? [] : [];
+      const due = seed.recurrence === "weekly" ? nextDue(addDays(today, -1), "weekly", days)! : seed.recurrence === "weekdays" ? nextWorkday(today) : addWorkdays(today, seed.dueInDays ?? 0);
+      out.push({
+        id, title, description: "", owner: f, created_by_founder: f, account_id: "", opportunity_id: "", project_id: "", client_id: "",
+        priority: seed.priority, status: "todo" as const, estimated_minutes: seed.minutes, due_at: due, recurrence: seed.recurrence, recurrence_days: days,
+        recurrence_parent_id: "", dependency_ids: [], completion_evidence: "", completed_at: null, visibility: "team" as const, snoozed_until: null, snooze_reason: "",
+        area: seed.area, source: "system" as const, source_id: seed.key,
+      });
+    }
+  return out;
 }

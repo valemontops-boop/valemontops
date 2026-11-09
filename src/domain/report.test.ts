@@ -1,24 +1,44 @@
 import { describe, expect, it } from "vitest";
-import { formatWhatsAppReport } from "./report";
+import { formatWhatsAppReport, type DailyReportInput } from "./report";
 import { emptyTally } from "./activity";
+import { translate } from "@/i18n";
 
-describe("WhatsApp daily report", () => {
-  it("lists exactly the logged actions including field visits", () => {
-    const text = formatWhatsAppReport({
-      founderName: "Théo",
-      date: "2026-11-09",
-      tally: { ...emptyTally(), calls: 2, field_visits: 1, new_businesses: 2 },
-      targets: { calls: 35, dms: 0 },
-      byType: { cold_call: 1, connected_call: 1, field_visit: 1 },
-      openOpportunities: [{ name: "Plomberie Martin · Local", stage: "Contacted", nextAction: "Call back" }],
-      openOpportunityCount: 1,
-      nextDayPriority: "Visit three garages",
-    });
-    expect(text).toContain("- Field visit: 1");
-    expect(text).toContain("- Call, connected: 1");
-    expect(text).toContain("- New businesses contacted: 2");
-    expect(text).toContain("- Calls: 2/35");
-    expect(text).not.toContain("LinkedIn DMs");
+const input: DailyReportInput = {
+  founderName: "Théo",
+  date: "2026-11-09",
+  tally: { ...emptyTally(), calls: 42, dms: 6, invitations: 12, inmails: 1, cold_emails: 9, follow_ups: 14, new_businesses: 61 },
+  qualifiedConversations: 2,
+  meetingsBooked: 1,
+  proposalsSent: 1,
+  postsPublished: 2,
+  cashCollectedMinor: 150000,
+  nextDayPriority: "Visit three garages",
+  valemont: { newContacts: 97, qualifiedConversations: 3, meetingsHeld: 1, proposalsSent: 1, revenueExVatMinor: null },
+  thirty: { videosPublished: 1, siteVisits: 120, checkouts: null, reportsSold: 2 },
+  local: { activeSubscriptions: 3, setupFeesMinor: null, aiUsage: null, marginAfterSupportMinor: null },
+};
+
+describe("WhatsApp daily report (brief round 8)", () => {
+  it("lists the founder's day, then Valemont, 30/30 and Valemont Local separately; missing data prints —", () => {
+    const text = formatWhatsAppReport(input);
+    expect(text).toContain("- Calls: 42");
+    expect(text).toContain("- Connection requests: 12");
+    expect(text).toContain("- Qualified conversations: 2");
+    expect(text).toContain("- Cash collected (EUR): 1 500 €");
     expect(text).toContain("*Tomorrow's priority:* Visit three garages");
+    expect(text.indexOf("*Valemont (team)*")).toBeLessThan(text.indexOf("*30/30*"));
+    expect(text.indexOf("*30/30*")).toBeLessThan(text.indexOf("*Valemont Local*"));
+    expect(text).toContain("- New contacts: 97");
+    expect(text).toContain("- Revenue collected ex VAT: —");
+    expect(text).toContain("- Checkouts: —");
+    expect(text).toContain("- AI usage: —");
+  });
+  it("is written in the founder's language", () => {
+    const fr = formatWhatsAppReport(input, (s, v) => translate("fr", s, v));
+    expect(fr).toContain("- Appels : 42");
+    expect(fr).toContain("Priorité de demain :");
+    const es = formatWhatsAppReport({ ...input, founderName: "Pablo" }, (s, v) => translate("es", s, v));
+    expect(es).toContain("- Llamadas: 42");
+    expect(es).toContain("Valemont (equipo)");
   });
 });

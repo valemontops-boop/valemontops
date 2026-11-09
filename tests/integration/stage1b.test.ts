@@ -70,9 +70,11 @@ describe("Scenario 4: P0 task assigned to Pablo", () => {
   it("appears in Pablo's day and the team list; completing it syncs; recurrence creates the next instance once", async () => {
     const id = randomUUID();
     await createTask(ctx, "theo", { id, task: { title: "Call the accountant", description: "", owner: "pablo", priority: "P0", due_at: "2026-11-09", estimated_minutes: 15, recurrence: "weekly", account_id: "", opportunity_id: "", dependency_ids: [], private: false }, source: "manual", source_id: "" });
-    const pabloView = await listTasks(ctx, "pablo", "mine");
+    // The baseline also seeds the brief's checklist and one-off tasks (source "system"): only the manual one is checked here.
+    const manual = <T extends { source: string }>(xs: T[]) => xs.filter((x) => x.source !== "system");
+    const pabloView = manual(await listTasks(ctx, "pablo", "mine"));
     expect(pabloView.map((t) => t.title)).toEqual(["Call the accountant"]);
-    expect((await listTasks(ctx, "theo", "pablo")).length).toBe(1);
+    expect(manual(await listTasks(ctx, "theo", "pablo")).length).toBe(1);
     const t = pabloView[0];
     await updateTask(ctx, "pablo", { id, private: false, expected_version: t.version, patch: { status: "done" } });
     await updateTask(ctx, "pablo", { id, private: false, expected_version: t.version + 1, patch: { status: "done" } }).catch(() => undefined);
@@ -188,7 +190,7 @@ describe("Scenario 18: founder point", () => {
 
 describe("Scenario 19: idea box", () => {
   it("one line is enough, adds nothing to targets, third Testing idea asks to park, conversion keeps the link", async () => {
-    await setMode(ctx.repo, "theo", { mode: "JOB_SEARCHING", reason: "" }, NOW);
+    await setMode(ctx.repo, "theo", { mode: "FULL_TIME", reason: "" }, NOW);
     const before = await getMyDay(ctx.repo, "theo", NOW);
     await createSprint(ctx, "theo", { name: "S1", start_date: "2026-11-02", end_date: "2026-11-15", niche: "", targets: { theo: { contacted: 50, replies: 10, demos: 3, pilots: 1 }, pablo: { contacted: 50, replies: 10, demos: 3, pilots: 1 } }, brand_split: { local: 0.7, consulting: 0.2, thirty: 0.1 } });
     const ids = [randomUUID(), randomUUID(), randomUUID()];

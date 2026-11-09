@@ -14,6 +14,7 @@ import { normalizePhone } from "@/domain/normalize";
 import { targetKey } from "../target-key";
 import { BlockedError, RuleError } from "../errors";
 import { userRow } from "./common";
+import { emitActivityLogged } from "../activity-hooks";
 
 const optUuid = z.union([z.literal(""), z.string().uuid()]).default("");
 
@@ -210,6 +211,8 @@ export async function logActivity(repo: DataRepository, founder: FounderKey, inp
     duration_sec: input.duration_sec,
   };
   const [row] = await repo.insert("ActivityEvents", [event], actor);
+  // Founder's own tracker (LIVE only, fire-and-forget: a tracker failure never fails this action).
+  emitActivityLogged(repo, founder, row, account?.name ?? "");
 
   // Repairable caches on the opportunity (spec 4.2): next action and first-touch stage.
   if (opp) {

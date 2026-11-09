@@ -10,6 +10,7 @@ import { addDays, cutoffOf, localDate, weekday } from "@/domain/time";
 import { RuleError } from "../errors";
 import type { AppContext } from "../context";
 import { userRow } from "./common";
+import { emitDailyReviewSaved } from "../activity-hooks";
 
 const OFF = ["DAY_OFF", "VACATION"];
 const LOOKBACK_DAYS = 60;
@@ -99,8 +100,8 @@ export async function saveReview(ctx: AppContext, founder: FounderKey, input: z.
   const today = localDate(now, user.timezone);
   const id = childId("review", founder, today);
   const cur = await ctx.repo.get("DailyReviews", id, { fresh: true });
-  if (cur) return ctx.repo.update("DailyReviews", id, cur.version, input, { founder });
-  const [row] = await ctx.repo.insert("DailyReviews", [{ id, founder_key: founder, local_date: today, ...input }], { founder });
+  const row = cur ? await ctx.repo.update("DailyReviews", id, cur.version, input, { founder }) : (await ctx.repo.insert("DailyReviews", [{ id, founder_key: founder, local_date: today, ...input }], { founder }))[0];
+  emitDailyReviewSaved(ctx.repo, founder, today); // optional day summary to the founder's tracker (LIVE only)
   return row;
 }
 

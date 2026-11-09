@@ -5,7 +5,7 @@ import * as React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ErrorState, Field, Input, Panel, PanelTitle, Select, Textarea } from "@/components/ui/form";
-import { BRANDS, BRAND_LABELS, FOUNDERS, FOUNDER_NAMES } from "@/domain/constants";
+import { FOUNDERS, FOUNDER_NAMES } from "@/domain/constants";
 import type { ImportPreview } from "@/domain/csv";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -20,14 +20,13 @@ export function ImportView() {
   const qc = useQueryClient();
   const [importId, setImportId] = React.useState(() => crypto.randomUUID()); // stable across retries: re-submitting adds nothing
   const [csv, setCsv] = React.useState("");
-  const [brand, setBrand] = React.useState("local");
   const [owner, setOwner] = React.useState("");
   const [source, setSource] = React.useState(() => t("CSV import"));
   const [listName, setListName] = React.useState("");
   const [result, setResult] = React.useState<{ imported: number; contacts: number; skipped: number } | null>(null);
   const preview = useMutation({ mutationFn: () => api<ImportPreview>("/api/crm/import/preview", { body: { csv } }) });
   const commit = useMutation({
-    mutationFn: () => api<{ imported: number; contacts: number; skipped: number }>("/api/crm/import/commit", { body: { import_id: importId, csv, brand, owner_founder: owner || null, lead_source: source, list_name: listName } }),
+    mutationFn: () => api<{ imported: number; contacts: number; skipped: number }>("/api/crm/import/commit", { body: { import_id: importId, csv, brand: "consulting", owner_founder: owner || null, lead_source: source, list_name: listName } }),
     onSuccess: (r) => { qc.invalidateQueries(); setResult(r); toast(t("Imported {n} businesses", { n: r.imported })); },
   });
   const onFile = async (f: File | undefined) => {
@@ -51,8 +50,7 @@ export function ImportView() {
           <Field label={t("CSV file")} htmlFor="csv-file"><input id="csv-file" type="file" accept=".csv,text/csv" onChange={(e) => onFile(e.target.files?.[0])} className="text-sm file:mr-3 file:h-9 file:rounded-full file:border file:border-control file:bg-panel file:px-4" /></Field>
           <Field label={t("Or paste CSV")} htmlFor="csv-text"><Textarea id="csv-text" value={csv} onChange={(e) => { setCsv(e.target.value); setResult(null); }} className="num min-h-32 font-mono text-[13px]" placeholder={"Company,Website,Phone,Country\nPlomberie Exemple,plomberie.example.com,+33 1 00 00 00 00,FR"} /></Field>
           <Field label={t("List name (you will call through it)")} htmlFor="imp-name"><Input id="imp-name" value={listName} onChange={(e) => setListName(e.target.value)} placeholder={t("e.g. Garages Lyon · November")} /></Field>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <Field label={t("Brand")} htmlFor="imp-brand"><Select id="imp-brand" value={brand} onChange={(e) => setBrand(e.target.value)}>{BRANDS.map((b) => <option key={b} value={b}>{t(BRAND_LABELS[b])}</option>)}</Select></Field>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label={t("Owner")} htmlFor="imp-owner"><Select id="imp-owner" value={owner} onChange={(e) => setOwner(e.target.value)}><option value="">{t("Unassigned")}</option>{FOUNDERS.map((f) => <option key={f} value={f}>{FOUNDER_NAMES[f]}</option>)}</Select></Field>
             <Field label={t("Lead source")} htmlFor="imp-src"><Input id="imp-src" value={source} onChange={(e) => setSource(e.target.value)} /></Field>
           </div>

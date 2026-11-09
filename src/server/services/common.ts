@@ -25,3 +25,15 @@ export async function stageProbabilities(repo: DataRepository): Promise<Record<S
     return STAGE_PROBABILITY_SEED;
   }
 }
+
+/** A whole-number setting, or the fallback when missing or not a number. */
+export async function numSetting(repo: DataRepository, key: string, fallback: number): Promise<number> {
+  const raw = (await settingValue(repo, key))?.trim();
+  const n = raw ? Number(raw.replace(",", ".")) : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+/** Default deal values per offer (brief round 8), in EUR cents: Consulting value and Local monthly price. */
+export async function offerDefaults(repo: DataRepository): Promise<{ consulting: number; local: number }> {
+  return { consulting: Math.round((await numSetting(repo, "offer_consulting_value_eur", 1500)) * 100), local: Math.round((await numSetting(repo, "offer_local_monthly_eur", 100)) * 100) };
+}

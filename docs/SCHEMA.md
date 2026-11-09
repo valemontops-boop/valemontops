@@ -48,6 +48,7 @@ Money: integer EUR cents (`value_minor`) + `currency`.
 | ContentLog | audience | idempotency_key, founder_key, deliverable, brand, language, title, url, local_date |
 | AudienceBreakdown | audience | account_id, date, dimension, key, value, unit, source |
 | TrafficDaily | audience | date, brand, source, medium, campaign, country, sessions, leads, meetings, purchases, revenue_minor, origin, import_file |
+| InboxItems | work | source, account_label, from_name, excerpt, url, received_at, status, assigned_founder, replied_at, external_id |
 
 ## Private spreadsheet per founder
 
@@ -68,3 +69,5 @@ Money: integer EUR cents (`value_minor`) + `currency`.
 - ActivityEvents.replies lists reply variants used ("too_expensive#2"); EmailSends.account_id → Accounts.id; activity_event_id → ActivityEvents.id (the follow-up event); Playbook overrides built-in templates by (kind, key, language)
 - CallLists.id = import id; Accounts.list_id → CallLists.id; CallSessions → ActivityEvents.call_session_id
 - ContentLog (weekly deliverables), TrafficDaily (GA4/manual), AudienceBreakdown (country split per SocialAccount)
+- TrafficDaily.source/medium is classified at read time (src/domain/marketing.ts `classifyTraffic`): web browser (search, paid, direct, referral, other), AI engines, social networks
+- InboxItems.id = UUIDv5("inbox", external_id), so a webhook retried or a comment delivered twice adds nothing; items derived from EmailSends (`email:<id>`, `whatsapp:<id>`), ActivityEvents (`activity:<id>`) and Accounts (`lead:<id>`) get a row only when marked replied/ignored

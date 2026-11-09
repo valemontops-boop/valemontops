@@ -12,6 +12,7 @@ import { cn, formatMoney } from "@/lib/utils";
 import { Bars } from "./charts";
 import { VerdictPanel } from "./verdicts";
 import { moneyVerdicts } from "@/domain/verdicts";
+import { ExportButton } from "./export-dialog";
 
 type Tx = { bank: "wise" | "stripe"; id: string; version: number; occurred_at: string; date: string; amount_minor: number; currency: string; description: string; counterparty: string; category: BankCategory; category_source: "auto" | "manual"; direction: "credit" | "debit"; origin: string };
 type Money = {
@@ -54,6 +55,7 @@ export function MoneyView() {
         </div>
         <div className="flex gap-2">
           {d.connected || d.stripe.connected ? <Button variant="outline" disabled={sync.isPending} onClick={() => sync.mutate()}><RefreshCw /> {t("Update")}</Button> : null}
+          <ExportButton />
           <CsvImport />
         </div>
       </div>

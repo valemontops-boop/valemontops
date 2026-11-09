@@ -28,18 +28,18 @@ export function demoWiseStore(now = new Date()) {
   const rows: [number, number, string, string, string, string][] = [
     [70, 500000, "MONEY_ADDED", "Apport depuis le compte d'un fondateur", "Théo (demo)", ""],
     [64, -2390, "CARD", "Google Workspace", "Google", "Computer Software"],
-    [60, 49000, "DEPOSIT", "Facture VL-0001", "Plomberie Duval (demo)", ""],
+    [60, 150000, "DEPOSIT", "Facture VC-0001", "Plomberie Duval (demo)", ""],
     [55, -2000, "CARD", "Notion Labs", "Notion", "Computer Software"],
     [41, -15000, "CARD", "Meta ads", "Facebook", "Advertising Services"],
-    [38, 9900, "DEPOSIT", "Abonnement VL-0001 mois 2", "Plomberie Duval (demo)", ""],
+    [38, 10000, "DEPOSIT", "Abonnement VL-0001 mois 1", "Boulangerie Test (demo)", ""],
     [33, -1999, "CARD", "Movistar", "Movistar", "Telecommunication"],
     [28, -6400, "CARD", "Renfe Madrid", "Renfe", "Railroads"],
-    [25, 49000, "DEPOSIT", "Facture VL-0002", "Garage du Parc (demo)", ""],
+    [25, 150000, "DEPOSIT", "Facture VC-0002", "Garage du Parc (demo)", ""],
     [21, -2390, "CARD", "Google Workspace", "Google", "Computer Software"],
     [12, -30000, "TRANSFER", "Designer freelance (demo)", "Studio Exemple (demo)", ""],
-    [9, 9900, "DEPOSIT", "Abonnement VL-0001 mois 3", "Plomberie Duval (demo)", ""],
+    [9, 10000, "DEPOSIT", "Abonnement VL-0001 mois 2", "Boulangerie Test (demo)", ""],
     [6, -2000, "CARD", "Notion Labs", "Notion", "Computer Software"],
-    [3, 9900, "DEPOSIT", "Abonnement VL-0002 mois 2", "Garage du Parc (demo)", ""],
+    [3, 10000, "DEPOSIT", "Abonnement VL-0002 mois 1", "Électricité Démo (demo)", ""],
     [1, -120, "ACCRUAL_CHARGE", "Wise fee", "Wise", ""],
   ];
   rows.forEach(([d, amount, type, description, counterparty, mc], i) => s.addTx("demo-eur", {

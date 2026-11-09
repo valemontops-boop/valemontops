@@ -32,7 +32,8 @@ export async function preview(repo: DataRepository, csv: string) {
 export const commitSchema = z.object({
   import_id: z.string().uuid(),
   csv: z.string().max(1_000_000),
-  brand: z.enum(["consulting", "local", "thirty"]).default("local"),
+  /** One Valemont offer (round 8): prospects are Consulting; the brand is no longer asked. */
+  brand: z.enum(["consulting", "local", "thirty"]).default("consulting"),
   owner_founder: z.enum(["theo", "pablo"]).nullable().default(null),
   lead_source: z.string().trim().max(120).default("CSV import"),
   list_name: z.string().trim().max(160).default(""),

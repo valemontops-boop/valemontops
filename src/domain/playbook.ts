@@ -8,7 +8,8 @@ import { objectionDefaults } from "./objections";
  * {calendly} {deck}. Nothing here is sent automatically.
  */
 export type Lang = "FR" | "ES";
-export type PlaybookKind = "opener" | "objection" | "email" | "whatsapp";
+export type PlaybookKind = "opener" | "objection" | "email" | "whatsapp" | "linkedin";
+export const PLAYBOOK_KINDS = ["opener", "objection", "email", "whatsapp", "linkedin"] as const satisfies readonly PlaybookKind[];
 export interface PlaybookItem { kind: PlaybookKind; key: string; language: Lang; subject: string; body: string }
 
 /** Follow-up templates, in the order shown in call mode. */
@@ -30,6 +31,15 @@ export const EMAIL_TEMPLATE_LABELS: Record<TemplateKey, string> = {
 export const TEMPLATE_SHORT: Record<TemplateKey, string> = { thanks: "Thanks", calendly: "Calendly", deck: "Deck", confirm: "Confirm", thanks_soft: "Thanks (no)", missed: "Missed you", nudge: "Nudge" };
 /** Cold = no conversation happened: stricter rules apply (Spain needs prior consent). */
 export const COLD_TEMPLATES: readonly TemplateKey[] = ["missed"];
+
+/** LinkedIn session messages (no API: the founder copies them into LinkedIn / Sales Navigator). */
+export const LINKEDIN_TEMPLATES = ["invitation", "first_dm", "follow_up", "inmail"] as const;
+export type LinkedInTemplate = (typeof LINKEDIN_TEMPLATES)[number];
+export const LINKEDIN_TEMPLATE_LABELS: Record<LinkedInTemplate, string> = {
+  invitation: "Connection note", first_dm: "First message after acceptance", follow_up: "Follow-up message", inmail: "InMail",
+};
+/** LinkedIn caps a connection note at 300 characters. */
+export const LINKEDIN_NOTE_MAX = 300;
 
 const D: PlaybookItem[] = [
   { kind: "opener", key: "default", language: "FR", subject: "", body: "Bonjour {contact}, {founder} de Valemont. Je serai bref : quand un client vous appelle pendant que vous êtes sur un chantier, qui lui répond ? On met en place un système qui capte chaque demande, la qualifie et vous prévient tout de suite. Ça vous parle ?" },
@@ -67,6 +77,15 @@ const D: PlaybookItem[] = [
   { kind: "whatsapp", key: "calendly", language: "ES", subject: "", body: "Hola {contact}, soy {founder} de Valemont, gracias por la llamada. Aquí tiene mi enlace para reservar 15 min: {calendly}" },
   { kind: "whatsapp", key: "deck", language: "FR", subject: "", body: "Bonjour {contact}, {founder} de Valemont. Comme promis, notre présentation : {deck}" },
   { kind: "whatsapp", key: "deck", language: "ES", subject: "", body: "Hola {contact}, soy {founder} de Valemont. Como le prometí, nuestra presentación: {deck}" },
+
+  { kind: "linkedin", key: "invitation", language: "FR", subject: "", body: "Bonjour {first_name}, je m'intéresse à la façon dont les entreprises comme {business} gèrent les appels manqués pendant le travail. J'aide des artisans et des PME sur ce sujet. Ravi d'échanger avec vous. {founder}" },
+  { kind: "linkedin", key: "invitation", language: "ES", subject: "", body: "Hola {first_name}, me interesa saber cómo empresas como {business} gestionan las llamadas perdidas mientras trabajan. Ayudo a autónomos y pymes con este tema. Encantado de conectar. {founder}" },
+  { kind: "linkedin", key: "first_dm", language: "FR", subject: "", body: "Merci pour la connexion, {first_name} !\n\nQuestion rapide : quand vous êtes occupé et qu'un client appelle, qui lui répond ? Chez Valemont, on met en place un système qui capte chaque demande, la qualifie et vous prévient tout de suite.\n\nSi le sujet vous parle, voici mon lien pour 15 minutes : {calendly}\n\n{founder}" },
+  { kind: "linkedin", key: "first_dm", language: "ES", subject: "", body: "¡Gracias por conectar, {first_name}!\n\nUna pregunta rápida: cuando está ocupado y llama un cliente, ¿quién le contesta? En Valemont montamos un sistema que recoge cada solicitud, la cualifica y le avisa al momento.\n\nSi le interesa, aquí tiene mi enlace para 15 minutos: {calendly}\n\n{founder}" },
+  { kind: "linkedin", key: "follow_up", language: "FR", subject: "", body: "Bonjour {first_name}, je me permets de revenir vers vous. Les appels manqués, c'est un sujet chez {business}, ou je ne vous embête plus ? Un mot de réponse me suffit. {founder}" },
+  { kind: "linkedin", key: "follow_up", language: "ES", subject: "", body: "Hola {first_name}, le escribo de nuevo. ¿Las llamadas perdidas son un tema en {business}, o no le molesto más? Me basta con una palabra. {founder}" },
+  { kind: "linkedin", key: "inmail", language: "FR", subject: "Les appels manqués chez {business}", body: "Bonjour {first_name},\n\nQuand vous êtes sur le terrain et qu'un client appelle, qui lui répond ? Un appel manqué, c'est souvent un client qui part ailleurs.\n\nChez Valemont, on met en place un système qui répond, qualifie chaque demande et vous prévient tout de suite.\n\nSi le sujet vous parle, 15 minutes suffisent pour vous montrer : {calendly}\n\n{signature}" },
+  { kind: "linkedin", key: "inmail", language: "ES", subject: "Las llamadas perdidas en {business}", body: "Hola {first_name}:\n\nCuando está trabajando y llama un cliente, ¿quién le contesta? Una llamada perdida suele ser un cliente que se va a otro.\n\nEn Valemont montamos un sistema que contesta, cualifica cada solicitud y le avisa al momento.\n\nSi le interesa, con 15 minutos se lo enseño: {calendly}\n\n{signature}" },
 ];
 export const DEFAULT_PLAYBOOK: readonly PlaybookItem[] = D;
 
@@ -84,11 +103,15 @@ export function findItem(items: readonly PlaybookItem[], kind: PlaybookKind, key
   return items.find((i) => i.kind === kind && i.key === key && i.language === language) ?? items.find((i) => i.kind === kind && i.key === key) ?? null;
 }
 
-export interface FillVars { business?: string; contact?: string; founder?: string; calendly?: string; deck?: string; signature?: string }
+export interface FillVars { business?: string; contact?: string; founder?: string; calendly?: string; deck?: string; signature?: string; first_name?: string }
 /** Fills placeholders. A missing link stays visible as [add … in Settings] so nothing is sent with a hole. */
 export function fill(text: string, v: FillVars): string {
   const contact = v.contact?.trim() ?? "";
+  const first = v.first_name?.trim() ?? "";
   return text
+    .replace(/, \{first_name\}/g, first ? `, ${first}` : "")
+    .replace(/ \{first_name\}/g, first ? ` ${first}` : "")
+    .replace(/\{first_name\}/g, first)
     .replace(/ \{contact\}/g, contact ? ` ${contact}` : "")
     .replace(/\{contact\}/g, contact)
     .replace(/, \{business\}/g, v.business?.trim() ? `, ${v.business.trim()}` : "")
@@ -110,6 +133,12 @@ export const objectionLabel = (k: string) => { const [o, v] = k.split("#"); retu
 export function whatsappLink(phoneE164: string, text: string): string {
   const digits = phoneE164.replace(/[^\d]/g, "");
   return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
+}
+
+/** WhatsApp Web on a computer (opens the chat in the browser tab), wa.me on a phone (opens the app). */
+export function whatsappSendLink(phoneE164: string, text: string, mobile: boolean): string {
+  if (mobile) return whatsappLink(phoneE164, text);
+  return `https://web.whatsapp.com/send?phone=${phoneE164.replace(/[^\d]/g, "")}&text=${encodeURIComponent(text)}`;
 }
 
 export function mailtoLink(to: string, subject: string, body: string): string {

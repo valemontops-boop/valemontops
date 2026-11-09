@@ -4,7 +4,7 @@ import * as React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, ErrorState, Skeleton } from "@/components/ui/form";
-import { METRICS, METRIC_LABELS, WORK_MODES, WORK_MODE_LABELS, type Metric, type WorkMode } from "@/domain/constants";
+import { METRICS, METRIC_LABELS, WORK_MODES, WORK_MODE_HINTS, WORK_MODE_LABELS, type Metric, type WorkMode } from "@/domain/constants";
 import { api } from "@/lib/api";
 import { feasibility } from "@/domain/targets";
 import { useT } from "@/i18n/react";
@@ -14,7 +14,7 @@ type TargetsResp = { mode: WorkMode; currentMode: WorkMode | null; nextMode: Wor
 export function TargetsEditor({ initialMode }: { initialMode: WorkMode | null }) {
   const t = useT();
   const qc = useQueryClient();
-  const [mode, setMode] = React.useState<WorkMode>(initialMode ?? "JOB_SEARCHING");
+  const [mode, setMode] = React.useState<WorkMode>(initialMode ?? "FULL_TIME");
   const q = useQuery({ queryKey: ["targets", mode], queryFn: () => api<TargetsResp>(`/api/settings/targets?mode=${mode}`) });
 
   const saveMode = useMutation({
@@ -34,6 +34,7 @@ export function TargetsEditor({ initialMode }: { initialMode: WorkMode | null })
           </Button>
         </div>
       </Field>
+      {WORK_MODE_HINTS[mode] ? <p className="-mt-3 text-[13px] text-text-2">{t(WORK_MODE_HINTS[mode]!)}</p> : null}
       {saveMode.isError ? <ErrorState error={saveMode.error} onRetry={() => saveMode.mutate()} /> : null}
       {q.isPending ? <Skeleton className="h-64" /> : q.isError ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : off ? (
         <p className="text-sm text-text-2">{t("No targets on days off or vacation. Nothing is counted against you.")}</p>

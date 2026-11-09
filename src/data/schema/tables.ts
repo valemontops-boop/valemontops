@@ -18,9 +18,11 @@ import {
   STAGES,
   SUPPRESSION_KINDS,
   WORK_MODES,
+  LEGACY_WORK_MODES,
 } from "@/domain/constants";
 import { BANK_CATEGORIES } from "@/domain/bank";
-import { bool, day, int, iso, json, oneOf, oneOfOr, optDay, optInt, optIso, optOneOf, reqText, text } from "./codecs";
+import { INBOX_SOURCES, INBOX_STATUSES } from "@/domain/inbox";
+import { bool, day, int, iso, json, oneOf, oneOfAlias, oneOfOr, optDay, optInt, optIso, optOneOf, reqText, text } from "./codecs";
 
 /** Revision domains: a mutation in a table bumps its domain token (spec 4.1). */
 export const DOMAINS = ["settings", "activity", "crm", "audit", "work", "audience", "private", "finance"] as const;
@@ -37,6 +39,8 @@ const base = {
 };
 
 const founder = () => oneOf(FOUNDERS);
+/** Work mode cells accept the pre-round-8 names (JOB_SEARCHING, EMPLOYED_35H) and read them as FULL_TIME / REDUCED. */
+const workMode = () => oneOfAlias(WORK_MODES, LEGACY_WORK_MODES);
 const optFounder = () => optOneOf(FOUNDERS);
 
 function taskShape() {
@@ -97,14 +101,14 @@ export const TABLES = {
   },
   WorkModes: {
     domain: "settings",
-    shape: { ...base, founder_key: founder(), mode: oneOf(WORK_MODES), effective_from: day(), reason: text(300) },
+    shape: { ...base, founder_key: founder(), mode: workMode(), effective_from: day(), reason: text(300) },
   },
   DailyTargets: {
     domain: "settings",
     shape: {
       ...base,
       founder_key: founder(),
-      mode: oneOf(WORK_MODES),
+      mode: workMode(),
       metric: oneOf(METRICS),
       target: int(),
       weight: int(),
@@ -119,7 +123,7 @@ export const TABLES = {
       founder_key: founder(),
       local_date: day(),
       timezone: reqText(60),
-      mode: oneOf(WORK_MODES),
+      mode: workMode(),
       is_workday: bool(),
       capacity_minutes: int(),
       targets: json(targetSnapshot, {}),
@@ -518,7 +522,7 @@ export const TABLES = {
     domain: "settings",
     shape: {
       ...base,
-      kind: oneOf(["opener", "objection", "email", "whatsapp"] as const),
+      kind: oneOf(["opener", "objection", "email", "whatsapp", "linkedin"] as const),
       key: reqText(60),
       language: oneOf(["FR", "ES"] as const),
       subject: text(300),
@@ -596,6 +600,27 @@ export const TABLES = {
   RevenueSnapshots: {
     domain: "finance",
     shape: { ...base, source: oneOf(["stripe"] as const), date: day(), currency: reqText(3), mrr_minor: int(), active_subscriptions: int() },
+  },
+  /**
+   * "To reply" inbox (round 8): comments and messages waiting for an answer. One row per external item
+   * (id = UUIDv5 of external_id, so a webhook delivered twice adds nothing). Items derived from EmailSends,
+   * ActivityEvents and Accounts are only written when a founder marks them replied or ignored.
+   */
+  InboxItems: {
+    domain: "work",
+    shape: {
+      ...base,
+      source: oneOf(INBOX_SOURCES),
+      account_label: text(120),
+      from_name: text(200),
+      excerpt: text(500),
+      url: text(1_000),
+      received_at: iso(),
+      status: oneOf(INBOX_STATUSES),
+      assigned_founder: optFounder(),
+      replied_at: optIso(),
+      external_id: reqText(200),
+    },
   },
   /* ----- private founder spreadsheets only (spec 4.7) ----- */
   PrivateTasks: { domain: "private", shape: taskShape() },

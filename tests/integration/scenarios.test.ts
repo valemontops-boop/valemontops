@@ -48,23 +48,25 @@ describe("Scenario 1: mode and exact saved targets from Sheets", () => {
     const before = await getMyDay(repo, "theo", NOW);
     expect(before.mode).toBeNull();
     expect(before.nextAction.kind).toBe("onboarding");
-    await setMode(repo, "theo", { mode: "JOB_SEARCHING", reason: "" }, NOW);
-    await setTargets(repo, "theo", { mode: "JOB_SEARCHING", targets: { calls: { target: 33, weight: 2, minutes: 4 } } }, NOW);
+    await setMode(repo, "theo", { mode: "FULL_TIME", reason: "" }, NOW);
+    await setTargets(repo, "theo", { mode: "FULL_TIME", targets: { calls: { target: 33, weight: 2, minutes: 4 } } }, NOW);
     const reloaded = await getMyDay(makeRepo(url), "theo", NOW); // new instance = reload
-    expect(reloaded.mode).toBe("JOB_SEARCHING");
+    expect(reloaded.mode).toBe("FULL_TIME");
     expect(reloaded.targets?.calls).toEqual({ target: 33, weight: 2, minutes: 4 });
-    expect(reloaded.targets?.dms.target).toBe(12);
-    expect(reloaded.targets?.cold_emails.target).toBe(8);
+    // Brief round 8 seeds, same for both founders: FULL_TIME = 15 invitations + 10 DMs, 15 emails, 90 new businesses.
+    expect(reloaded.targets?.dms.target).toBe(10);
+    expect(reloaded.targets?.cold_emails.target).toBe(15);
+    expect(reloaded.targets?.new_businesses.target).toBe(90);
     const grid = fake.sheet(TEST_SHEET_ID, "DailyPlans")!.grid;
     expect(grid).toHaveLength(2); // one snapshot row for today
   });
 
   it("a target lowered after the day started does not change today's plan (scenario 16 part)", async () => {
-    await setMode(repo, "theo", { mode: "JOB_SEARCHING", reason: "" }, NOW);
+    await setMode(repo, "theo", { mode: "FULL_TIME", reason: "" }, NOW);
     await getMyDay(repo, "theo", NOW); // day starts: plan snapshot written
-    const res = await setTargets(repo, "theo", { mode: "JOB_SEARCHING", targets: { calls: { target: 1, weight: 1, minutes: 4 } } }, NOW);
+    const res = await setTargets(repo, "theo", { mode: "FULL_TIME", targets: { calls: { target: 1, weight: 1, minutes: 4 } } }, NOW);
     expect(res.appliesToday).toBe(false);
-    expect((await getMyDay(makeRepo(url), "theo", NOW)).targets?.calls.target).toBe(35);
+    expect((await getMyDay(makeRepo(url), "theo", NOW)).targets?.calls.target).toBe(50);
     const tomorrow = new Date(NOW.getTime() + 86_400_000);
     expect((await getMyDay(makeRepo(url), "theo", tomorrow)).targets?.calls.target).toBe(1);
   });
@@ -72,7 +74,7 @@ describe("Scenario 1: mode and exact saved targets from Sheets", () => {
 
 describe("Scenario 2: one cold call appears exactly once", () => {
   it("in founder stats and the company CRM, and persists after reload; a retry adds nothing", async () => {
-    await setMode(repo, "theo", { mode: "JOB_SEARCHING", reason: "" }, NOW);
+    await setMode(repo, "theo", { mode: "FULL_TIME", reason: "" }, NOW);
     const { accountId, contact, opp } = await newBusiness();
     const input = logActivitySchema.parse({
       idempotency_key: randomUUID(), activity_type: "cold_call", account_id: accountId, contact_id: contact.id,
@@ -159,9 +161,10 @@ describe("Scenario 13 (service part): a field visit counts as one new business a
     expect(day.tally.new_businesses).toBe(1);
     const text = await whatsappReport(makeRepo(url), "theo", "Visit 5 garages", NOW);
     // Théo's report is in French (D048).
-    expect(text).toContain("- Visite terrain: 1");
-    expect(text).toContain("- Nouvelles entreprises contactées : 1");
-    expect(text).toContain("- Nouvelles entreprises contactées: 1/5");
+    // Brief round 8 format: the visit counts as one new contact in the Valemont (team) summary.
+    expect(text).toContain("*Valemont (équipe)*");
+    expect(text).toContain("- Nouveaux contacts : 1");
+    expect(text).toContain("*Priorité de demain :* Visit 5 garages");
   });
 });
 

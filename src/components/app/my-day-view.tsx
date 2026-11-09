@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState, Field, Input, Panel, PanelTitle, Skeleton, Textarea } from "@/components/ui/form";
 import { DetailPanel, Modal } from "@/components/ui/overlay";
-import { METRICS, METRIC_LABELS, WORK_MODES, WORK_MODE_LABELS, type ActivityType, type Metric } from "@/domain/constants";
+import { METRICS, METRIC_LABELS, WORK_MODES, WORK_MODE_HINTS, WORK_MODE_LABELS, type ActivityType, type Metric } from "@/domain/constants";
 import { METRIC_OF_TYPE } from "@/domain/activity";
 import { api } from "@/lib/api";
 import { cn, timeOfDay } from "@/lib/utils";
@@ -17,6 +17,7 @@ import { useQuickAction, type QuickKind } from "./quick-action";
 import { TargetsEditor } from "./targets-editor";
 import { useMyDay, type MyDayData } from "./use-crm";
 import { useT } from "@/i18n/react";
+import { InboxPanel } from "./inbox-panel";
 import { CloseDayButton, LateCorrections, MarketingWeek, NextBestActions, NextMeetings, StreakStrip, TasksFor } from "./my-day-extras";
 
 const METRIC_KIND: Partial<Record<Metric, QuickKind>> = {
@@ -64,6 +65,7 @@ export function MyDayView() {
           </div>
         </div>
 
+        <InboxPanel />
         {!focus ? <StreakStrip /> : null}
         {!focus ? <NextMeetings /> : null}
         <NextActionCard d={d} onOnboard={() => setEditor(true)} />
@@ -95,6 +97,7 @@ export function MyDayView() {
             {d.feasibility && !d.feasibility.feasible && !focus ? (
               <p className="mt-3 text-[13px] text-bad"><Clock className="mr-1.5 inline size-3.5 align-[-2px]" />{t("Planned {planned} min of outreach for {capacity} min available: lower a target for tomorrow.", { planned: d.feasibility.plannedMinutes, capacity: d.feasibility.capacityMinutes })}</p>
             ) : null}
+            {d.linkedinCap ? <p className="mt-2 text-[13px] text-text-2">{t("LinkedIn limits come first: {n} invitations today instead of {total}.", { n: d.linkedinCap.shown, total: d.linkedinCap.planned })}</p> : null}
             {!focus ? <div className="mt-5 border-t border-hairline pt-4"><TasksFor area="sales" /></div> : null}
           </Panel>
         ) : null}
@@ -150,7 +153,7 @@ function NextActionCard({ d, onOnboard }: { d: MyDayData; onOnboard: () => void 
         <h2 id="onb" className="text-lg font-semibold">{t("Which mode are you working in?")}</h2>
         <p className="mt-1 text-sm text-text-2">{t("Targets come from your mode and stay editable. Nothing is counted against you until you choose.")}</p>
         <div className="mt-4 flex flex-wrap gap-2">
-          {WORK_MODES.map((m) => <Button key={m} variant="outline" disabled={setMode.isPending} onClick={() => setMode.mutate(m)}>{t(WORK_MODE_LABELS[m])}</Button>)}
+          {WORK_MODES.map((m) => <Button key={m} variant="outline" title={WORK_MODE_HINTS[m] ? t(WORK_MODE_HINTS[m]!) : undefined} disabled={setMode.isPending} onClick={() => setMode.mutate(m)}>{t(WORK_MODE_LABELS[m])}</Button>)}
           <Button variant="ghost" onClick={onOnboard}>{t("Review targets first")}</Button>
         </div>
         {setMode.isError ? <div className="mt-3"><ErrorState error={setMode.error} onRetry={() => setMode.reset()} /></div> : null}
@@ -186,7 +189,7 @@ function ReportModal({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
     try { await navigator.clipboard.writeText(text); toast(t("Copied. Paste it in WhatsApp.")); } catch { toast(t("Copy failed. Select the text and copy it manually.")); }
   };
   return (
-    <Modal open={open} onOpenChange={(o) => { onOpenChange(o); if (!o) gen.reset(); }} title={t("WhatsApp daily report")} description={t("Exactly what was logged today, open opportunities and tomorrow's priority.")}>
+    <Modal open={open} onOpenChange={(o) => { onOpenChange(o); if (!o) gen.reset(); }} title={t("WhatsApp daily report")} description={t("Your day, then Valemont, 30/30 and Valemont Local, and tomorrow's priority. Missing data shows —.")}>
       <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); gen.mutate(); }}>
         <Field label={t("Tomorrow's priority")} htmlFor="prio"><Input id="prio" value={priority} onChange={(e) => setPriority(e.target.value)} maxLength={300} placeholder={t("e.g. Visit 5 garages in Lyon 3e")} /></Field>
         <Button type="submit" variant="dark" className="self-start" disabled={gen.isPending}>{gen.isPending ? t("Building…") : t("Build report")}</Button>

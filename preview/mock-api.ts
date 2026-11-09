@@ -38,12 +38,17 @@ import { MemoryBank, demoWiseStore } from "@/fake-wise/store";
 import { categorySchema, csvSchema, importBankCsv, moneyOverview, setCategory, syncBank, syncStripe } from "@/server/services/bank";
 import { MemoryStripe, demoStripeStore } from "@/fake-stripe";
 import { LOCALE_OF, translate } from "@/i18n";
-import { callLog, callLogSchema, callQueue, callSchema, callLists, endSession, endSessionSchema, listSessions, logCall, objectionReport, sessionSummary, startSession, startSessionSchema } from "@/server/services/calls";
+import { callLog, callLogSchema, callQueue, callSchema, callLists, endSession, endSessionSchema, listSessions, logCall, objectionReport, sessionSummary, startSession, startSessionSchema, undoCall, undoSchema } from "@/server/services/calls";
+import { linkedinLog, linkedinLogSchema, linkedinQueue, linkedinSchema, linkedinSessions, linkedinSummary, linkedinSummarySchema, logLinkedIn } from "@/server/services/linkedin";
+import { seedDemoLinkedIn } from "@/server/services/demo-linkedin";
 import { contentLogSchema, logContent, marketingWeek } from "@/server/services/marketing-week";
 import { funnelsSchema, marketingFunnels, addBreakdown, addTraffic, breakdownSchema, importTraffic, marketingOverview, overviewSchema, trafficImportSchema, trafficManualSchema } from "@/server/services/marketing";
 import { dashboardSchema, reportsDashboard } from "@/server/services/dashboard";
+import { exportFile, exportSchema } from "@/server/services/export";
+import { trackerAction, trackerActionSchema, trackerStatus } from "@/server/services/tracker";
 import { createFolder, folderSchema } from "@/server/services/files";
 import { getPlaybook, playbookEditSchema, savePlaybookItem } from "@/server/services/playbook";
+import { addInboxItem, inboxAddSchema, inboxListSchema, inboxStatusSchema, listInbox, setInboxStatus } from "@/server/services/inbox";
 import { batchSchema, followUpQueue, sendBatch, benchmarks as emailBenchmarksFor, listSends, markReply, replySchema, sendFollowUp, sendSchema } from "@/server/services/email";
 
 export const repo = new InMemoryRepository();
@@ -80,6 +85,7 @@ export async function seed() {
   await seedDemo(repo);
   await seedDemoWork(repo, (f) => privates[f] ?? null);
   await seedPreviewRecentCalls(repo);
+  await seedDemoLinkedIn(repo);
   // Preview only: every day is a workday so the meters are visible whenever someone opens it.
   for (const f of ["theo", "pablo"] as const) {
     const u = await userRow(repo, f);
@@ -125,6 +131,12 @@ const routes: Record<string, [z.ZodTypeAny | null, Handler]> = {
   "GET /api/files": [z.object({ folder: z.string().optional(), q: z.string().default(""), view: z.enum(["folder", "recent", "search"]).default("folder") }), async (i) => listFolder(ctx, (i as { folder?: string }).folder ?? null, (i as { q: string }).q, (i as { view: "folder" }).view)],
   "POST /api/files/folder": [folderSchema, async (i, f) => createFolder(ctx, f, driveGrant ? `preview-grant-${f}` : null, i as never)],
   "POST /api/calls": [callSchema, async (i, f) => logCall(ctx, f, i as never)],
+  "POST /api/calls/undo": [undoSchema, async (i, f) => undoCall(ctx, f, i as never)],
+  "POST /api/linkedin": [linkedinSchema, async (i, f) => logLinkedIn(ctx, f, i as never)],
+  "GET /api/linkedin/queue": [z.object({ list_id: z.string().max(40).default("") }), async (i, f) => linkedinQueue(ctx, f, (i as { list_id: string }).list_id)],
+  "GET /api/linkedin/summary": [linkedinSummarySchema, async (i, f) => linkedinSummary(ctx, f, (i as { id: string }).id)],
+  "GET /api/linkedin/log": [linkedinLogSchema, async (i, f) => linkedinLog(ctx, f, i as never)],
+  "GET /api/linkedin/sessions": [null, async (_, f) => linkedinSessions(ctx, f)],
   "GET /api/calls/sessions": [null, async (_, f) => listSessions(ctx, f)],
   "POST /api/calls/sessions": [startSessionSchema, async (i, f) => startSession(ctx, f, i as never)],
   "PATCH /api/calls/sessions": [endSessionSchema, async (i, f) => endSession(ctx, f, (i as { id: string }).id)],
@@ -149,7 +161,7 @@ const routes: Record<string, [z.ZodTypeAny | null, Handler]> = {
   "GET /api/audience/series": [seriesSchema, async (i, f) => audienceSeries(ctx, f, i as never)],
   "GET /api/settings/system": [null, async () => {
     const rows = (await repo.list("SystemSettings")).rows;
-    return Object.fromEntries(["drive_folder_id", "founder_point_video_link", "ideas_testing_limit", "hot_lead_stale_days", "conversion_min_sample", "company_name", "calendly_url_theo", "calendly_url_pablo", "deck_url_fr", "deck_url_es", "signature_theo", "signature_pablo"].map((k) => [k, rows.find((r) => r.key === k)?.value ?? ""]));
+    return Object.fromEntries(["drive_folder_id", "founder_point_video_link", "ideas_testing_limit", "hot_lead_stale_days", "conversion_min_sample", "company_name", "calendly_url_theo", "calendly_url_pablo", "deck_url_fr", "deck_url_es", "signature_theo", "signature_pablo", "offer_consulting_value_eur", "offer_local_monthly_eur", "linkedin_daily_invitation_limit", "linkedin_weekly_invitation_limit", "time_split_target"].map((k) => [k, rows.find((r) => r.key === k)?.value ?? ""]));
   }],
   "POST /api/settings/system": [z.object({ key: z.string(), value: z.string().max(500) }), async (i, f) => {
     const { key, value } = i as { key: string; value: string };
@@ -174,6 +186,9 @@ const routes: Record<string, [z.ZodTypeAny | null, Handler]> = {
   "PATCH /api/money/category": [categorySchema, async (i, f) => setCategory(ctx, f, i as never)],
   "POST /api/money/import": [csvSchema, async (i, f) => importBankCsv(ctx, f, i as never)],
   "GET /api/marketing/funnels": [funnelsSchema, async (i, f) => marketingFunnels(ctx, f, i as never)],
+  "GET /api/inbox": [inboxListSchema, async (i, f) => listInbox(ctx, f, i as never)],
+  "POST /api/inbox": [inboxAddSchema, async (i, f) => addInboxItem(ctx, f, i as never)],
+  "PATCH /api/inbox": [inboxStatusSchema, async (i, f) => setInboxStatus(ctx, f, i as never)],
   "GET /api/email/queue": [null, async (_, f) => followUpQueue(ctx, f)],
   "POST /api/email/batch": [batchSchema, async (i, f) => sendBatch(ctx, f, gmailGrant[f] ? `preview-gmail-${f}` : null, i as never)],
   "POST /api/activities": [logActivitySchema, async (i, f) => logActivity(repo, f, i as never)],
@@ -210,6 +225,13 @@ const routes: Record<string, [z.ZodTypeAny | null, Handler]> = {
   "POST /api/crm/import/preview": [previewSchema, async (i) => preview(repo, (i as { csv: string }).csv)],
   "POST /api/crm/import/commit": [commitSchema, async (i, f) => commit(repo, f, i as never)],
   "GET /api/diagnostics": [null, async () => diagnostics(repo)],
+  // Export for AI: Markdown downloads in the preview (Excel needs the installed app).
+  "GET /api/export": [exportSchema, async (i, f) => {
+    const x = await exportFile(ctx, f, i as never);
+    return new Response(x.body as BodyInit, { headers: { "content-type": x.contentType, "content-disposition": `attachment; filename="${x.filename}"` } });
+  }],
+  "GET /api/tracker": [null, async (_, f) => trackerStatus(ctx, f, {})],
+  "POST /api/tracker": [trackerActionSchema, async (i, f) => trackerAction(ctx, f, i as never, {})],
 };
 
 export function exportCsv(href = "/api/crm/export") {
@@ -246,7 +268,8 @@ export function installMockFetch() {
       const [schema, handler] = route;
       const raw = method === "GET" ? Object.fromEntries(url.searchParams.entries()) : init?.body ? JSON.parse(String(init.body)) : {};
       const input = schema ? schema.parse(raw) : undefined;
-      return json(200, (await handler(input, founder)) ?? { ok: true });
+      const out = await handler(input, founder);
+      return out instanceof Response ? out : json(200, out ?? { ok: true });
     } catch (e) {
       const [s, b] = mapError(e);
       if (typeof b.message === "string") b.message = translate(LOCALE_OF[founder], b.message);

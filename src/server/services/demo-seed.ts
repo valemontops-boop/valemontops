@@ -15,8 +15,8 @@ export async function seedDemo(repo: DataRepository) {
   await repo.insert(
     "WorkModes",
     [
-      { id: childId("demo-mode", "theo"), founder_key: "theo", mode: "JOB_SEARCHING", effective_from: "2000-01-01", reason: "Demo" },
-      { id: childId("demo-mode", "pablo"), founder_key: "pablo", mode: "EMPLOYED_35H", effective_from: "2000-01-01", reason: "Demo" },
+      { id: childId("demo-mode", "theo"), founder_key: "theo", mode: "FULL_TIME", effective_from: "2000-01-01", reason: "Demo" },
+      { id: childId("demo-mode", "pablo"), founder_key: "pablo", mode: "REDUCED", effective_from: "2000-01-01", reason: "Demo" },
     ],
     sys,
   );
@@ -34,7 +34,7 @@ export async function seedDemo(repo: DataRepository) {
   const acc = accounts.map(([name, country, sector, niche, domain, phone, owner], i) => ({
     id: childId("demo-account", String(i)),
     name, sector, niche, country, city: "", website: `https://${domain}`, domain_normalized: domain, phone, email: `contact@${domain}`,
-    linkedin_url: "", lead_source: "Demo list", lead_type: "outbound" as const, brand: "local" as const, owner_founder: owner,
+    linkedin_url: "", lead_source: "Demo list", lead_type: "outbound" as const, brand: "consulting" as const, owner_founder: owner,
     lead_status: "working" as const, observed_problem: i % 2 === 0 ? "Appels manqués : messagerie pleine pendant les chantiers (constaté sur deux appels)." : "",
     problem_evidence: "", language: country === "FR" ? "fr" : "es", notes: "", import_batch_id: "",
   }));
@@ -54,18 +54,19 @@ export async function seedDemo(repo: DataRepository) {
     sys,
   );
   const opps = [
-    [0, "contacted", "theo", "Rappeler après 17 h", addDays(today, 0), 49000],
-    [1, "discovery_scheduled", "theo", "Visite de découverte", addDays(today, 2), 49000],
-    [2, "targeted", "theo", "", null, null],
-    [4, "replied", "pablo", "Enviar el vídeo de demo", addDays(today, -1), 49000],
-    [5, "contacted", "pablo", "Llamada de seguimiento", addDays(today, 1), 49000],
+    // One offer, Consulting (1,500 € ex VAT by default); one Local downsell at 100 €/month for a business with no budget.
+    [0, "contacted", "theo", "Rappeler après 17 h", addDays(today, 0), 150000, "consulting"],
+    [1, "discovery_scheduled", "theo", "Visite de découverte", addDays(today, 2), 150000, "consulting"],
+    [2, "targeted", "theo", "", null, null, "consulting"],
+    [4, "replied", "pablo", "Enviar el vídeo de demo", addDays(today, -1), 150000, "consulting"],
+    [5, "contacted", "pablo", "Llamada de seguimiento", addDays(today, 1), 10000, "local"],
   ] as const;
   await repo.insert(
     "Opportunities",
-    opps.map(([i, stage, owner, next, due, value]) => ({
+    opps.map(([i, stage, owner, next, due, value, offer]) => ({
       id: childId("demo-opp", String(i)),
-      account_id: acc[i].id, primary_contact_id: childId("demo-contact", String(i)), name: `${acc[i].name.replace(" (demo)", "")} · Local Essential`,
-      brand: "local" as const, market: acc[i].country, stage, owner_founder: owner, value_minor: value, currency: "EUR",
+      account_id: acc[i].id, primary_contact_id: childId("demo-contact", String(i)), name: acc[i].name.replace(" (demo)", ""),
+      brand: offer, market: acc[i].country, stage, owner_founder: owner, value_minor: value, currency: "EUR",
       expected_close: null, next_action: next, next_action_due: due, next_action_priority: "normal" as const, next_action_reason: "", lost_reason: "",
       anum_authority: "", anum_need: "", anum_urgency: "", anum_money: "",
     })),
@@ -74,7 +75,7 @@ export async function seedDemo(repo: DataRepository) {
   return true;
 }
 
-/** Stage 1B synthetic DEMO data: calendar sources, Drive folder, sprint, tasks, ideas, audience, private jobs. */
+/** Stage 1B synthetic DEMO data: calendar sources, Drive folder, tasks, ideas, audience (the sprint comes from the baseline). */
 export async function seedDemoWork(repo: DataRepository, privateRepo: (f: string) => DataRepository | null) {
   const { DEMO_IDS } = await import("./demo-google");
   const sys = { founder: "system" };
@@ -91,18 +92,13 @@ export async function seedDemoWork(repo: DataRepository, privateRepo: (f: string
     { id: childId("setting", "ideas_testing_limit"), key: "ideas_testing_limit", value: "2", description: "Max ideas in Testing while a sprint is active." },
     { id: childId("setting", "founder_point_video_link"), key: "founder_point_video_link", value: "", description: "Standing video link inserted in founder point events." },
   ], sys);
-  await repo.insert("Sprints", [{
-    id: childId("demo-sprint", "1"), name: "Sprint lancement Local (démo)", start_date: addDays(today, -6), end_date: addDays(today, 7), status: "active",
-    niche: "garage", targets: { theo: { contacted: 50, replies: 10, demos: 3, pilots: 1 }, pablo: { contacted: 50, replies: 10, demos: 3, pilots: 1 } },
-    brand_split: { local: 0.7, consulting: 0.2, thirty: 0.1 },
-  }], sys);
   const task = (i: number, p: Record<string, unknown>) => ({
     id: childId("demo-task", String(i)), title: "", description: "", owner: null, created_by_founder: "theo", account_id: "", opportunity_id: "", project_id: "", client_id: "",
     priority: "P2", status: "todo", estimated_minutes: null, due_at: null, recurrence: "none", recurrence_parent_id: "", dependency_ids: [], completion_evidence: "",
     completed_at: null, visibility: "team", snoozed_until: null, snooze_reason: "", source: "manual", source_id: "", ...p,
   });
   await repo.insert("Tasks", [
-    task(1, { title: "Écrire et tourner le reel démo Local (FR)", owner: "theo", priority: "P1", due_at: today, estimated_minutes: 60, area: "marketing" }),
+    task(1, { title: "Écrire et tourner le reel démo Valemont (FR)", owner: "theo", priority: "P1", due_at: today, estimated_minutes: 60, area: "marketing" }),
     task(2, { title: "Traducir el guion de llamada al español", owner: "pablo", priority: "P0", due_at: today, created_by_founder: "theo", estimated_minutes: 45, area: "sales" }),
     task(3, { title: "Acheter la liste de garages de Lyon", owner: null, priority: "P2", due_at: addDays(today, 2), area: "sales" }),
     task(4, { title: "Nettoyage hebdo du pipeline", owner: "theo", priority: "P2", due_at: addDays(today, -1), recurrence: "weekly", area: "ops" }),
@@ -110,8 +106,8 @@ export async function seedDemoWork(repo: DataRepository, privateRepo: (f: string
     task(6, { title: "Publicar 2 stories de Instagram (ES)", owner: "pablo", priority: "P2", due_at: today, area: "marketing" }),
   ] as never, sys);
   await repo.insert("Ideas", [
-    { id: childId("demo-idea", "1"), text: "Proposer un pilote gratuit de 14 jours aux garages", note: "", brand: "local", category: "offer", status: "testing", votes: { theo: "yes" }, reason: "", created_by_founder: "theo", converted_type: null, converted_id: "" },
-    { id: childId("demo-idea", "2"), text: "Reel court : les appels manqués coûtent de l'argent", note: "", brand: "local", category: "content", status: "testing", votes: {}, reason: "", created_by_founder: "pablo", converted_type: null, converted_id: "" },
+    { id: childId("demo-idea", "1"), text: "Proposer un pilote gratuit de 14 jours aux garages", note: "", brand: "consulting", category: "offer", status: "testing", votes: { theo: "yes" }, reason: "", created_by_founder: "theo", converted_type: null, converted_id: "" },
+    { id: childId("demo-idea", "2"), text: "Reel court : les appels manqués coûtent de l'argent", note: "", brand: "consulting", category: "content", status: "testing", votes: {}, reason: "", created_by_founder: "pablo", converted_type: null, converted_id: "" },
     { id: childId("demo-idea", "3"), text: "Aliarse con una red de gestorías en Madrid", note: "", brand: "consulting", category: "partner", status: "discuss", votes: { pablo: "yes", theo: "maybe" }, reason: "", created_by_founder: "pablo", converted_type: null, converted_id: "" },
   ] as never, sys);
   // Daily figures for the six accounts created by the baseline (seeds.ts SOCIAL_SEEDS).
@@ -136,7 +132,7 @@ export async function seedDemoWork(repo: DataRepository, privateRepo: (f: string
   void privateRepo;
   // Synthetic website traffic and audience countries so the Marketing overview has something to show.
   const traffic = [];
-  const srcs = [["instagram", "social", "thirty", 22, 0.06], ["linkedin.com", "referral", "consulting", 9, 0.03], ["google", "organic", "thirty", 7, 0], ["(direct)", "(none)", "consulting", 5, 0.08]] as const;
+  const srcs = [["instagram", "social", "thirty", 22, 0.06], ["linkedin.com", "referral", "consulting", 9, 0.03], ["google", "organic", "thirty", 7, 0], ["(direct)", "(none)", "consulting", 5, 0.08], ["chatgpt.com", "referral", "consulting", 2, 0.1], ["perplexity.ai", "referral", "thirty", 1, 0.05]] as const;
   for (let d = -20; d <= -1; d++) {
     const date = addDays(today, d);
     for (const [src, med, brand, base, rate] of srcs) {
@@ -169,7 +165,7 @@ async function seedDemoCallsAndEmails(repo: DataRepository, today: string) {
   ], sys);
   // A small call list so call mode can be tried end to end (3 FR for Théo, 3 ES for Pablo).
   const listId = childId("demo-call-list", "1");
-  await repo.insert("CallLists", [{ id: listId, name: "Artisans et garages (démo)", source: "Demo", market: null, niche: "Bâtiment", brand: "local", owner_founder: null, notes: "" }], sys);
+  await repo.insert("CallLists", [{ id: listId, name: "Artisans et garages (démo)", source: "Demo", market: null, niche: "Bâtiment", brand: "consulting", owner_founder: null, notes: "" }], sys);
   const callAcc = ([
     ["Plomberie Martin (demo)", "FR", "Plombiers", "theo", "Julien"], ["Garage Bernard (demo)", "FR", "Garages indépendants", "theo", "Nadia"], ["Électricité Roux (demo)", "FR", "Électriciens", "theo", ""],
     ["Fontanería Gil (demo)", "ES", "Fontaneros", "pablo", "Carmen"], ["Taller Navarro (demo)", "ES", "Talleres independientes", "pablo", "Javier"], ["Reformas Díaz (demo)", "ES", "Reformas", "pablo", ""],
@@ -178,7 +174,7 @@ async function seedDemoCallsAndEmails(repo: DataRepository, today: string) {
     return { name, contact, a: {
       id: childId("demo-call-account", String(i)), name, sector: country === "FR" ? "Bâtiment" : "Construcción", niche, country, city: "", website: `https://${domain}`, domain_normalized: domain,
       phone: country === "FR" ? `+3310000020${i}` : `+3490000020${i}`, email: `contact@${domain}`, linkedin_url: "", lead_source: "Demo list", lead_type: "outbound" as const,
-      brand: "local" as const, owner_founder: owner, lead_status: "new" as const, observed_problem: "", problem_evidence: "", language: country === "FR" ? "fr" : "es", notes: "", import_batch_id: "", list_id: listId,
+      brand: "consulting" as const, owner_founder: owner, lead_status: "new" as const, observed_problem: "", problem_evidence: "", language: country === "FR" ? "fr" : "es", notes: "", import_batch_id: "", list_id: listId,
     } };
   });
   await repo.insert("Accounts", callAcc.map((x) => x.a), sys);
@@ -202,7 +198,7 @@ async function seedDemoCallsAndEmails(repo: DataRepository, today: string) {
     return {
       id: childId("demo-call-ev", String(i)), idempotency_key: childId("demo-call-key", String(i)), founder_key: "theo" as const,
       activity_type: outcome === "no_answer" ? ("cold_call" as const) : ("connected_call" as const), channel: null, account_id: "", contact_id: "", opportunity_id: "", campaign_id: "",
-      brand: "local" as const, market: "FR" as const, outcome, objection: (objections[0] ?? null) as never, objections: objections as never, replies: objections.map((o) => `${o}#${(i % 2) + 1}`), objection_note: "", met_person: "", notes: "",
+      brand: "consulting" as const, market: "FR" as const, outcome, objection: (objections[0] ?? null) as never, objections: objections as never, replies: objections.map((o) => `${o}#${(i % 2) + 1}`), objection_note: "", met_person: "", notes: "",
       next_action: "", next_action_due: null, occurred_at: at, logged_at: at, timezone: "Europe/Paris", local_date: day, late_logged: false, source: "manual" as const,
       corrects_event_id: "", call_session_id: sid, list_id: "", target_key: `demo-target-${i}`, duration_sec: outcome === "no_answer" ? null : 60 + ((i * 37) % 200),
     };
@@ -221,12 +217,21 @@ async function seedDemoCallsAndEmails(repo: DataRepository, today: string) {
       id: childId("demo-send", String(i)), idempotency_key: childId("demo-send-key", String(i)), founder_key: (es ? "pablo" : "theo") as "pablo" | "theo",
       account_id: childId("demo-account", String(es ? 4 + (i % 4) : i % 4)), contact_id: "", activity_event_id: "", call_session_id: "",
       channel: (i % 9 === 4 ? "whatsapp" : "email") as "email" | "whatsapp", via: (i % 9 === 4 ? "whatsapp" : i % 2 ? "gmail" : "mail_app") as "gmail" | "mail_app" | "whatsapp",
-      context: (cold ? "cold" : "after_call") as "cold" | "after_call", template_key: tpl, language: (es ? "ES" : "FR") as "ES" | "FR", brand: "local" as const, market: (es ? "ES" : "FR") as "ES" | "FR",
+      context: (cold ? "cold" : "after_call") as "cold" | "after_call", template_key: tpl, language: (es ? "ES" : "FR") as "ES" | "FR", brand: "consulting" as const, market: (es ? "ES" : "FR") as "ES" | "FR",
       niche: niches[i % 4], to_address: `contact${i}@business-demo.example.com`, subject: "Relance (démo)", status: "sent" as const, sent_at: at, local_date: d,
       gmail_message_id: "", gmail_thread_id: "", replied_at: reply ? at : null, reply_kind: reply as "positive" | "neutral" | "negative" | "bounce" | null,
     };
   });
   await repo.insert("EmailSends", rows, sys);
+  // "To reply" inbox: a few comments and messages as a webhook would deliver them (one older than 24 h).
+  const ago = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
+  await repo.insert("InboxItems", ([
+    ["instagram_comment", "Instagram 30/30 AI", "@atelier_demo", "C'est combien la formation 30/30 ?", "https://www.instagram.com/", 3, "theo"],
+    ["instagram_dm", "Instagram Valemont", "@reformas_demo", "Hola, ¿hacéis también webs para reformas?", "https://www.instagram.com/direct/inbox/", 30, "pablo"],
+    ["linkedin_comment", "LinkedIn Valemont", "Claire Demo", "Très intéressant, on en parle ?", "https://www.linkedin.com/", 6, null],
+  ] as const).map(([source, account_label, from_name, excerpt, url, h, who], i) => ({
+    id: childId("inbox", `demo:${i}`), source, account_label, from_name, excerpt, url, received_at: ago(h), status: "to_reply" as const, assigned_founder: who, replied_at: null, external_id: `demo:${i}`,
+  })), sys);
 }
 
 /** Browser preview only: three calls in the last hour, so "Messages to send" has something to show. Not in DEMO (tests start from a clean day). */
@@ -237,7 +242,7 @@ export async function seedPreviewRecentCalls(repo: DataRepository) {
     const at = new Date(Date.now() - (50 - i * 10) * 60_000).toISOString();
     return {
       id: childId("demo-recent-ev", String(i)), idempotency_key: childId("demo-recent-key", String(i)), founder_key: "theo" as const, activity_type: type, channel: null,
-      account_id: childId("demo-account", String(acc)), contact_id: "", opportunity_id: "", campaign_id: "", brand: "local" as const, market: "FR" as const, outcome,
+      account_id: childId("demo-account", String(acc)), contact_id: "", opportunity_id: "", campaign_id: "", brand: "consulting" as const, market: "FR" as const, outcome,
       objection: (objections[0] ?? null) as never, objections: objections as never, replies: objections.map((o) => `${o}#1`), objection_note: "", met_person: "", notes: "",
       next_action: "", next_action_due: null, occurred_at: at, logged_at: at, timezone: "Europe/Paris", local_date: localDate(new Date(at), "Europe/Paris"), late_logged: false,
       source: "manual" as const, corrects_event_id: "", call_session_id: "", list_id: "", target_key: "", duration_sec: type === "connected_call" ? 140 : null,

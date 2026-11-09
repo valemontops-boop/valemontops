@@ -1,8 +1,7 @@
 import { z } from "zod";
 import { BRANDS, type FounderKey } from "@/domain/constants";
-import { DELIVERABLES, contentProgress } from "@/domain/content";
-import { resolveMode } from "@/domain/targets";
-import { addDays, localDate, startOfWeek } from "@/domain/time";
+import { DELIVERABLES, PUBLISHING_CALENDAR, contentProgress, postsFor } from "@/domain/content";
+import { addDays, localDate, startOfWeek, weekday } from "@/domain/time";
 import type { AppContext } from "../context";
 import { userRow } from "./common";
 
@@ -10,15 +9,17 @@ export async function marketingWeek(ctx: AppContext, founder: FounderKey, now = 
   const u = await userRow(ctx.repo, founder);
   const today = localDate(now, u.timezone);
   const week = startOfWeek(today);
-  const t = await ctx.repo.listMany(["ContentLog", "WorkModes"]);
+  const t = await ctx.repo.listMany(["ContentLog"]);
   const seen = new Map<string, (typeof t.ContentLog.rows)[number]>();
   for (const l of [...t.ContentLog.rows].sort((a, b) => a.created_at.localeCompare(b.created_at))) if (!seen.has(l.idempotency_key) && !l.is_archived) seen.set(l.idempotency_key, l);
   const logs = [...seen.values()];
-  const mode = resolveMode(t.WorkModes.rows, founder, today);
   return {
     weekStart: week,
-    mode,
-    items: contentProgress(logs, mode, week, addDays(week, 6), addDays(week, -7)),
+    /** Weekly content goals (brief round 8): 3 video concepts, Reels FR/ES per brand. */
+    items: contentProgress(logs, week, addDays(week, 6)),
+    /** Today's planned posts from the weekday calendar, marked done when logged today. */
+    todayPosts: postsFor(logs, today, weekday(today)),
+    calendar: [1, 2, 3, 4, 5, 6].map((d) => ({ weekday: d, posts: PUBLISHING_CALENDAR.filter((s) => s.weekday === d).map((s) => s.label) })),
     recent: logs.filter((l) => l.local_date >= week).sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 10)
       .map((l) => ({ id: l.id, deliverable: l.deliverable, title: l.deliverable === "personal_post" && l.founder_key !== founder ? "" : l.title, founder: l.founder_key, local_date: l.local_date, language: l.language })),
   };
