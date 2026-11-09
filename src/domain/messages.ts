@@ -10,13 +10,13 @@ import {
  */
 export type Channel = "email" | "whatsapp";
 export interface SendTarget { accountId: string; name: string; contact: string; email: string; phone: string; market: Lang }
-export interface PlaybookData { items: PlaybookItem[]; links: { calendly: string; deckFR: string; deckES: string }; founderName: string; signature: string }
+export interface PlaybookData { items: PlaybookItem[]; links: { calendly: string; deckFR: string; deckES: string; thirty?: string }; founderName: string; signature: string; /** Valemont Local monthly price, e.g. "100 €" (setting offer_local_monthly_eur). */ localPrice?: string }
 export interface SentRow { account_id: string; channel: Channel; template_key: string; sent_at: string | null; status?: string; is_archived?: boolean }
 
 /** Subject and body of a template, in the founder's language, signed by them, for this person. */
 export function messageFor(pb: PlaybookData, lang: Lang, channel: Channel, template: TemplateKey, target: Pick<SendTarget, "name" | "contact">) {
   const it = findItem(pb.items, channel === "whatsapp" ? "whatsapp" : "email", template, lang);
-  const v = { business: target.name, contact: target.contact, founder: pb.founderName, signature: pb.signature, calendly: pb.links.calendly, deck: lang === "ES" ? pb.links.deckES : pb.links.deckFR };
+  const v = { business: target.name, contact: target.contact, founder: pb.founderName, signature: pb.signature, calendly: pb.links.calendly, deck: lang === "ES" ? pb.links.deckES : pb.links.deckFR, thirty: pb.links.thirty, local_price: pb.localPrice };
   return { subject: channel === "email" ? fill(it?.subject ?? "", v) : "", body: fill(it?.body ?? "", v) };
 }
 
@@ -27,11 +27,11 @@ export const contextOf = (template: TemplateKey): "cold" | "after_call" => ((COL
  * Template chips for a call outcome: the suggested one first, then the others that make sense.
  * Cold templates are hidden for Spain (no consent recorded on the client side; the server checks again).
  */
-export function templateChips(outcome: string | null, objections: readonly string[], market: Lang): { suggested: TemplateKey | null; chips: TemplateKey[] } {
-  let suggested = outcome ? suggestedFollowUp(outcome, objections) : null;
+export function templateChips(outcome: string | null, objections: readonly string[], market: Lang, offer: "local" | "thirty" | null = null): { suggested: TemplateKey | null; chips: TemplateKey[] } {
+  let suggested = outcome ? suggestedFollowUp(outcome, objections, offer) : null;
   if (suggested && market === "ES" && contextOf(suggested) === "cold") suggested = null;
   const talked = outcome !== null && !["no_answer", "voicemail"].includes(outcome);
-  const order: TemplateKey[] = talked ? ["thanks", "calendly", "deck", "confirm", "thanks_soft", "nudge"] : outcome ? ["missed", "calendly", "deck", "nudge"] : [...TEMPLATES];
+  const order: TemplateKey[] = talked ? ["thanks", "calendly", "deck", "confirm", "thanks_soft", "local", "thirty", "nudge"] : outcome ? ["missed", "calendly", "deck", "nudge"] : [...TEMPLATES];
   const allowed = order.filter((k) => !(market === "ES" && contextOf(k) === "cold"));
   return { suggested, chips: suggested ? [suggested, ...allowed.filter((k) => k !== suggested)] : allowed };
 }
@@ -83,4 +83,32 @@ export function alreadySent(rows: readonly SentRow[], accountId: string, templat
 /** A message session: the next person still owed a message, skipping those done or skipped. */
 export function nextInSession<T extends { key: string }>(items: readonly T[], done: ReadonlySet<string>, skipped: ReadonlySet<string>): T | null {
   return items.find((i) => !done.has(i.key) && !skipped.has(i.key)) ?? null;
+}
+
+/* ---------------- Round 9 (D071): instant mail while still on the phone ---------------- */
+
+export const isEmail = (v: string) => EMAIL_RE.test(v.trim());
+
+/**
+ * Mail chips shown during a call, one click = sent: confirm the meeting / Calendly, deck, Local offer, 30/30 link,
+ * thanks. Nobody picked up: "tried to reach you" (cold: never to Spain without consent) and the deck.
+ * The suggested chip comes first: 30/30 after a yes to 30/30, Local after a yes to Local, the deck for "send me
+ * info" / "no time", then nothing (the founder picks).
+ */
+export function inCallChips(p: { picked: boolean; market: Lang; objections: readonly string[]; accepted: "local" | "thirty" | null; sent: readonly TemplateKey[] }): { chips: TemplateKey[]; suggested: TemplateKey | null } {
+  if (!p.picked) {
+    const chips: TemplateKey[] = p.market === "ES" ? ["deck"] : ["missed", "deck"];
+    const suggested = chips.find((k) => !p.sent.includes(k)) ?? null;
+    return { chips, suggested };
+  }
+  const chips: TemplateKey[] = ["calendly", "confirm", "deck", "local", "thirty", "thanks"];
+  const want: TemplateKey | null = p.accepted === "thirty" ? "thirty" : p.accepted === "local" ? "local" : p.objections.includes("send_info") || p.objections.includes("no_time") ? "deck" : null;
+  return { chips, suggested: want && !p.sent.includes(want) ? want : null };
+}
+
+/** After the outcome: the message card is suggested only when nothing already went out during the call. */
+export function afterCallSuggestion(outcome: string, objections: readonly string[], market: Lang, offer: "local" | "thirty" | null, sentDuringCall: readonly TemplateKey[]) {
+  if (sentDuringCall.length) return null;
+  const c = templateChips(outcome, objections, market, offer);
+  return c.suggested ? c : null;
 }

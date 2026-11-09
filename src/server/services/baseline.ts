@@ -3,9 +3,9 @@ import type { Actor, DataRepository } from "@/data/repository";
 import { SCHEMA_VERSION } from "@/data/schema/tables";
 import { schemaHash } from "@/data/sheets/setup";
 import { FOUNDERS, FOUNDER_NAMES, type FounderKey } from "@/domain/constants";
-import { CAPACITY_SEED_MINUTES, MINUTES_PER_ACTION_SEED, SETTINGS_SEEDS, SOCIAL_SEEDS, TARGET_SEEDS, channelRuleSeeds, seedTargetsFor } from "@/domain/seeds";
+import { CAPACITY_SEED_MINUTES, MINUTES_PER_ACTION_SEED, SETTINGS_SEEDS, SOCIAL_SEEDS, TARGET_REVISION_DATE, TARGET_REVISION_R9, TARGET_SEEDS, channelRuleSeeds, seedTargetsFor } from "@/domain/seeds";
 import type { WorkMode } from "@/domain/constants";
-import { TASK_SEEDS } from "@/domain/task-seeds";
+import { PREVIOUS_SEED_TITLES, TASK_SEEDS } from "@/domain/task-seeds";
 import { nextDue } from "@/domain/tasks";
 import { addDays, localDate, weekday } from "@/domain/time";
 
@@ -51,6 +51,16 @@ export async function seedBaseline(repo: DataRepository, timezones: Record<Found
         if (has(t.DailyTargets.rows, id)) continue;
         targets.push({ id, founder_key: f, mode, metric, target, weight: 1, minutes_per_action: MINUTES_PER_ACTION_SEED[metric], effective_from: SEED_DATE });
       }
+  // Round 9 revision (D073): where an older seed row holds another value, a later-dated seed row supersedes it.
+  for (const f of FOUNDERS)
+    for (const mode of TARGET_REVISION_R9.modes)
+      for (const metric of TARGET_REVISION_R9.metrics) {
+        const id = childId("target-seed", "r9", f, mode, metric);
+        const target = seedTargetsFor(f, mode).find((x) => x.metric === metric)!.target;
+        const oldSeed = t.DailyTargets.rows.some((r) => r.founder_key === f && r.mode === mode && r.metric === metric && r.effective_from === SEED_DATE && r.target !== target);
+        if (has(t.DailyTargets.rows, id) || !oldSeed) continue;
+        targets.push({ id, founder_key: f, mode, metric, target, weight: 1, minutes_per_action: MINUTES_PER_ACTION_SEED[metric], effective_from: TARGET_REVISION_DATE });
+      }
   if (targets.length) added.DailyTargets = (await repo.insert("DailyTargets", targets, SYSTEM)).length;
 
   const social = SOCIAL_SEEDS.map(({ key, ...a }) => ({ id: childId("social", key), ...a, market: null, visibility: "team" as const })).filter((a) => !has(t.SocialAccounts.rows, a.id));
@@ -58,6 +68,19 @@ export async function seedBaseline(repo: DataRepository, timezones: Record<Found
 
   const tasks = seedTasks(t.Tasks.rows, timezones);
   if (tasks.length) added.Tasks = (await repo.insert("Tasks", tasks, SYSTEM)).length;
+  // Revised seed titles (D073): open system rows still carrying an old seed title take the new one; founder edits stay.
+  let renamed = 0;
+  for (const row of t.Tasks.rows) {
+    if (row.source !== "system" || row.is_archived || !["todo", "in_progress"].includes(row.status) || !row.owner) continue;
+    const old = PREVIOUS_SEED_TITLES[row.source_id]?.[row.owner as FounderKey];
+    const title = TASK_SEEDS.find((x) => x.key === row.source_id)?.title[row.owner as FounderKey];
+    if (!old?.includes(row.title) || !title || title === row.title) continue;
+    try {
+      await repo.update("Tasks", row.id, row.version, { title }, SYSTEM);
+      renamed++;
+    } catch { /* edited meanwhile (version conflict): the founder's version wins */ }
+  }
+  if (renamed) added.TasksRenamed = renamed;
 
   const sprintId = childId("sprint-seed", SPRINT_SEED.start_date);
   if (!has(t.Sprints.rows, sprintId)) {

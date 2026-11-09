@@ -17,13 +17,16 @@ export const MINUTES_PER_ACTION_SEED: Record<Metric, number> = {
 
 type Row = Partial<Record<Metric, number>>;
 /**
- * Founder brief round 8, same for both founders (editable in Settings › Targets).
- * FULL_TIME a day: 50 cold calls, 25 LinkedIn approaches (15 invitations + 10 DMs), 15 targeted emails, 20 follow-ups → 90 new businesses.
- * REDUCED (35h job, temp work or interviews): 20 calls, 10 LinkedIn (5 + 5), 5 emails, 10 follow-ups → 35 new businesses.
+ * Founder brief round 8, revised round 9 (D073), same for both founders (editable in Settings › Targets).
+ * Prospecting channels are phone and LinkedIn. Emails have NO daily target: they are only counted (cold_emails = 0,
+ * shown as "counted, no target", outside attainment, score and capacity); they still count as new businesses when
+ * they reach a new one. They go mainly to prospects who had no time on the phone or could not be reached.
+ * FULL_TIME a day: 50 cold calls, 25 LinkedIn approaches (15 invitations + 10 DMs), 20 follow-ups → 90 new businesses.
+ * REDUCED (35h job, temp work or interviews): 20 calls, 10 LinkedIn (5 + 5), 10 follow-ups → 35 new businesses.
  * New businesses are distinct across channels; follow-ups come on top. LinkedIn limits always win (see `linkedinCap`).
  */
-const FULL_TIME: Row = { calls: 50, invitations: 15, dms: 10, inmails: 0, cold_emails: 15, follow_ups: 20, comments: 0, new_businesses: 90 };
-const REDUCED: Row = { calls: 20, invitations: 5, dms: 5, inmails: 0, cold_emails: 5, follow_ups: 10, comments: 0, new_businesses: 35 };
+const FULL_TIME: Row = { calls: 50, invitations: 15, dms: 10, inmails: 0, cold_emails: 0, follow_ups: 20, comments: 0, new_businesses: 90 };
+const REDUCED: Row = { calls: 20, invitations: 5, dms: 5, inmails: 0, cold_emails: 0, follow_ups: 10, comments: 0, new_businesses: 35 };
 export const TARGET_SEEDS: Record<"FULL_TIME" | "REDUCED" | "LAUNCH_SPRINT", Record<FounderKey, Row>> = {
   FULL_TIME: { theo: FULL_TIME, pablo: FULL_TIME },
   REDUCED: { theo: REDUCED, pablo: REDUCED },
@@ -31,12 +34,20 @@ export const TARGET_SEEDS: Record<"FULL_TIME" | "REDUCED" | "LAUNCH_SPRINT", Rec
   LAUNCH_SPRINT: { theo: { new_businesses: 5 }, pablo: { new_businesses: 5 } },
 };
 
+/**
+ * Round 9 seed revision (D073). A spreadsheet whose original seed row (dated 2000-01-01) holds another value gets one
+ * extra seed row (id `target-seed`, "r9", …) dated `TARGET_REVISION_DATE`, the day after the original seed date: it
+ * supersedes the old seed but never a founder's own edit (edits are dated the day they apply, always later).
+ */
+export const TARGET_REVISION_R9: { modes: ("FULL_TIME" | "REDUCED")[]; metrics: Metric[] } = { modes: ["FULL_TIME", "REDUCED"], metrics: ["cold_emails"] };
+export const TARGET_REVISION_DATE = "2000-01-02";
+
 export function seedTargetsFor(founder: FounderKey, mode: WorkMode): { metric: Metric; target: number }[] {
   const row = (TARGET_SEEDS as Record<string, Record<FounderKey, Row>>)[mode]?.[founder] ?? {};
   return METRICS.map((metric) => ({ metric, target: row[metric] ?? 0 }));
 }
 
-/** Minutes of work a day per mode (FULL_TIME targets ≈ 365 min of outreach at the seed minutes per action). */
+/** Minutes of work a day per mode (FULL_TIME targets ≈ 305 min of outreach at the seed minutes per action). */
 export const CAPACITY_SEED_MINUTES: Record<WorkMode, number> = {
   FULL_TIME: 420,
   REDUCED: 180,
@@ -118,7 +129,14 @@ export const SETTINGS_SEEDS: { key: string; value: string; description: string }
   { key: "linkedin_daily_invitation_limit", value: "20", description: "LinkedIn invitations allowed per day. LinkedIn limits always take priority over targets." },
   { key: "linkedin_weekly_invitation_limit", value: "100", description: "LinkedIn invitations allowed per week (rolling Monday to Sunday)." },
   { key: "offer_consulting_value_eur", value: "1500", description: "Default value of a Consulting deal ex VAT (sprint goal 3,000 € / 2 clients). Used when a deal has no value." },
-  { key: "offer_local_monthly_eur", value: "100", description: "Valemont Local monthly price, a last-resort downsell for businesses with no budget." },
+  { key: "offer_local_monthly_eur", value: "100", description: "Valemont Local monthly price, the entry offer when the budget is too small." },
+  { key: "offer_priority", value: "consulting", description: "Priority offer (round 9): Consulting. Not interested → Local (cheaper, more accessible) → still not → 30/30." },
+  { key: "effort_consulting_pct", value: "100", description: "Share of sales effort on Consulting (percent)." },
+  { key: "effort_local_pct", value: "0", description: "Share of sales effort on Local (percent): Local is only offered to those not interested in Consulting." },
+  { key: "effort_thirty", value: "marketing", description: "30/30 gets no sales effort: it is pushed last in the ladder and worked through marketing." },
+  { key: "prospecting_channels", value: '["phone","linkedin"]', description: "Prospecting channels: phone and LinkedIn. No Instagram DMs, no ads. Emails are counted, with no target (mainly prospects with no time on the phone or not reachable)." },
+  { key: "ads_monthly_spend_eur", value: "0", description: "Monthly ads spend in EUR (used for CAC). Seed 0: no ads." },
+  { key: "founder_hour_cost_eur", value: "30", description: "Cost of one founder hour in EUR (used for CAC per channel)." },
   { key: "time_split_target", value: "75/15/10", description: "Target split of working time: sales / content / site, tools and analysis (percent)." },
   { key: "kpi_qualified_conversations_per_workday", value: "1", description: "Per founder: qualified conversations per workday." },
   { key: "kpi_qualified_meetings_per_week", value: "2", description: "Per founder: qualified meetings per week." },

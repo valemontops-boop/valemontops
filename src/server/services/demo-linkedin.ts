@@ -23,7 +23,7 @@ export async function seedDemoLinkedIn(repo: DataRepository) {
   ] as const).map(([name, contact, role, niche, city, country, owner, state], i) => ({ i, name, contact, role, niche, city, country, owner, state, slug: `demo-li-${i + 1}` }));
   await repo.insert("Accounts", rows.map((r) => ({
     id: childId("demo-li-account", String(r.i)), name: r.name, sector: r.country === "FR" ? "Bâtiment" : "Construcción", niche: r.niche, country: r.country, city: r.city, website: "", domain_normalized: "",
-    phone: "", email: "", linkedin_url: "", lead_source: "LinkedIn", lead_type: "outbound" as const, brand: "local" as const, owner_founder: r.owner, lead_status: "new" as const,
+    phone: "", email: "", linkedin_url: "", lead_source: "LinkedIn", lead_type: "outbound" as const, brand: "consulting" as const, owner_founder: r.owner, lead_status: "new" as const,
     observed_problem: "", problem_evidence: "", language: r.country === "FR" ? "fr" : "es", notes: "", import_batch_id: "",
   })), sys);
   await repo.insert("Contacts", rows.map((r) => ({
@@ -37,7 +37,7 @@ export async function seedDemoLinkedIn(repo: DataRepository) {
     const at = `${day}T09:${String(10 + n).padStart(2, "0")}:00.000Z`;
     return {
       id: childId("demo-li-ev", String(r.i), type), idempotency_key: childId("demo-li-key", String(r.i), type), founder_key: r.owner, activity_type: type, channel: "linkedin" as const,
-      account_id: childId("demo-li-account", String(r.i)), contact_id: childId("demo-li-contact", String(r.i)), opportunity_id: "", campaign_id: "", brand: "local" as const, market: r.country,
+      account_id: childId("demo-li-account", String(r.i)), contact_id: childId("demo-li-contact", String(r.i)), opportunity_id: "", campaign_id: "", brand: "consulting" as const, market: r.country,
       outcome: type === "linkedin_invitation" ? ("sent" as const) : null, objection: null, objections: [], replies: [], objection_note: "", met_person: "", notes: "",
       next_action: type === "linkedin_invitation" ? "LinkedIn: check if the invitation was accepted" : "LinkedIn: send the first message", next_action_due: type === "linkedin_invitation" ? addDays(day, 7) : day,
       occurred_at: at, logged_at: at, timezone: r.country === "FR" ? "Europe/Paris" : "Europe/Madrid", local_date: day, late_logged: false, source: "manual" as const,

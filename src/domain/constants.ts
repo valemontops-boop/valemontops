@@ -43,13 +43,14 @@ export const LEGACY_WORK_MODES: Readonly<Record<string, WorkMode>> = { JOB_SEARC
 export const normalizeWorkMode = (v: string): string => LEGACY_WORK_MODES[v] ?? v;
 
 /**
- * One Valemont offer (founders, round 8): Consulting. Local is a last-resort downsell at a monthly price for businesses
+ * One Valemont offer (founders, round 8): Consulting. Local is the entry offer (round 9: when the budget is too small) at a monthly price for businesses
  * that really have no budget. A deal's offer is stored in its `brand` column (consulting | local); values come from
  * SystemSettings `offer_consulting_value_eur` and `offer_local_monthly_eur`.
  */
 export const OFFERS = ["consulting", "local"] as const;
 export type Offer = (typeof OFFERS)[number];
-export const OFFER_LABELS: Record<Offer, string> = { consulting: "Consulting", local: "Local (100 €/month)" };
+/** Round 9 (D073): Consulting is the priority; Local is only the entry offer when the budget is too small. */
+export const OFFER_LABELS: Record<Offer, string> = { consulting: "Consulting", local: "Local, entry offer (budget too small)" };
 
 /** Daily counters that can carry a target. */
 export const METRICS = [
@@ -75,6 +76,9 @@ export const METRIC_LABELS: Record<Metric, string> = {
   comments: "Comments",
   new_businesses: "New businesses contacted",
 };
+
+/** Counted with no daily target (D073): emails show their count only, never "/0", outside attainment, score and capacity. */
+export const COUNTED_ONLY_METRICS: readonly Metric[] = ["cold_emails"];
 
 /** Activity types, logged distinctly (spec 5.5). */
 export const ACTIVITY_TYPES = [

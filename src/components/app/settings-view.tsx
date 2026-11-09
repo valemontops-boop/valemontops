@@ -231,7 +231,7 @@ function Diagnostics() {
 const ROADMAP: [string, string][] = [
   ["Stage 1B", "Tasks (P0–P3, views, Kanban), private task spreadsheets, daily scoring and streaks, sprints, Command Center, Next Best Action queue, weekly review, reports, notifications, Agenda and Founder Points (shared calendars), Idea Box, Files (Drive), Audience tracking with LinkedIn import."],
   ["Stage 2", "Audit questionnaires by sector, price book, PDF quotes with commercial policy, Won → Client & Project workflow, supplier bench, capacity, Local subscription usage and per-client margin."],
-  ["Stage 3", "Managerial P&L, MRR/ARR, EBITDA estimate, EUR/USD with ECB rates, Ad Fund, content planning FR/ES, Instagram adapter and snapshot job."],
+  ["Stage 3", "Managerial P&L, MRR/ARR, EBITDA estimate, EUR/USD with ECB rates, content planning FR/ES, Instagram adapter and snapshot job."],
   ["Stage 4", "Integration Hub, website webhooks, optional Calendar/Gmail OAuth, backups with tested restore, security hardening, deployment."],
 ];
 function Roadmap() {
@@ -314,7 +314,7 @@ function SprintTab() {
           <tbody>{(["contacted", "replies", "demos", "pilots"] as const).map((k) => <tr key={k} className="border-t border-hairline"><td className="py-1.5">{t({ contacted: "Businesses contacted", replies: "Qualified replies", demos: "Demos", pilots: "Pilot clients" }[k])}</td>{FOUNDERS.map((f) => <td key={f} className="py-1.5 pr-2"><Input aria-label={`${FOUNDER_NAMES[f]} ${t({ contacted: "Businesses contacted", replies: "Qualified replies", demos: "Demos", pilots: "Pilot clients" }[k])}`} type="number" min={0} className="num h-9 w-20" value={v[f][k]} onChange={(e) => setV({ ...v, [f]: { ...v[f], [k]: Math.max(0, Number(e.target.value) || 0) } })} /></td>)}</tr>)}</tbody>
         </table>
         <div className="grid max-w-lg grid-cols-3 gap-3">
-          {(["local", "consulting", "thirty"] as const).map((b) => <Field key={b} label={t("{brand} effort %", { brand: { local: "Local", consulting: "Consulting", thirty: "30/30" }[b] })} htmlFor={`sp-${b}`}><Input id={`sp-${b}`} type="number" min={0} max={100} className="num" value={v[b]} onChange={(e) => setV({ ...v, [b]: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} /></Field>)}
+          {(["consulting", "local", "thirty"] as const).map((b) => <Field key={b} label={t("{brand} effort %", { brand: { local: t("Local (entry offer)"), consulting: "Consulting", thirty: t("30/30 (marketing)") }[b] })} htmlFor={`sp-${b}`}><Input id={`sp-${b}`} type="number" min={0} max={100} className="num" value={v[b]} onChange={(e) => setV({ ...v, [b]: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} /></Field>)}
         </div>
         {v.local + v.consulting + v.thirty !== 100 ? <p className="text-sm text-bad">{t("The effort split adds up to {n}%, not 100%.", { n: v.local + v.consulting + v.thirty })}</p> : null}
         {m.isError ? <ErrorState error={m.error} onRetry={() => m.mutate()} /> : null}
@@ -341,8 +341,18 @@ function Workspace() {
     calendly_url_pablo: ["Pablo's Calendly link", "Inserted in call follow-ups (email and WhatsApp)."],
     deck_url_fr: ["Commercial deck, French", "A Drive or PDF link shared “anyone with the link”."],
     deck_url_es: ["Commercial deck, Spanish", "A Drive or PDF link shared “anyone with the link”."],
+    thirty_url: ["30/30 link", "Sent in one click when a prospect says yes to 30/30 during a call."],
+    offer_priority: ["Priority offer", "Seed Consulting."],
     offer_consulting_value_eur: ["Consulting deal value (€ ex VAT)", "The one Valemont offer. Used when a deal has no value. Seed 1,500 = sprint goal 3,000 € / 2 clients."],
-    offer_local_monthly_eur: ["Valemont Local price (€ per month)", "Last-resort downsell for businesses with no budget. Seed 100."],
+    offer_local_monthly_eur: ["Valemont Local price (€ per month)", "Entry offer, only when the budget is too small. Seed 100."],
+    effort_consulting_pct: ["Consulting sales effort (%)", "Seed 100: all sales effort goes to Consulting."],
+    effort_local_pct: ["Local sales effort (%)", "Seed 0: Local is only offered to those not interested in Consulting."],
+    ads_monthly_spend_eur: ["Ads spend per month (€)", "Seed 0: no ads. Used for CAC."],
+    founder_hour_cost_eur: ["Cost of a founder hour (€)", "Seed 30. Used for CAC per channel."],
+    website_url_fr: ["French website (https)", "Audited in Growth › Web › SEO (same-site pages only, up to 20)."],
+    website_url_es: ["Spanish website (https)", "Audited in Growth › Web › SEO (same-site pages only, up to 20)."],
+    seo_brand_terms: ["Brand words in searches", "Comma separated, e.g. valemont, 30/30. Used for the brand vs non-brand share."],
+    content_minutes_per_deliverable: ["Minutes per content piece", "JSON, e.g. {\"concept\": 60, \"reel\": 90, \"brand_post\": 30, \"personal_post\": 20, \"story\": 10, \"vsl\": 180}. Used for the cost of social networks."],
     linkedin_daily_invitation_limit: ["LinkedIn invitations per day (limit)", "LinkedIn limits always take priority over targets. Seed 20."],
     linkedin_weekly_invitation_limit: ["LinkedIn invitations per week (limit)", "Seed 100."],
     time_split_target: ["Time split target", "Sales / content / site, tools and analysis in %, e.g. 75/15/10."],
@@ -354,10 +364,47 @@ function Workspace() {
     <Panel>
       <PanelTitle>{t("Workspace")}</PanelTitle>
       <div className="flex max-w-xl flex-col gap-4">
-        {Object.entries(LABELS).map(([k, [label, hint]]) => <SettingField key={k + q.data[k]} k={k} label={t(label)} hint={t(hint)} initial={q.data[k] ?? ""} onSave={(value) => save.mutate({ key: k, value })} />)}
+        {Object.entries(LABELS).map(([k, [label, hint]]) => (
+          <React.Fragment key={k + q.data[k]}>
+            {k === "offer_priority" ? <p className="text-sm text-text-2">{t("Ladder: Consulting first. Not interested, on the call or in a meeting → Local, cheaper and more accessible. Still not interested → 30/30.")}</p> : null}
+            {k === "offer_priority"
+              ? <OfferPriorityField label={t(label)} hint={t(hint)} initial={q.data[k] || "consulting"} onSave={(value) => save.mutate({ key: k, value })} />
+              : <SettingField k={k} label={t(label)} hint={t(hint)} initial={q.data[k] ?? ""} onSave={(value) => save.mutate({ key: k, value })} />}
+            {k === "effort_local_pct" ? <OfferSeedsReadOnly thirty={q.data.effort_thirty ?? ""} channels={q.data.prospecting_channels ?? ""} /> : null}
+          </React.Fragment>
+        ))}
         {save.isError ? <ErrorState error={save.error} onRetry={() => save.reset()} /> : null}
       </div>
     </Panel>
+  );
+}
+/** Round 9 seeds shown read-only (D073): 30/30 gets marketing effort only; prospecting channels are phone and LinkedIn. */
+function OfferSeedsReadOnly({ thirty, channels }: { thirty: string; channels: string }) {
+  const t = useT();
+  let list: string[] = [];
+  try { const v: unknown = JSON.parse(channels || "[]"); if (Array.isArray(v)) list = v.map(String); } catch { /* shown as empty */ }
+  const name: Record<string, string> = { phone: t("Phone"), linkedin: "LinkedIn", email: t("Email") };
+  return (
+    <div className="-mt-2 flex flex-col gap-1 text-sm">
+      <p><span className="font-medium">{t("30/30 effort")}</span> · <span className="text-text-2">{thirty === "marketing" ? t("marketing only, no sales effort") : thirty || "—"}</span></p>
+      <p><span className="font-medium">{t("Prospecting channels")}</span> · <span className="text-text-2">{list.length ? list.map((c) => name[c] ?? c).join(", ") : "—"}</span></p>
+      <p className="text-[12px] text-text-3">{t("No Instagram DMs and no ads. Emails are counted, with no daily target: mainly prospects with no time on the phone or not reachable.")}</p>
+    </div>
+  );
+}
+function OfferPriorityField({ label, hint, initial, onSave }: { label: string; hint: string; initial: string; onSave: (v: string) => void }) {
+  const t = useT();
+  const [v, setV] = React.useState(initial);
+  return (
+    <form className="flex items-end gap-2" onSubmit={(e) => { e.preventDefault(); onSave(v); }}>
+      <Field label={label} htmlFor="ws-offer_priority" hint={hint} className="flex-1">
+        <Select id="ws-offer_priority" value={v} onChange={(e) => setV(e.target.value)}>
+          <option value="consulting">Consulting</option>
+          <option value="local">{t("Local, entry offer (budget too small)")}</option>
+        </Select>
+      </Field>
+      <Button type="submit" variant="outline" disabled={v === initial} className="mb-6">{t("Save")}</Button>
+    </form>
   );
 }
 function SettingField({ k, label, hint, initial, onSave }: { k: string; label: string; hint: string; initial: string; onSave: (v: string) => void }) {
@@ -371,7 +418,7 @@ function SettingField({ k, label, hint, initial, onSave }: { k: string; label: s
   );
 }
 
-const KIND_TITLES: Record<PlaybookItem["kind"], string> = { opener: "Call opener", objection: "Objection replies: 3 lines = Label · Ask · Next step (shown live in call mode, best reply first)", email: "Follow-up emails", whatsapp: "WhatsApp messages", linkedin: "LinkedIn messages (invitation note ≤ 300 characters)" };
+const KIND_TITLES: Record<PlaybookItem["kind"], string> = { opener: "Call opener and downsell pitches", objection: "Objection replies: 3 lines = Label · Ask · Next step (shown live in call mode, best reply first)", email: "Follow-up emails", whatsapp: "WhatsApp messages", linkedin: "LinkedIn messages (invitation note ≤ 300 characters)" };
 function PlaybookTab() {
   const t = useT();
   const qc = useQueryClient();
@@ -385,7 +432,7 @@ function PlaybookTab() {
   return (
     <div className="flex flex-col gap-4">
       <Panel className="flex flex-wrap items-center justify-between gap-3">
-        <p className="max-w-xl text-sm text-text-2">{t("Scripts and templates used live in call mode. Placeholders:")} <code>{"{business}"}</code> <code>{"{contact}"}</code> <code>{"{founder}"}</code> <code>{"{calendly}"}</code> <code>{"{deck}"}</code> <code>{"{first_name}"}</code>. {t("Links are set in Workspace. Nothing is ever sent without your click.")}</p>
+        <p className="max-w-xl text-sm text-text-2">{t("Scripts and templates used live in call mode. Placeholders:")} <code>{"{business}"}</code> <code>{"{contact}"}</code> <code>{"{founder}"}</code> <code>{"{calendly}"}</code> <code>{"{deck}"}</code> <code>{"{first_name}"}</code> <code>{"{thirty}"}</code> <code>{"{local_price}"}</code>. {t("Links are set in Workspace. Nothing is ever sent without your click.")}</p>
       </Panel>
       {(["opener", "objection", "email", "whatsapp", "linkedin"] as const).map((kind) => (
         <Panel key={kind}>
@@ -405,7 +452,7 @@ function PlaybookEditor({ item, busy, onSave }: { item: PlaybookItem; busy: bool
   const [body, setBody] = React.useState(item.body);
   const def = DEFAULT_PLAYBOOK.find((d) => d.kind === item.kind && d.key === item.key && d.language === item.language);
   const isDefault = def?.body === item.body && def?.subject === item.subject;
-  const title = item.kind === "objection" ? t(objectionLabel(item.key)) : item.kind === "email" ? t(EMAIL_TEMPLATE_LABELS[item.key as keyof typeof EMAIL_TEMPLATE_LABELS] ?? item.key) : item.kind === "whatsapp" ? `WhatsApp · ${t(EMAIL_TEMPLATE_LABELS[item.key as keyof typeof EMAIL_TEMPLATE_LABELS] ?? item.key)}` : item.kind === "linkedin" ? t(LINKEDIN_TEMPLATE_LABELS[item.key as keyof typeof LINKEDIN_TEMPLATE_LABELS] ?? item.key) : t("Opener");
+  const title = item.kind === "objection" ? t(objectionLabel(item.key)) : item.kind === "email" ? t(EMAIL_TEMPLATE_LABELS[item.key as keyof typeof EMAIL_TEMPLATE_LABELS] ?? item.key) : item.kind === "whatsapp" ? `WhatsApp · ${t(EMAIL_TEMPLATE_LABELS[item.key as keyof typeof EMAIL_TEMPLATE_LABELS] ?? item.key)}` : item.kind === "linkedin" ? t(LINKEDIN_TEMPLATE_LABELS[item.key as keyof typeof LINKEDIN_TEMPLATE_LABELS] ?? item.key) : item.key === "pitch_local" ? t("Local pitch (after a no to Consulting, said live)") : item.key === "pitch_thirty" ? t("30/30 pitch (after a no to Local, said live)") : t("Opener");
   const id = `pb-${item.kind}-${item.key}-${item.language}`;
   return (
     <form className="flex flex-col gap-2 border-t border-hairline pt-3 first:border-0 first:pt-0" onSubmit={(e) => { e.preventDefault(); onSave({ ...item, subject, body }); }}>

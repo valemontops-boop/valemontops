@@ -10,7 +10,8 @@ import { bestPerDay } from "@/domain/audience";
 import { addDays, localDate } from "@/domain/time";
 import { RuleError } from "../errors";
 import type { AppContext } from "../context";
-import { settingValue, userRow } from "./common";
+import { numSetting, offerDefaults, settingValue, userRow } from "./common";
+import { DEFAULT_HOUR_COST_EUR, callEconomics, channelCosts, costOf, marketingTime, parseDeliverableMinutes, unitEconomics } from "@/domain/cac";
 import { marketingWeek } from "./marketing-week";
 
 async function targetMarkets(ctx: AppContext): Promise<Record<Brand, string[]>> {
@@ -127,20 +128,69 @@ export async function addBreakdown(ctx: AppContext, founder: FounderKey, input: 
 
 /* ---------------- funnels across every channel (round 5) ---------------- */
 export const funnelsSchema = z.object({ days: z.coerce.number().int().refine((d) => [7, 30, 90].includes(d)).default(30), scope: z.enum(["team", "me"]).default("team") });
-/** Calls, field visits, LinkedIn, email, WhatsApp, web browser, AI engines and social funnels for the period, with meetings per hour of work. */
+/** Calls, field visits, LinkedIn, email, WhatsApp, web browser, AI engines and social funnels for the period, with meetings per hour of work and the cost per channel (round 9). */
 export async function marketingFunnels(ctx: AppContext, founder: FounderKey, input: z.infer<typeof funnelsSchema>) {
   const u = await userRow(ctx.repo, founder);
   const today = localDate(new Date(), u.timezone);
   const from = addDays(today, -input.days + 1);
-  const t = await ctx.repo.listMany(["ActivityEvents", "EmailSends", "Opportunities", "OpportunityStageEvents", "TrafficDaily", "SocialAccounts", "SocialAccountDaily"]);
+  const t = await ctx.repo.listMany(["ActivityEvents", "EmailSends", "Opportunities", "OpportunityStageEvents", "TrafficDaily", "SocialAccounts", "SocialAccountDaily", "ContentLog", "Tasks", "BankTransactions"]);
   const mine = (f: string) => input.scope === "team" || f === founder;
   const events = dedupeEvents(t.ActivityEvents.rows).filter((e) => mine(e.founder_key));
   // Social audience of the accounts this founder can see (team pages + their own profile): views (Instagram) and impressions (LinkedIn).
   const visible = new Set(t.SocialAccounts.rows.filter((a) => !a.is_archived && (a.visibility === "team" || a.owner_founder === founder)).map((a) => a.id));
   const socialReach = [...visible].flatMap((id) => bestPerDay(t.SocialAccountDaily.rows.filter((r) => !r.is_archived && r.account_id === id && r.date >= from && r.date <= today))).reduce((a, r) => a + (r.views ?? 0) + (r.impressions ?? 0), 0);
+  const cost = await costSettings(ctx);
+  const time = marketingTime({ content: dedupeContent(t.ContentLog.rows), tasks: t.Tasks.rows, from, to: today, deliverableMinutes: cost.deliverableMinutes, founder: input.scope === "me" ? founder : null });
+  const traffic = t.TrafficDaily.rows.filter((x) => !x.is_archived);
+  const inPeriod = traffic.filter((x) => x.date >= from && x.date <= today);
+  const sessionsOf = (g: string) => inPeriod.filter((x) => classifyTraffic(x.source, x.medium).group === g).reduce((a, x) => a + (x.sessions ?? 0), 0);
+  const webSessions = sessionsOf("web"), aiSessions = sessionsOf("ai");
+  const aiShare = webSessions + aiSessions ? aiSessions / (webSessions + aiSessions) : 0;
   const r = channelFunnels({
     events, sends: t.EmailSends.rows.filter((s) => mine(s.founder_key)), opps: t.Opportunities.rows, stageEvents: t.OpportunityStageEvents.rows,
-    traffic: t.TrafficDaily.rows.filter((x) => !x.is_archived), from, to: today, minutes: MINUTES_PER_ACTION_SEED, socialReach,
+    traffic, from, to: today, minutes: MINUTES_PER_ACTION_SEED, socialReach,
+    inboundMinutes: { social: time.content.total, web: time.site * (1 - aiShare), ai: time.site * aiShare },
   });
-  return { from, to: today, ...r };
+  // Money: ALL costs of the period from Money (debits in EUR; non-costs are skipped in cac.ts), founder time × hour cost.
+  const expenses = input.scope === "me" ? [] : t.BankTransactions.rows.filter((b) => !b.is_archived && b.direction === "debit" && b.date >= from && b.date <= today);
+  const cc = channelCosts({ channels: [...r.all, ...r.sources], time, webSessions, aiSessions, expenses, adsBudgetMinor: input.scope === "me" ? 0 : Math.round(cost.adsMonthlyEur * 100 * (input.days / 30)), hourCostEur: cost.hourCostEur });
+  const costs = cc.channels;
+  // Growth › LinkedIn and › Instagram: outreach (LinkedIn) + content time of that network, results from its outreach and its website visits.
+  const fromNet = (re: RegExp) => inPeriod.filter((x) => re.test(`${x.source} ${x.medium}`));
+  const sumT = (rows: typeof inPeriod, k: "meetings" | "purchases") => rows.reduce((a, x) => a + (x[k] ?? 0), 0);
+  const li = r.all.find((c) => c.key === "linkedin");
+  const liT = fromNet(/linkedin|lnkd/i), igT = fromNet(/instagram|\big\b/i);
+  const contentTotal = time.content.total || 1;
+  const socialMoney = costs.social?.moneyMinor ?? 0;
+  const networks = {
+    linkedin: costOf({ minutes: (li?.minutes ?? 0) + time.content.linkedin, moneyMinor: (costs.linkedin?.moneyMinor ?? 0) + Math.round(socialMoney * (time.content.linkedin / contentTotal)), meetings: (li?.meetings ?? 0) + sumT(liT, "meetings"), won: (li?.won ?? 0) + sumT(liT, "purchases"), hourCostEur: cost.hourCostEur }),
+    instagram: costOf({ minutes: time.content.instagram, moneyMinor: Math.round(socialMoney * (time.content.instagram / contentTotal)), meetings: sumT(igT, "meetings"), won: sumT(igT, "purchases"), hourCostEur: cost.hourCostEur }),
+  };
+  const offers = await offerDefaults(ctx.repo);
+  const dealsCost = costOf({ minutes: cc.blended.minutes, moneyMinor: cc.blended.moneyMinor, meetings: cc.blended.meetings, won: r.all.reduce((a, c) => a + c.won, 0), hourCostEur: cost.hourCostEur });
+  const phone = r.all.find((c) => c.key === "phone");
+  const calls = callEconomics({ dials: phone?.steps[0]?.value ?? 0, picked: phone?.steps[1]?.value ?? 0, yes: phone?.steps[2]?.value ?? 0, meetings: phone?.meetings ?? 0, won: phone?.won ?? 0, cost: costs.phone ?? costOf({ minutes: 0, meetings: 0, won: 0, hourCostEur: cost.hourCostEur }) });
+  return {
+    from, to: today, ...r, costs, networks, blended: cc.blended, money: cc.money, calls,
+    // Valemont deals only (30/30 purchases are a low-ticket product): all costs ÷ deals won, for the payback of Consulting and Local.
+    dealsCost,
+    economics: { blended: unitEconomics(dealsCost.cacMinor, { consultingMinor: offers.consulting, localMonthlyMinor: offers.local }), phone: unitEconomics(costs.phone?.cacMinor ?? null, { consultingMinor: offers.consulting, localMonthlyMinor: offers.local }), offers },
+    costBasis: { hourCostEur: cost.hourCostEur, contentMinutes: Math.round(time.content.total), contentPieces: time.content.pieces, siteMinutes: Math.round(time.site), deliverableMinutes: cost.deliverableMinutes, scope: input.scope },
+  };
+}
+
+/** Hour cost, ads budget and minutes per content deliverable (Settings › Workspace), with their defaults. */
+export async function costSettings(ctx: AppContext) {
+  const ads = await settingValue(ctx.repo, "ads_monthly_spend_eur") ?? await settingValue(ctx.repo, "ads_budget_eur");
+  const adsN = Number(String(ads ?? "").replace(",", "."));
+  return {
+    hourCostEur: await numSetting(ctx.repo, "founder_hour_cost_eur", DEFAULT_HOUR_COST_EUR),
+    adsMonthlyEur: Number.isFinite(adsN) && adsN > 0 ? adsN : 0,
+    deliverableMinutes: parseDeliverableMinutes(await settingValue(ctx.repo, "content_minutes_per_deliverable")),
+  };
+}
+/** ContentLog is append-only with an idempotency key: count each piece once. */
+function dedupeContent<T extends { idempotency_key: string; is_archived: boolean }>(rows: T[]): T[] {
+  const seen = new Set<string>();
+  return rows.filter((r) => !r.is_archived && !seen.has(r.idempotency_key) && seen.add(r.idempotency_key));
 }

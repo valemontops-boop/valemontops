@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState, Panel, PanelTitle, Skeleton } from "@/components/ui/form";
 import { Bars, Columns } from "./charts";
 import { InboxList } from "./inbox-panel";
-import { StatStrip, StepFunnel, pctOf, useFunnels, type GrowthFilter } from "./growth-common";
+import { StatStrip, StepFunnel, addCosts, pctOf, useCostStat, useFunnels, type GrowthFilter } from "./growth-common";
 import type { EmailBenchmarks, Rate } from "@/domain/email";
 import { EMAIL_TEMPLATE_LABELS } from "@/domain/playbook";
 import { api } from "@/lib/api";
@@ -37,6 +37,7 @@ export function MessagesTab({ filter }: { filter: GrowthFilter }) {
   const wa = f.data?.all.find((c) => c.key === "whatsapp");
   const v = (c: typeof email, i: number) => c?.steps[i]?.value ?? 0;
   const n = (x: number) => (f.data ? x.toLocaleString(tag) : "…");
+  const costStat = useCostStat(); // round 9 (D072): CAC of email + WhatsApp
   return (
     <div className="flex flex-col gap-5">
       {f.isError ? <ErrorState error={f.error} onRetry={() => f.refetch()} /> : (
@@ -46,6 +47,7 @@ export function MessagesTab({ filter }: { filter: GrowthFilter }) {
             { label: t("WhatsApp sent"), value: n(v(wa, 0)), note: t("{n} replies · {pct} reply rate", { n: v(wa, 1), pct: pctOf(v(wa, 1), v(wa, 0)) }) },
             { label: t("Interested replies"), value: n(v(email, 2) + v(wa, 2)), note: t("marked “Interested” below") },
             { label: t("Meetings"), value: n((email?.meetings ?? 0) + (wa?.meetings ?? 0)), note: t("credited to email or WhatsApp (last touch)"), result: true },
+            costStat(addCosts(f.data?.costs?.email, f.data?.costs?.whatsapp)),
           ]} />
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
             <StepFunnel title={t("Email")} steps={email?.steps ?? []} hours={email?.hours} empty={t("No email sent in this period. Send follow-ups from Call mode (key E or P).")} />

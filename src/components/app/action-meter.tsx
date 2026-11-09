@@ -6,6 +6,7 @@ import { useT } from "@/i18n/react";
 /**
  * Signature component (DESIGN.md): one tick per action up to the target. Filled = confirmed by the server,
  * hollow = saving, hatched = remaining. Above 60 it falls back to a continuous bar.
+ * Target 0 = counted, no target (D073): the count alone, no "/0", no meter, never red.
  */
 export function ActionMeter({ label, actual, target, pending = 0, onLog, tone = "sales" }: { label: string; actual: number; target: number; pending?: number; onLog?: () => void; tone?: Tone }) {
   const t = useT();
@@ -18,9 +19,9 @@ export function ActionMeter({ label, actual, target, pending = 0, onLog, tone = 
       <div className="flex items-baseline gap-2">
         <span className="font-medium">{label}</span>
         <span className="num text-sm text-text-2">
-          {actual}/{target}
-          {extra > 0 ? ` (+${extra})` : ""}
+          {target > 0 ? <>{actual}/{target}{extra > 0 ? ` (+${extra})` : ""}</> : actual}
         </span>
+        {target <= 0 ? <span className="text-[12px] text-text-3">{t("counted, no target")}</span> : null}
         {pending > 0 ? <span className="text-[12px] text-text-3">{t("saving…")}</span> : null}
       </div>
       {onLog ? (
@@ -28,7 +29,7 @@ export function ActionMeter({ label, actual, target, pending = 0, onLog, tone = 
           {t("+ Log")}
         </button>
       ) : null}
-      <div role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={target} aria-valuenow={actual} className="min-w-0">
+      {target > 0 ? <div role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={target} aria-valuenow={actual} className="min-w-0">
         {target <= 60 ? (
           <div className="flex flex-wrap gap-[3px]">
             {Array.from({ length: target }, (_, i) => (
@@ -44,7 +45,7 @@ export function ActionMeter({ label, actual, target, pending = 0, onLog, tone = 
             <div className="absolute inset-y-0 border-2 border-ink" style={{ left: `${(done / target) * 100}%`, width: `${(pend / target) * 100}%` }} />
           </div>
         )}
-      </div>
+      </div> : null}
     </div>
   );
 }

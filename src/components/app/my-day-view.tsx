@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState, Field, Input, Panel, PanelTitle, Skeleton, Textarea } from "@/components/ui/form";
 import { DetailPanel, Modal } from "@/components/ui/overlay";
-import { METRICS, METRIC_LABELS, WORK_MODES, WORK_MODE_HINTS, WORK_MODE_LABELS, type ActivityType, type Metric } from "@/domain/constants";
+import { COUNTED_ONLY_METRICS, METRICS, METRIC_LABELS, WORK_MODES, WORK_MODE_HINTS, WORK_MODE_LABELS, type ActivityType, type Metric } from "@/domain/constants";
 import { METRIC_OF_TYPE } from "@/domain/activity";
 import { api } from "@/lib/api";
 import { cn, timeOfDay } from "@/lib/utils";
@@ -45,6 +45,8 @@ export function MyDayView() {
   if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
   const d = q.data;
   const active = d.targets ? METRICS.filter((m) => d.targets![m].target > 0) : [];
+  // Counted, no target (D073): emails show their count only, outside attainment, score and capacity.
+  const counted = d.targets ? COUNTED_ONLY_METRICS.filter((m) => d.targets![m].target <= 0) : [];
   const c = d.calls;
 
   return (
@@ -91,6 +93,10 @@ export function MyDayView() {
                 {active.map((m) => (
                   <ActionMeter key={m} label={t(METRIC_LABELS[m])} actual={d.tally[m]} target={d.targets![m].target} pending={pendingByMetric[m] ?? 0}
                     onLog={m === "calls" ? undefined : METRIC_KIND[m] ? () => qa.open({ kind: METRIC_KIND[m] }) : m === "new_businesses" ? () => qa.open({ kind: "visit" }) : undefined} />
+                ))}
+                {counted.map((m) => (
+                  <ActionMeter key={m} label={t(METRIC_LABELS[m])} actual={d.tally[m]} target={0} pending={pendingByMetric[m] ?? 0}
+                    onLog={METRIC_KIND[m] ? () => qa.open({ kind: METRIC_KIND[m] }) : undefined} />
                 ))}
               </div>
             )}

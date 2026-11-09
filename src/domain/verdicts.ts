@@ -90,6 +90,23 @@ export function growthVerdicts(f: FunnelInput, label: (k: string) => string = (k
   return out;
 }
 
+/* ---------------- growth: cost per channel (round 9, D072) ---------------- */
+export interface CostLite { minutes: number; totalMinor: number; meetings: number; won: number; perMeetingMinor: number | null; cacMinor: number | null }
+/** Cheapest channel per meeting (≥ 2 meetings), and channels that cost hours with no meeting and no client (≥ 2 h). */
+export function costVerdicts(costs: Record<string, CostLite>, label: (k: string) => string, fmt: (minor: number) => string): Verdict[] {
+  const out: Verdict[] = [];
+  const ranked = Object.entries(costs).filter(([, c]) => c.meetings >= 2 && c.totalMinor > 0 && c.perMeetingMinor !== null).sort((a, b) => a[1].perMeetingMinor! - b[1].perMeetingMinor!);
+  if (ranked[0]) out.push({ kind: "good", key: "{channel} is the cheapest channel per meeting: {x}.", vars: { channel: label(ranked[0][0]), x: fmt(ranked[0][1].perMeetingMinor!) }, action: { key: "Keep it first in the week before adding a new channel." } });
+  if (ranked.length >= 2) {
+    const [k, c] = ranked[ranked.length - 1];
+    if (c.perMeetingMinor! >= ranked[0][1].perMeetingMinor! * 3) out.push({ kind: "watch", key: "{channel} costs {x} per meeting, {n} times the cheapest.", vars: { channel: label(k), x: fmt(c.perMeetingMinor!), n: Math.round(c.perMeetingMinor! / ranked[0][1].perMeetingMinor!) } });
+  }
+  for (const [k, c] of Object.entries(costs)) {
+    if (c.minutes >= 120 && c.meetings === 0 && c.won === 0) out.push({ kind: "watch", key: "{channel}: {h} h of work ({x}) and no meeting or client yet.", vars: { channel: label(k), h: Math.round(c.minutes / 6) / 10, x: fmt(c.totalMinor) }, action: { key: "Add a clear call to action (book a call) to each piece, or move these hours to the channel that brings meetings." } });
+  }
+  return out;
+}
+
 /* ---------------- money (Wise + Stripe) ---------------- */
 export interface MoneyInput {
   months: { month: string; income: number; expenses: number; net: number }[];

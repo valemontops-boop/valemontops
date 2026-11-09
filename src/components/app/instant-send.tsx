@@ -9,7 +9,7 @@ import {
   EMAIL_TEMPLATE_LABELS, TEMPLATE_SHORT, gmailComposeLink, whatsappSendLink, type Lang, type TemplateKey,
 } from "@/domain/playbook";
 import {
-  alreadySent, contextOf, defaultChannel, docsIn, isMobileUA, messageFor, missingInfo, sentTo,
+  alreadySent, contextOf, defaultChannel, docsIn, isEmail, isMobileUA, messageFor, missingInfo, sentTo,
   type Channel, type PlaybookData, type SendTarget, type SentRow,
 } from "@/domain/messages";
 import { useDateTag, useLocale, useT } from "@/i18n/react";
@@ -20,7 +20,7 @@ export type Playbook = PlaybookData;
 export type { SendTarget };
 type Via = "gmail" | "mail_app" | "whatsapp";
 /** A message opened in Gmail or WhatsApp, waiting for the founder's "Yes, sent". */
-export type PendingSend = { id: string; channel: Channel; target: SendTarget; template: TemplateKey; key: string; to: string; subject: string; body: string; business: string };
+export type PendingSend = { id: string; channel: Channel; target: SendTarget; template: TemplateKey; key: string; to: string; subject: string; body: string; business: string; saveAddress?: boolean };
 export type Draft = Omit<PendingSend, "id">;
 
 const isTyping = (el: EventTarget | null) => el instanceof HTMLElement && (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || el.isContentEditable);
@@ -41,12 +41,13 @@ export function useInstantSend(sessionId?: string) {
   const [returned, setReturned] = React.useState(false);
   const refresh = () => ["call-summary", "my-day", "email-sends", "email-queue", "call-log"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
   const payload = (d: Draft, via: Via, checkOnly = false) => ({
+    save_address: Boolean(d.saveAddress),
     idempotency_key: d.key, channel: d.channel, via, context: contextOf(d.template), account_id: d.target.accountId, call_session_id: sessionId ?? "",
     to: d.to.trim(), subject: d.subject, body: d.body, template_key: d.template, language: lang, market: d.target.market,
     business_name: d.target.accountId ? "" : d.business.trim(), contact_name: d.target.contact, check_only: checkOnly,
   });
   const record = useMutation({
-    mutationFn: (a: { d: Draft; via: Via; pendingId?: string }) => api("/api/email/send", { body: payload(a.d, a.via) }),
+    mutationFn: (a: { d: Draft; via: Via; pendingId?: string }) => api<{ send: { account_id: string } | null }>("/api/email/send", { body: payload(a.d, a.via) }),
     onSuccess: (_r, a) => {
       toast(a.via === "gmail" ? t("Email sent to {name}", { name: a.d.target.contact || a.d.target.name || a.d.to }) : a.d.channel === "email" ? t("Email sent and logged") : t("WhatsApp logged"));
       if (a.pendingId) setPending((p) => p.filter((x) => x.id !== a.pendingId));
@@ -65,10 +66,13 @@ export function useInstantSend(sessionId?: string) {
     return () => { window.removeEventListener("focus", back); document.removeEventListener("visibilitychange", back); document.removeEventListener("visibilitychange", away); };
   }, [pending.length]);
 
-  /** Sends or opens the message. Resolves true when it left (Gmail) or opened (tab); false when blocked. */
-  const send = async (d: Draft): Promise<boolean> => {
+  /**
+   * Sends or opens the message. Resolves with where it went (Gmail: sent, with the business it was logged on; tab:
+   * opened, "Sent?" follows) or false when blocked.
+   */
+  const send = async (d: Draft): Promise<false | { via: Via; accountId: string }> => {
     if (d.channel === "email" && gmail.data?.connected) {
-      try { await record.mutateAsync({ d, via: "gmail" }); return true; } catch { return false; }
+      try { const r = await record.mutateAsync({ d, via: "gmail" }); return { via: "gmail", accountId: r.send?.account_id ?? d.target.accountId }; } catch { return false; }
     }
     // Open the tab now (still inside the click, so it is not blocked), point it once the server said OK.
     const w = window.open("", "_blank");
@@ -83,7 +87,7 @@ export function useInstantSend(sessionId?: string) {
     if (w) w.location.href = url; else window.open(url, "_blank", "noopener");
     setReturned(false);
     setPending((p) => [{ ...d, id: crypto.randomUUID() }, ...p.filter((x) => x.key !== d.key)]);
-    return true;
+    return { via: d.channel === "email" ? "mail_app" : "whatsapp", accountId: d.target.accountId };
   };
   const confirm = (p: PendingSend) => record.mutate({ d: p, via: p.channel === "email" ? "mail_app" : "whatsapp", pendingId: p.id });
   const dismiss = (p: PendingSend) => setPending((x) => x.filter((y) => y.id !== p.id));
@@ -305,3 +309,81 @@ export function MessageCard({ s, target, chips, suggested, sendKey, needsBusines
 
 /** Small helper for callers: the suggested template's label. */
 export const templateLabel = (k: TemplateKey) => EMAIL_TEMPLATE_LABELS[k];
+
+/**
+ * Instant mail while still on the phone (D071): one click on a chip sends it to the prospect's address (Gmail when
+ * connected, else Gmail opens in a tab and "Sent?" comes back on return). No address known: an inline field takes the
+ * one the prospect is spelling out (kept on the business), then the chip sends. Digits 1–n send while `keys`.
+ * Logged in EmailSends with the call session and the business; one idempotency key per chip and call.
+ */
+export function InCallMail({ s, target, chips, suggested, sent, keys, needsBusiness, onSent }: {
+  s: InstantSend; target: SendTarget; chips: TemplateKey[]; suggested: TemplateKey | null; sent: readonly TemplateKey[]; keys: boolean; needsBusiness: boolean;
+  onSent: (k: TemplateKey, r: { accountId: string; email: string; business: string }) => void;
+}) {
+  const t = useT();
+  const pb = s.playbook;
+  const [email, setEmail] = React.useState(target.email);
+  const [business, setBusiness] = React.useState(target.name);
+  const [ask, setAsk] = React.useState<TemplateKey | null>(null); // chip waiting for the address
+  const [busy, setBusy] = React.useState<TemplateKey | null>(null);
+  const [keyOf] = React.useState(() => new Map<TemplateKey, string>());
+  const idem = (k: TemplateKey) => { if (!keyOf.has(k)) keyOf.set(k, crypto.randomUUID()); return keyOf.get(k)!; };
+  const typed = email.trim() !== target.email.trim();
+  const go = async (k: TemplateKey) => {
+    if (busy || !pb || sent.includes(k)) return;
+    if (!isEmail(email) || (needsBusiness && !business.trim())) {
+      setAsk(k);
+      if (email.trim() && !isEmail(email)) toast(t("Check the email address."));
+      setTimeout(() => document.getElementById(!isEmail(email) ? "icm-to" : "icm-biz")?.focus(), 0);
+      return;
+    }
+    const msg = messageFor(pb, s.lang, "email", k, { name: business, contact: target.contact });
+    if (missingInfo("email", email, { body: msg.body }).includes("link")) { toast(t("A link is missing. Add it in Settings › Workspace.")); return; }
+    setBusy(k);
+    const r = await s.send({ channel: "email", target: { ...target, name: business, email }, template: k, key: idem(k), to: email.trim(), subject: msg.subject, body: msg.body, business, saveAddress: typed });
+    setBusy(null);
+    if (r) { setAsk(null); onSent(k, { accountId: r.accountId, email: email.trim(), business }); }
+  };
+  React.useEffect(() => {
+    if (!keys) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (isTyping(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
+      const d = /^(Digit|Numpad)([1-9])$/.exec(e.code)?.[2];
+      if (d && Number(d) <= chips.length) { e.preventDefault(); e.stopImmediatePropagation(); void go(chips[Number(d) - 1]); }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  });
+  return (
+    <div className="flex flex-col gap-2 rounded-[14px] border-2 border-sales bg-panel p-3" role="group" aria-label={t("Instant mail")}>
+      <p className="flex flex-wrap items-center gap-2 text-[13px] text-text-2">
+        <Mail className="size-4" />
+        <span className="font-medium text-ink">{t("Instant mail")}</span>
+        <span className="truncate">{isEmail(email) ? `→ ${email}` : t("No email yet: type it as they spell it")}</span>
+        <span className="ml-auto">{s.gmailConnected ? t("sent by Gmail") : t("opens Gmail")}</span>
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {chips.map((k, i) => {
+          const done = sent.includes(k);
+          return (
+            <button key={k} type="button" disabled={done || busy !== null} onClick={() => void go(k)} aria-label={`${t(TEMPLATE_SHORT[k])}${done ? ` · ${t("sent")}` : ""}`}
+              className={cn("flex min-h-11 items-center gap-1.5 rounded-full border px-3.5 text-[14px] font-medium transition-colors disabled:cursor-default",
+                done ? "border-win bg-win/10 text-ink" : k === suggested ? "border-ink bg-ink text-panel hover:opacity-90" : ask === k ? "border-ink bg-subtle" : "border-control bg-panel hover:bg-subtle")}>
+              {done ? <Check className="size-4" /> : busy === k ? <Send className="size-4 animate-pulse" /> : null}
+              {t(TEMPLATE_SHORT[k])}
+              {keys && !done ? <span className={cn("text-[11px]", k === suggested ? "text-panel/70" : "text-text-3")}>{i + 1}</span> : null}
+            </button>
+          );
+        })}
+      </div>
+      {ask || !isEmail(email) ? (
+        <form className="flex flex-wrap items-center gap-2" onSubmit={(e) => { e.preventDefault(); if (ask) void go(ask); }}>
+          <Input id="icm-to" type="email" inputMode="email" autoComplete="off" aria-label={t("Their email address")} placeholder={t("Their email address")} value={email} onChange={(e) => setEmail(e.target.value)}
+            autoFocus={Boolean(ask)} className={cn("h-10 min-w-56 flex-1", ask && !isEmail(email) && "border-bad")} />
+          {needsBusiness ? <Input id="icm-biz" aria-label={t("Business")} placeholder={t("Business name (required to follow up)")} value={business} onChange={(e) => setBusiness(e.target.value)} className={cn("h-10 min-w-48 flex-1", ask && !business.trim() && "border-bad")} /> : null}
+          {ask ? <Button type="submit" variant="primary" disabled={busy !== null}><Send /> {t("Send · {name}", { name: t(TEMPLATE_SHORT[ask]) })} <span className="text-[11px] opacity-70">↵</span></Button> : null}
+        </form>
+      ) : null}
+    </div>
+  );
+}

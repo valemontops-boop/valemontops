@@ -151,6 +151,7 @@ export async function seedDemoWork(repo: DataRepository, privateRepo: (f: string
     { id: childId("demo-content", "2"), idempotency_key: childId("demo-content-key", "2"), founder_key: "pablo", deliverable: "brand_post", brand: "consulting", language: "ES", title: "Caso: respuesta en 5 minutos", url: "", local_date: today },
   ], sys);
   await seedDemoCallsAndEmails(repo, today);
+  await (await import("./demo-seo")).seedDemoSeo(repo, today); // SEO data and done site/content work (D072)
   return true;
 }
 

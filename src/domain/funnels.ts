@@ -5,7 +5,8 @@ import { classifyTraffic, type TrafficGroup } from "./marketing";
  * (outbound) and three inbound sources (round 8): web browser (search, direct, referral, paid), AI engines
  * (ChatGPT, Perplexity, Claude, Gemini…) and social networks (audience, then the website visits they bring). Results (meetings, deals won) are credited to the channel of
  * the last touch on that business before the result ("last touch"), so each meeting counts once.
- * Time cost uses the minutes-per-action settings, which gives "meetings per hour of work" per channel.
+ * Time cost uses the minutes-per-action settings, which gives "meetings per hour of work" per channel; inbound sources get
+ * their content or site time from `inboundMinutes` (round 9, see cac.ts).
  */
 
 export type ChannelKey = "phone" | "field" | "linkedin" | "email" | "whatsapp";
@@ -16,7 +17,7 @@ export const CHANNEL_LABELS: Record<ChannelKey | InboundKey | "inbound", string>
 };
 
 interface Ev { activity_type: string; channel: string | null; outcome: string | null; account_id: string; target_key?: string; occurred_at: string; local_date: string }
-interface Send { channel: "email" | "whatsapp"; status: string; account_id: string; sent_at: string | null; local_date: string | null; replied_at: string | null; reply_kind: string | null; is_archived?: boolean }
+interface Send { channel: "email" | "whatsapp"; context?: string; status: string; account_id: string; sent_at: string | null; local_date: string | null; replied_at: string | null; reply_kind: string | null; is_archived?: boolean }
 interface StageEv { opportunity_id: string; to_stage: string; changed_at: string }
 interface Opp { id: string; account_id: string }
 interface Traffic { date: string; source?: string; medium?: string; sessions: number | null; leads: number | null; meetings: number | null; purchases: number | null }
@@ -48,11 +49,13 @@ export interface ChannelFunnel {
   meetings: number;
   won: number;
   hours: number | null;
+  /** Exact minutes of work behind `hours` (round 9, for the cost per channel). */
+  minutes: number;
   meetingsPerHour: number | null;
   touchesPerMeeting: number | null;
 }
 
-export function channelFunnels(input: { events: Ev[]; sends: Send[]; opps: Opp[]; stageEvents: StageEv[]; traffic: Traffic[]; from: string; to: string; minutes: Partial<Record<string, number>>; socialReach?: number }) {
+export function channelFunnels(input: { events: Ev[]; sends: Send[]; opps: Opp[]; stageEvents: StageEv[]; traffic: Traffic[]; from: string; to: string; minutes: Partial<Record<string, number>>; socialReach?: number; inboundMinutes?: Partial<Record<InboundKey, number>> }) {
   const { from, to } = input;
   const inPeriod = (d: string | null) => Boolean(d && d >= from && d <= to);
   const events = input.events.filter((e) => inPeriod(e.local_date));
@@ -89,12 +92,12 @@ export function channelFunnels(input: { events: Ev[]; sends: Send[]; opps: Opp[]
   const distinct = (xs: { account_id: string; target_key?: string }[]) => new Set(xs.map((x) => x.account_id || (x.target_key ? `n:${x.target_key}` : "")).filter(Boolean)).size;
 
   const out: ChannelFunnel[] = [];
-  const push = (key: ChannelKey, chEvents: Ev[], steps: { label: string; value: number }[]) => {
-    const min = chEvents.reduce((a, e) => a + minutesFor(e, input.minutes), 0);
+  const push = (key: ChannelKey, chEvents: Ev[], steps: { label: string; value: number }[], floorMinutes = 0) => {
+    const min = Math.max(floorMinutes, chEvents.reduce((a, e) => a + minutesFor(e, input.minutes), 0));
     const m = meetings.get(key)?.size ?? 0;
     const touchesN = steps[0]?.value ?? 0;
     const hours = min > 0 ? min / 60 : null;
-    out.push({ key, steps: [...steps, { label: "Meetings", value: m }, { label: "Won", value: won.get(key)?.size ?? 0 }], touches: touchesN, meetings: m, won: won.get(key)?.size ?? 0, hours: hours === null ? null : Math.round(hours * 10) / 10, meetingsPerHour: hours ? Math.round((m / hours) * 100) / 100 : null, touchesPerMeeting: m ? Math.round(touchesN / m) : null });
+    out.push({ key, steps: [...steps, { label: "Meetings", value: m }, { label: "Won", value: won.get(key)?.size ?? 0 }], touches: touchesN, meetings: m, won: won.get(key)?.size ?? 0, minutes: min, hours: hours === null ? null : Math.round(hours * 10) / 10, meetingsPerHour: hours ? Math.round((m / hours) * 100) / 100 : null, touchesPerMeeting: m ? Math.round(touchesN / m) : null });
   };
   const by = (ch: ChannelKey) => events.filter((e) => channelOf(e) === ch);
 
@@ -125,15 +128,18 @@ export function channelFunnels(input: { events: Ev[]; sends: Send[]; opps: Opp[]
       { label: "Sent", value: Math.max(s.length, by(ch).length) },
       { label: "Replies", value: s.filter((x) => x.replied_at && x.reply_kind !== "bounce").length },
       { label: "Interested", value: s.filter((x) => x.reply_kind === "positive").length },
-    ]);
+    ], s.reduce((a, x) => a + (input.minutes[x.context === "cold" ? "cold_emails" : "follow_ups"] ?? 0), 0)); // app sends without an event still took time
   }
   const tr = input.traffic.filter((x) => inPeriod(x.date));
   const webFunnel = (key: InboundKey | "inbound", rows: Traffic[], first: { label: string; value: number }[] = []): ChannelFunnel => {
     const sum = (k: keyof Traffic) => rows.reduce((a, x) => a + (Number(x[k]) || 0), 0);
+    // Social networks cost content time, web and AI engines cost site time (round 9); "inbound" (all visits) has none.
+    const min = key === "inbound" ? 0 : Math.round(input.inboundMinutes?.[key] ?? 0);
     return {
       key,
       steps: [...first, { label: "Visits", value: sum("sessions") }, { label: "Leads", value: sum("leads") }, { label: "Meetings", value: sum("meetings") }, { label: "Purchases", value: sum("purchases") }],
-      touches: sum("sessions"), meetings: sum("meetings"), won: sum("purchases"), hours: null, meetingsPerHour: null, touchesPerMeeting: sum("meetings") ? Math.round(sum("sessions") / sum("meetings")) : null,
+      touches: sum("sessions"), meetings: sum("meetings"), won: sum("purchases"), minutes: min, hours: min > 0 ? Math.round((min / 60) * 10) / 10 : null,
+      meetingsPerHour: min > 0 ? Math.round((sum("meetings") / (min / 60)) * 100) / 100 : null, touchesPerMeeting: sum("meetings") ? Math.round(sum("sessions") / sum("meetings")) : null,
     };
   };
   // All website visits (kept for the website verdicts), then one funnel per source group.

@@ -1,6 +1,14 @@
 # Status
 
-Updated: 2026-11-09 · Stage: **1B complete + founder feedback round 8 (fake-verified)** · Next: Stage 2 (revenue operations).
+Updated: 2026-11-09 · Stage: **1B complete + founder feedback round 9 (fake-verified)** · Next: Stage 2 (revenue operations).
+
+## Feedback round 9 (2026-11-09)
+| Change | Status |
+|---|---|
+| Business seeds: Consulting priority (100 % effort), Local = entry offer, ladder Consulting → Local → 30/30, phone + LinkedIn, no Instagram DMs, ads 0 €, hour cost 30 €; emails counted with no daily target | VERIFIED_FAKE (brief-seeds tests) |
+| Call path: New call → picked up / not → objection or in-call email → hung up → outcome; mail during the call (address typed while the prospect spells it), mail after a missed call; Local / 30/30 ladder with pitches and outcomes | VERIFIED_FAKE (calls tests, e2e, preview) |
+| CAC per channel, fully loaded (founder time + all Money expenses), cost per meeting, payback, LTV:CAC, call economics vs researched benchmarks | VERIFIED_FAKE (cac.test.ts) — real expenses needed for meaningful numbers |
+| SEO: Search Console CSV import, optimisation points, site audit, AI-engines checklist | VERIFIED_FAKE (seo.test.ts; demo site) — audit runs on the real site in LIVE only |
 
 ## Feedback round 8 (2026-11-09)
 | Change | Status |

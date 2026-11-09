@@ -9,12 +9,13 @@ import { outreachBlock } from "@/domain/suppression";
 import { addDays, localDate } from "@/domain/time";
 import { dedupeEvents } from "@/domain/activity";
 import { objectionsOf } from "@/domain/calls";
-import { suggestedFollowUp } from "@/domain/playbook";
+import { hasMissingLink, suggestedFollowUp } from "@/domain/playbook";
 import { ConsentRequiredError } from "@/data/google/ports";
 import { GMAIL_SCOPE } from "../gmail-grant";
 import { BlockedError, RuleError } from "../errors";
 import type { AppContext } from "../context";
 import { logActivity, logActivitySchema } from "./activities";
+import { findByName } from "./calls";
 import { settingValue, userRow } from "./common";
 
 const optUuid = z.union([z.literal(""), z.string().uuid()]).default("");
@@ -36,6 +37,8 @@ export const sendSchema = z.object({
   contact_name: z.string().trim().max(200).default(""),
   /** Only run the checks (suppression, consent), e.g. before opening the mail app or WhatsApp. */
   check_only: z.boolean().default(false),
+  /** Instant mail during a call (D071): the address the prospect spelled out is kept on the contact / business. */
+  save_address: z.boolean().optional(),
 });
 export type SendInput = z.infer<typeof sendSchema>;
 
@@ -52,7 +55,7 @@ export async function sendFollowUp(ctx: AppContext, founder: FounderKey, grant: 
   if (input.channel === "whatsapp" && normalizePhone(input.to, input.market).replace(/\D/g, "").length < 8) throw new RuleError("Enter the WhatsApp number with its country code.");
   if (input.via === "gmail" && input.channel !== "email") throw new RuleError("Gmail only sends emails.");
   if (input.via === "gmail" && (!input.subject || !input.body.trim())) throw new RuleError("Write a subject and a message.");
-  if (/\[add (your Calendly|the deck) link/.test(input.body)) throw new RuleError("A link is missing: add it in Settings › Workspace first.");
+  if (hasMissingLink(input.body)) throw new RuleError("A link is missing: add it in Settings › Workspace first.");
 
   const sendId = childId(input.idempotency_key, "send");
   const existing = await ctx.repo.get("EmailSends", sendId, { fresh: true });
@@ -60,7 +63,9 @@ export async function sendFollowUp(ctx: AppContext, founder: FounderKey, grant: 
   if (existing?.status === "pending" && existing.via === "gmail") throw new RuleError("We could not confirm whether this email left. Check Gmail › Sent before sending it again.");
 
   const t = await ctx.repo.listMany(["Accounts", "Contacts", "SuppressionList"]);
-  const account = input.account_id ? t.Accounts.rows.find((a) => a.id === input.account_id) ?? null : null;
+  // Free dialling: the business named here may already exist (a "yes" logged first): reuse it.
+  const byName = !input.account_id && input.business_name ? await findByName(ctx, founder, input.business_name) : null;
+  const account = input.account_id || byName ? t.Accounts.rows.find((a) => a.id === (input.account_id || byName)) ?? null : null;
   if (input.account_id && !account) throw new RuleError("The selected business no longer exists.");
   const contacts = account ? t.Contacts.rows.filter((c) => c.account_id === account.id) : [];
   const contact = contacts.find((c) => (input.channel === "email" ? normalizeEmail(c.email) === normalizeEmail(input.to) : normalizePhone(c.phone, account?.country) === normalizePhone(input.to, account?.country))) ?? contacts[0] ?? null;
@@ -72,6 +77,7 @@ export async function sendFollowUp(ctx: AppContext, founder: FounderKey, grant: 
   if (input.context === "cold" && market === "ES" && contact?.consent_status !== "consented") {
     throw new RuleError(`Spain: a ${input.channel === "email" ? "cold email" : "cold WhatsApp message"} needs prior consent (LSSI art. 21). Wait until you have talked, or record the consent on the contact.`);
   }
+  if (input.save_address && input.channel === "email" && account) await saveAddress(ctx, founder, account, contacts, input.to);
   if (input.check_only) return { send: null, duplicate: false, warnings: [] as string[] };
 
   const mailer = input.via === "gmail" ? ctx.mailerFor(founder, grant) : null;
@@ -116,6 +122,19 @@ export async function sendFollowUp(ctx: AppContext, founder: FounderKey, grant: 
     row = await ctx.repo.update("EmailSends", sendId, row.version, { activity_event_id: ev.event.id, account_id: row.account_id || ev.event.account_id, contact_id: row.contact_id || ev.event.contact_id }, { founder });
   }
   return { send: row, duplicate: false, warnings: ev.warnings };
+}
+
+/** Keeps a typed email on the business's contact (or the business itself) when none is known yet; never overwrites. */
+async function saveAddress(ctx: AppContext, founder: FounderKey, account: Row<"Accounts">, contacts: Row<"Contacts">[], to: string) {
+  if (contacts.some((c) => normalizeEmail(c.email) === normalizeEmail(to)) || normalizeEmail(account.email) === normalizeEmail(to)) return;
+  const c = contacts.find((x) => !x.is_archived && !x.email);
+  if (c) {
+    const fresh = await ctx.repo.get("Contacts", c.id, { fresh: true });
+    if (fresh && !fresh.email) await ctx.repo.update("Contacts", c.id, fresh.version, { email: to }, { founder });
+  } else if (!account.email) {
+    const fresh = await ctx.repo.get("Accounts", account.id, { fresh: true });
+    if (fresh && !fresh.email) await ctx.repo.update("Accounts", account.id, fresh.version, { email: to }, { founder });
+  }
 }
 
 export const replySchema = z.object({ id: z.string().uuid(), expected_version: z.number().int().min(1), reply_kind: z.enum(["positive", "neutral", "negative", "bounce"]).nullable() });

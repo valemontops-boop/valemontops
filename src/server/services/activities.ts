@@ -7,6 +7,7 @@ import {
   type RuleChannel,
 } from "@/domain/constants";
 import { dedupeEvents, isOutreach } from "@/domain/activity";
+import { LADDER_STEPS } from "@/domain/calls";
 import { outreachBlock } from "@/domain/suppression";
 import { normalizeDomain } from "@/domain/normalize";
 import { isLateLogged, localDate } from "@/domain/time";
@@ -41,6 +42,8 @@ export const logActivitySchema = z.object({
   objection: z.enum(OBJECTIONS).nullable().default(null),
   objections: z.array(z.enum(OBJECTIONS)).max(12).default([]),
   replies: z.array(z.string().regex(/^[a-z_]+#\d{1,2}$/)).max(12).default([]),
+  /** Downsell ladder steps offered during a call (D071). */
+  offers_pitched: z.array(z.enum(LADDER_STEPS)).max(4).default([]),
   duration_sec: z.number().int().min(0).max(4 * 3600).nullable().default(null),
   objection_note: z.string().trim().max(500).default(""),
   met_person: z.string().trim().max(200).default(""),
@@ -193,6 +196,7 @@ export async function logActivity(repo: DataRepository, founder: FounderKey, inp
     objection: input.objection ?? input.objections[0] ?? null,
     objections: [...new Set([...(input.objection ? [input.objection] : []), ...input.objections])],
     replies: [...new Set(input.replies)],
+    offers_pitched: [...new Set(input.offers_pitched)],
     objection_note: input.objection_note,
     met_person: input.met_person,
     notes: input.notes,

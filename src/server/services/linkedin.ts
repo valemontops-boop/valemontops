@@ -132,7 +132,7 @@ export async function logLinkedIn(ctx: AppContext, founder: FounderKey, input: z
       if (!t.Accounts.rows.some((a) => a.id === accId)) {
         await ctx.repo.insert("Accounts", [{
           id: accId, name: input.company || input.full_name, sector: "", niche: "", country, city: "", website: "", domain_normalized: "", phone: "", email: "", linkedin_url: "",
-          lead_source: "LinkedIn", lead_type: "outbound", brand: "local", owner_founder: founder, lead_status: "working", observed_problem: "", problem_evidence: "",
+          lead_source: "LinkedIn", lead_type: "outbound", brand: "consulting", owner_founder: founder, lead_status: "working", observed_problem: "", problem_evidence: "",
           language: country === "FR" ? "fr" : "es", notes: "", import_batch_id: "",
         }], { founder });
       }

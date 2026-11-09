@@ -29,7 +29,8 @@ export const DAILY_CHECKLIST: TaskSeed[] = [
   daily("prepare", "sales", "Préparer et qualifier les entreprises à contacter", "Preparar y cualificar las empresas a contactar", 45),
   daily("calls", "sales", "Appels à froid", "Llamadas en frío", null),
   daily("linkedin", "sales", "Approches LinkedIn avec Sales Navigator", "Contactos en LinkedIn con Sales Navigator", null),
-  daily("emails", "sales", "Emails ciblés", "Emails personalizados", null),
+  // Round 9 (D073): email is the follow-up channel of calls, mainly for prospects a call did not land with.
+  daily("emails", "sales", "Emails ciblés, surtout aux prospects sans temps au téléphone ou injoignables", "Emails personalizados, sobre todo a quien no tenía tiempo al teléfono o no se pudo localizar", null),
   daily("follow-ups", "sales", "Relances prévues aujourd'hui", "Seguimientos previstos para hoy", null),
   daily("meetings", "sales", "Tenir les rendez-vous et envoyer les propositions", "Hacer las reuniones y enviar las propuestas", 60),
   // Marketing and comms
@@ -59,5 +60,14 @@ export const ONE_OFF_TASKS: TaskSeed[] = [
   { key: "check-costs", area: "ops", priority: "P2", recurrence: "none", minutes: 30, dueInDays: 4, title: both("Vérifier les dépenses, Wise, Netlify et Google Workspace", "Revisar los gastos, Wise, Netlify y Google Workspace") },
   { key: "friday-review", area: "sales", priority: "P1", recurrence: "weekly", days: [5], minutes: 30, title: both("Revue commerciale du vendredi (30 min)", "Revisión comercial del viernes (30 min)") },
 ];
+
+/**
+ * Earlier seed titles of a template, per founder (D073). The baseline renames an OPEN system row (todo, not archived)
+ * whose title is still exactly one of these to the current seed title; a title the founder changed is never touched,
+ * and done rows keep their history.
+ */
+export const PREVIOUS_SEED_TITLES: Record<string, Partial<Record<FounderKey, string[]>>> = {
+  "daily-emails": { theo: ["Emails ciblés"], pablo: ["Emails personalizados"] },
+};
 
 export const TASK_SEEDS: TaskSeed[] = [...DAILY_CHECKLIST, ...ONE_OFF_TASKS];

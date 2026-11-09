@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { callStats, eventFor, isPositive } from "./calls";
+import { AFTER_OUTCOMES, LADDER_START, afterOutcomes, callStats, eventFor, isPositive, ladder, ladderRecord, ladderStats, nextStep, resolveAfter, suggestedAfter } from "./calls";
+import { afterCallSuggestion, inCallChips } from "./messages";
 
 const ev = (activity_type: string, outcome: string | null, at: string, objection: string | null = null) => ({ activity_type, outcome, objection, occurred_at: at });
 
@@ -29,5 +30,70 @@ describe("call mode", () => {
   });
   it("returns null rates instead of dividing by zero", () => {
     expect(callStats([], "UTC")).toMatchObject({ dials: 0, pickupRate: null, positiveRate: null, minutes: null });
+  });
+});
+
+
+describe("live call click path (D071)", () => {
+  it("new call → picked up → hung up → outcome; not picked up → missed; logged → ready", () => {
+    expect(nextStep("ready", "dial")).toBe("ringing");
+    expect(nextStep("ringing", "picked_up")).toBe("live");
+    expect(nextStep("ringing", "not_picked_up")).toBe("missed");
+    expect(nextStep("ringing", "hang_up")).toBe("missed"); // X while it rings = nobody answered
+    expect(nextStep("live", "hang_up")).toBe("hungup");
+    expect(nextStep("live", "not_picked_up")).toBe("live"); // no way back to "missed" once on the phone
+    expect(nextStep("hungup", "back")).toBe("live");
+    expect(nextStep("missed", "back")).toBe("ringing");
+    for (const s of ["ringing", "missed", "live", "hungup"] as const) expect(nextStep(s, "logged")).toBe("ready");
+    expect(nextStep("ready", "hang_up")).toBe("ringing"); // "Already called? Log the outcome"
+  });
+});
+
+describe("downsell ladder: Consulting → Local → 30/30", () => {
+  it("offers Local, then 30/30 after a no, and records what was offered and accepted", () => {
+    const local = ladder(LADDER_START, "propose");
+    expect(local).toEqual({ at: "local", pitched: ["local"], accepted: null });
+    expect(ladder(LADDER_START, "yes")).toBe(LADDER_START); // nothing to accept before an offer
+    const yesLocal = ladder(local, "yes");
+    expect(yesLocal).toMatchObject({ at: "done", accepted: "local" });
+    expect(suggestedAfter(yesLocal)).toBe("local_yes");
+    const thirty = ladder(local, "no");
+    expect(thirty).toEqual({ at: "thirty", pitched: ["local", "thirty"], accepted: null });
+    expect(suggestedAfter(ladder(thirty, "yes"))).toBe("thirty_yes");
+    const none = ladder(thirty, "no");
+    expect(none).toMatchObject({ at: "done", accepted: null });
+    expect(suggestedAfter(none)).toBe("not_interested");
+    expect(ladder(none, "reset")).toBe(LADDER_START);
+  });
+  it("shows Local / 30/30 outcomes only once offered", () => {
+    expect(afterOutcomes(LADDER_START)).toEqual(["meeting", "call_back", "interested", "not_interested", "gatekeeper"]);
+    expect(afterOutcomes(ladder(LADDER_START, "propose"))).toContain("local_yes");
+    expect(afterOutcomes(ladder(ladder(LADDER_START, "propose"), "no"))).toEqual([...AFTER_OUTCOMES]);
+    expect(resolveAfter("local_yes")).toEqual({ outcome: "interested", offer: "local" });
+    expect(resolveAfter("thirty_yes")).toEqual({ outcome: "interested", offer: "thirty" });
+    expect(resolveAfter("gatekeeper")).toEqual({ outcome: "gatekeeper", offer: null });
+  });
+  it("stores offers on the event and counts conversions", () => {
+    expect(ladderRecord(["local", "thirty"], "thirty")).toEqual(["local", "thirty_yes"]);
+    expect(ladderRecord(["local"], null)).toEqual(["local"]);
+    expect(ladderRecord([], "local")).toEqual(["local_yes"]);
+    expect(ladderStats([{ offers_pitched: ["local_yes"] }, { offers_pitched: ["local", "thirty_yes"] }, { offers_pitched: ["local", "thirty"] }, { offers_pitched: [] }]))
+      .toEqual({ localOffered: 3, localYes: 1, thirtyOffered: 2, thirtyYes: 1 });
+  });
+});
+
+describe("instant mail during the call", () => {
+  it("suggests the deck for 'send me info' / 'no time', the offer's mail after a yes, and 'tried to reach you' when nobody picked up", () => {
+    expect(inCallChips({ picked: true, market: "FR", objections: ["send_info"], accepted: null, sent: [] }).suggested).toBe("deck");
+    expect(inCallChips({ picked: true, market: "FR", objections: ["no_time"], accepted: null, sent: ["deck"] }).suggested).toBeNull();
+    expect(inCallChips({ picked: true, market: "ES", objections: [], accepted: "thirty", sent: [] })).toMatchObject({ suggested: "thirty", chips: ["calendly", "confirm", "deck", "local", "thirty", "thanks"] });
+    expect(inCallChips({ picked: false, market: "FR", objections: [], accepted: null, sent: [] })).toEqual({ chips: ["missed", "deck"], suggested: "missed" });
+    expect(inCallChips({ picked: false, market: "ES", objections: [], accepted: null, sent: [] }).chips).not.toContain("missed"); // cold: Spain needs consent
+  });
+  it("does not suggest a message after the call when one already went out during it", () => {
+    expect(afterCallSuggestion("meeting", [], "FR", null, ["confirm"])).toBeNull();
+    expect(afterCallSuggestion("meeting", [], "FR", null, [])?.suggested).toBe("confirm");
+    expect(afterCallSuggestion("interested", [], "FR", "thirty", [])?.suggested).toBe("thirty");
+    expect(afterCallSuggestion("gatekeeper", [], "FR", null, [])).toBeNull();
   });
 });

@@ -7,7 +7,9 @@ import { userRow } from "./common";
 
 export interface PlaybookData {
   items: PlaybookItem[];
-  links: { calendly: string; deckFR: string; deckES: string };
+  links: { calendly: string; deckFR: string; deckES: string; thirty: string };
+  /** Valemont Local monthly price as said on the phone ("100 €"), from offer_local_monthly_eur. */
+  localPrice: string;
   founderName: string;
   /** The founder's email signature (Settings › Workspace); empty = "First name / Valemont". */
   signature: string;
@@ -20,7 +22,8 @@ export async function getPlaybook(ctx: AppContext, founder: FounderKey): Promise
   const u = await userRow(ctx.repo, founder);
   return {
     items: mergePlaybook(t.Playbook.rows),
-    links: { calendly: s(`calendly_url_${founder}`), deckFR: s("deck_url_fr"), deckES: s("deck_url_es") },
+    links: { calendly: s(`calendly_url_${founder}`), deckFR: s("deck_url_fr"), deckES: s("deck_url_es"), thirty: s("thirty_url") },
+    localPrice: `${/^\d{1,6}$/.test(s("offer_local_monthly_eur").trim()) ? s("offer_local_monthly_eur").trim() : "100"} €`,
     founderName: u.display_name.split(" ")[0] ?? u.display_name,
     signature: s(`signature_${founder}`),
   };

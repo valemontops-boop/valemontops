@@ -27,7 +27,7 @@ export interface FridayInput {
   thirty: { visits: number; purchases: number };
   /** Contacts and conversations per niche this week. */
   niches: { niche: string; contacts: number; conversations: number }[];
-  /** Deals won in the last 30 days per offer ("Consulting", "Local (100 €/month)"). */
+  /** Deals won in the last 30 days per offer ("Consulting", "Local, entry offer (budget too small)"). */
   wonByOffer: { offer: string; won: number }[];
   minSample: number;
 }

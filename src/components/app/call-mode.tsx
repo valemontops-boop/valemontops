@@ -21,7 +21,7 @@ import { ConfirmSent, ConnectGmail, MessageCard, useInstantSend } from "./instan
 import { LinkedInSession, LinkedInStart, LinkedInSummary } from "./linkedin-session";
 
 type ListRow = { list: { id: string; name: string; niche: string; market: string | null }; total: number; called: number; reached: number; positive: number; meetings: number; remaining: number };
-type Summary = { session: { id: string; started_at: string; ended_at: string | null; list_id: string }; stats: CallStats; messages: number; previous: { sessions: number; pickupRate: number | null; positiveRate: number | null; dials: number | null } };
+type Summary = { session: { id: string; started_at: string; ended_at: string | null; list_id: string }; stats: CallStats; messages: number; ladder?: { localOffered: number; localYes: number; thirtyOffered: number; thirtyYes: number }; previous: { sessions: number; pickupRate: number | null; positiveRate: number | null; dials: number | null } };
 type Kind = "calls" | "linkedin";
 type Sess = { id: string; listId: string; kind?: Kind };
 const SESSION_KEY = "vos-call-session";
@@ -134,6 +134,9 @@ function SessionSummary({ id, onNew }: { id: string; onNew: () => void }) {
         <PanelTitle>{t("Funnel")}</PanelTitle>
         <Funnel steps={[{ label: t("Dials"), value: s.dials, tone: "sales" }, { label: t("Picked up"), value: s.pickedUp, tone: "sales" }, { label: t("Decision-maker"), value: s.decisionMakerReached, tone: "sales" }, { label: t("Yes"), value: yes, tone: "win" }, { label: t("Meetings"), value: s.meetings, tone: "win" }]} />
         {q.data.messages ? <p className="mt-3 text-[13px] text-text-2">{t("{n} messages sent during this session.", { n: q.data.messages })}</p> : null}
+        {q.data.ladder && (q.data.ladder.localOffered || q.data.ladder.thirtyOffered) ? (
+          <p className="mt-1 text-[13px] text-text-2">{t("After a no to Consulting: Local offered {lo}, yes {ly} · 30/30 offered {to}, yes {ty}.", { lo: q.data.ladder.localOffered, ly: q.data.ladder.localYes, to: q.data.ladder.thirtyOffered, ty: q.data.ladder.thirtyYes })}</p>
+        ) : null}
       </Panel>
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
         <Panel><PanelTitle>{t("Objections")}</PanelTitle>{s.objections.length ? <ObjectionRows rows={s.objections} /> : <p className="text-sm text-text-2">{t("No objection recorded.")}</p>}</Panel>

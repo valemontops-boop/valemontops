@@ -20,15 +20,16 @@ export const FOLLOW_UPS = [
 ] as const;
 export type FollowUpKey = (typeof FOLLOW_UPS)[number]["key"];
 /** Message templates, email and WhatsApp alike. "missed" goes to people who did not pick up (cold: never to Spain without consent). */
-export const TEMPLATES = ["thanks", "calendly", "deck", "confirm", "thanks_soft", "missed", "nudge"] as const;
+export const TEMPLATES = ["thanks", "calendly", "deck", "confirm", "thanks_soft", "missed", "nudge", "local", "thirty"] as const;
 export type TemplateKey = (typeof TEMPLATES)[number];
 export const EMAIL_TEMPLATES = TEMPLATES;
 export const WHATSAPP_TEMPLATES = TEMPLATES;
 export const EMAIL_TEMPLATE_LABELS: Record<TemplateKey, string> = {
   thanks: "Thank you for the call", calendly: "Book a call (Calendly)", deck: "Commercial deck", confirm: "Meeting confirmation",
   thanks_soft: "Thank you, door open (after a no)", missed: "Tried to reach you (no answer)", nudge: "Nudge (no reply yet)",
+  local: "Valemont Local offer (after a no to Consulting)", thirty: "30/30 link (after a no to Local)",
 };
-export const TEMPLATE_SHORT: Record<TemplateKey, string> = { thanks: "Thanks", calendly: "Calendly", deck: "Deck", confirm: "Confirm", thanks_soft: "Thanks (no)", missed: "Missed you", nudge: "Nudge" };
+export const TEMPLATE_SHORT: Record<TemplateKey, string> = { thanks: "Thanks", calendly: "Calendly", deck: "Deck", confirm: "Confirm", thanks_soft: "Thanks (no)", missed: "Missed you", nudge: "Nudge", local: "Local offer", thirty: "30/30 link" };
 /** Cold = no conversation happened: stricter rules apply (Spain needs prior consent). */
 export const COLD_TEMPLATES: readonly TemplateKey[] = ["missed"];
 
@@ -45,6 +46,12 @@ const D: PlaybookItem[] = [
   { kind: "opener", key: "default", language: "FR", subject: "", body: "Bonjour {contact}, {founder} de Valemont. Je serai bref : quand un client vous appelle pendant que vous êtes sur un chantier, qui lui répond ? On met en place un système qui capte chaque demande, la qualifie et vous prévient tout de suite. Ça vous parle ?" },
   { kind: "opener", key: "default", language: "ES", subject: "", body: "Hola {contact}, soy {founder} de Valemont. Seré breve: cuando un cliente le llama mientras está trabajando, ¿quién le contesta? Montamos un sistema que recoge cada solicitud, la cualifica y le avisa al momento. ¿Le suena el problema?" },
 
+  // Downsell ladder (D071): said live, after a no to Consulting (Local), then after a no to Local (30/30). Three lines.
+  { kind: "opener", key: "pitch_local", language: "FR", subject: "", body: "Je comprends, le Consulting n'est peut-être pas pour maintenant.\nOn a une formule plus légère : Valemont Local, {local_price} par mois, sans engagement.\nOn met en place l'essentiel pour ne plus perdre d'appels. On essaie ?" },
+  { kind: "opener", key: "pitch_local", language: "ES", subject: "", body: "Lo entiendo, quizá el Consulting no sea para ahora.\nTenemos una fórmula más ligera: Valemont Local, {local_price} al mes, sin permanencia.\nMontamos lo esencial para no perder más llamadas. ¿Lo probamos?" },
+  { kind: "opener", key: "pitch_thirty", language: "FR", subject: "", body: "Pas de souci. Dernière idée, et elle est gratuite à regarder :\n30/30, notre outil d'IA, vous fait gagner du temps sur vos devis et vos messages.\nJe vous envoie le lien par mail, vous regardez quand vous voulez ?" },
+  { kind: "opener", key: "pitch_thirty", language: "ES", subject: "", body: "Sin problema. Una última idea, y mirarla no cuesta nada:\n30/30, nuestra herramienta de IA, le ahorra tiempo en presupuestos y mensajes.\n¿Le envío el enlace por email y lo mira cuando quiera?" },
+
   ...objectionDefaults(),
 
   { kind: "email", key: "calendly", language: "FR", subject: "Suite à notre appel, {business}", body: "Bonjour {contact},\n\nMerci pour votre temps au téléphone. Comme convenu, voici mon lien pour choisir un créneau de 15 minutes :\n{calendly}\n\nJe vous montrerai concrètement comment chaque demande est captée, qualifiée et relancée.\n\nBonne journée,\n{signature}" },
@@ -53,6 +60,11 @@ const D: PlaybookItem[] = [
   { kind: "email", key: "deck", language: "ES", subject: "La presentación prometida, {business}", body: "Hola {contact}:\n\nComo le prometí, aquí tiene nuestra presentación:\n{deck}\n\nSi le interesa, reserve 15 minutos aquí:\n{calendly}\n\nUn saludo,\n{signature}" },
   { kind: "email", key: "confirm", language: "FR", subject: "Notre rendez-vous, {business}", body: "Bonjour {contact},\n\nMerci, c'est noté pour notre rendez-vous. Si le créneau ne vous convient plus, vous pouvez le déplacer ici :\n{calendly}\n\nÀ bientôt,\n{signature}" },
   { kind: "email", key: "confirm", language: "ES", subject: "Nuestra reunión, {business}", body: "Hola {contact}:\n\nGracias, queda anotada nuestra reunión. Si el horario ya no le va bien, puede cambiarlo aquí:\n{calendly}\n\nHasta pronto,\n{signature}" },
+
+  { kind: "email", key: "local", language: "FR", subject: "Valemont Local, comme évoqué au téléphone", body: "Bonjour {contact},\n\nMerci pour l'échange. Comme évoqué, voici Valemont Local : {local_price} par mois, sans engagement, pour ne plus perdre d'appels ni de demandes.\n\nPour démarrer, il suffit de répondre « oui » à ce mail, ou de choisir 15 minutes ici :\n{calendly}\n\nBonne journée,\n{signature}" },
+  { kind: "email", key: "local", language: "ES", subject: "Valemont Local, como hablamos por teléfono", body: "Hola {contact}:\n\nGracias por la conversación. Como le comenté, esto es Valemont Local: {local_price} al mes, sin permanencia, para no perder más llamadas ni solicitudes.\n\nPara empezar, basta con responder «sí» a este email, o elegir 15 minutos aquí:\n{calendly}\n\nUn saludo,\n{signature}" },
+  { kind: "email", key: "thirty", language: "FR", subject: "Le lien 30/30 promis", body: "Bonjour {contact},\n\nComme promis au téléphone, voici 30/30, notre outil d'IA pour gagner du temps sur vos devis et vos messages :\n{thirty}\n\nRegardez quand vous voulez, et dites-moi ce que vous en pensez.\n\nBonne journée,\n{signature}" },
+  { kind: "email", key: "thirty", language: "ES", subject: "El enlace de 30/30 prometido", body: "Hola {contact}:\n\nComo le prometí por teléfono, aquí tiene 30/30, nuestra herramienta de IA para ahorrar tiempo en presupuestos y mensajes:\n{thirty}\n\nÉchele un vistazo cuando quiera y dígame qué le parece.\n\nUn saludo,\n{signature}" },
 
   { kind: "email", key: "thanks", language: "FR", subject: "Merci pour votre temps, {business}", body: "Bonjour {contact},\n\nMerci d'avoir pris le temps de me répondre tout à l'heure.\n\nComme convenu, je reviens vers vous à la date prévue. Si vous voulez avancer plus vite, voici mon lien pour réserver 15 minutes :\n{calendly}\n\nBonne journée,\n{signature}" },
   { kind: "email", key: "thanks", language: "ES", subject: "Gracias por su tiempo, {business}", body: "Hola {contact}:\n\nGracias por atenderme hace un rato.\n\nComo hablamos, le vuelvo a llamar en la fecha prevista. Si quiere avanzar antes, aquí tiene mi enlace para reservar 15 minutos:\n{calendly}\n\nUn saludo,\n{signature}" },
@@ -77,6 +89,11 @@ const D: PlaybookItem[] = [
   { kind: "whatsapp", key: "calendly", language: "ES", subject: "", body: "Hola {contact}, soy {founder} de Valemont, gracias por la llamada. Aquí tiene mi enlace para reservar 15 min: {calendly}" },
   { kind: "whatsapp", key: "deck", language: "FR", subject: "", body: "Bonjour {contact}, {founder} de Valemont. Comme promis, notre présentation : {deck}" },
   { kind: "whatsapp", key: "deck", language: "ES", subject: "", body: "Hola {contact}, soy {founder} de Valemont. Como le prometí, nuestra presentación: {deck}" },
+
+  { kind: "whatsapp", key: "local", language: "FR", subject: "", body: "Bonjour {contact}, {founder} de Valemont. Comme évoqué : Valemont Local, {local_price} par mois, sans engagement. Pour démarrer, répondez simplement « oui » ici." },
+  { kind: "whatsapp", key: "local", language: "ES", subject: "", body: "Hola {contact}, soy {founder} de Valemont. Como le comenté: Valemont Local, {local_price} al mes, sin permanencia. Para empezar, responda «sí» aquí." },
+  { kind: "whatsapp", key: "thirty", language: "FR", subject: "", body: "Bonjour {contact}, {founder} de Valemont. Comme promis, le lien de 30/30, notre outil d'IA : {thirty}" },
+  { kind: "whatsapp", key: "thirty", language: "ES", subject: "", body: "Hola {contact}, soy {founder} de Valemont. Como le prometí, el enlace de 30/30, nuestra herramienta de IA: {thirty}" },
 
   { kind: "linkedin", key: "invitation", language: "FR", subject: "", body: "Bonjour {first_name}, je m'intéresse à la façon dont les entreprises comme {business} gèrent les appels manqués pendant le travail. J'aide des artisans et des PME sur ce sujet. Ravi d'échanger avec vous. {founder}" },
   { kind: "linkedin", key: "invitation", language: "ES", subject: "", body: "Hola {first_name}, me interesa saber cómo empresas como {business} gestionan las llamadas perdidas mientras trabajan. Ayudo a autónomos y pymes con este tema. Encantado de conectar. {founder}" },
@@ -103,7 +120,7 @@ export function findItem(items: readonly PlaybookItem[], kind: PlaybookKind, key
   return items.find((i) => i.kind === kind && i.key === key && i.language === language) ?? items.find((i) => i.kind === kind && i.key === key) ?? null;
 }
 
-export interface FillVars { business?: string; contact?: string; founder?: string; calendly?: string; deck?: string; signature?: string; first_name?: string }
+export interface FillVars { business?: string; contact?: string; founder?: string; calendly?: string; deck?: string; signature?: string; first_name?: string; thirty?: string; local_price?: string }
 /** Fills placeholders. A missing link stays visible as [add … in Settings] so nothing is sent with a hole. */
 export function fill(text: string, v: FillVars): string {
   const contact = v.contact?.trim() ?? "";
@@ -121,11 +138,13 @@ export function fill(text: string, v: FillVars): string {
     .replace(/\{founder\}/g, v.founder?.trim() ?? "")
     .replace(/\{calendly\}/g, v.calendly?.trim() || "[add your Calendly link in Settings › Workspace]")
     .replace(/\{deck\}/g, v.deck?.trim() || "[add the deck link in Settings › Workspace]")
+    .replace(/\{thirty\}/g, v.thirty?.trim() || "[add the 30/30 link in Settings › Workspace]")
+    .replace(/\{local_price\}/g, v.local_price?.trim() || "100 €")
     .trim();
 }
 
 /** True when a filled text still has a link placeholder that must be completed first. */
-export const hasMissingLink = (text: string) => /\[add (your Calendly|the deck) link/.test(text);
+export const hasMissingLink = (text: string) => /\[add (your Calendly|the deck|the 30\/30) link/.test(text);
 
 export const objectionLabel = (k: string) => { const [o, v] = k.split("#"); return `${OBJECTION_LABELS[o as Objection] ?? o}${v ? ` · reply ${v}` : ""}`; };
 
@@ -146,7 +165,9 @@ export function mailtoLink(to: string, subject: string, body: string): string {
 }
 
 /** What to send after each outcome, so every call can produce a message. Gatekeepers get nothing. */
-export function suggestedFollowUp(outcome: string, objections: readonly string[]): TemplateKey | null {
+export function suggestedFollowUp(outcome: string, objections: readonly string[], offer: "local" | "thirty" | null = null): TemplateKey | null {
+  if (offer === "thirty") return "thirty";
+  if (offer === "local") return "local";
   if (outcome === "meeting") return "confirm";
   if (objections.includes("send_info")) return "deck";
   if (outcome === "interested") return "calendly";

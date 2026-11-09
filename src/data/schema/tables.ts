@@ -22,6 +22,7 @@ import {
 } from "@/domain/constants";
 import { BANK_CATEGORIES } from "@/domain/bank";
 import { INBOX_SOURCES, INBOX_STATUSES } from "@/domain/inbox";
+import { LADDER_STEPS } from "@/domain/calls";
 import { bool, day, int, iso, json, oneOf, oneOfAlias, oneOfOr, optDay, optInt, optIso, optOneOf, reqText, text } from "./codecs";
 
 /** Revision domains: a mutation in a table bumps its domain token (spec 4.1). */
@@ -166,6 +167,8 @@ export const TABLES = {
       objections: json(z.array(z.enum(OBJECTIONS)), []),
       /** Reply variants used during the call ("too_expensive#2"), to learn which reply works best. */
       replies: json(z.array(z.string().max(60)), []),
+      /** Downsell ladder during the call (D071): "local" / "thirty" offered, "_yes" = accepted. */
+      offers_pitched: json(z.array(z.enum(LADDER_STEPS)), []),
     },
   },
   Accounts: {
@@ -622,6 +625,41 @@ export const TABLES = {
       external_id: reqText(200),
     },
   },
+  /**
+   * Google Search Console "Performance" export (round 9, D072): one row per query or page for an export period and a
+   * language (FR or ES property). id = UUIDv5(language, period, dimension, key): re-importing adds nothing, a manual entry
+   * for the same key updates it. Position stored × 10 (integer cells); CTR is derived (clicks / impressions).
+   */
+  SearchConsoleRows: {
+    domain: "audience",
+    shape: {
+      ...base,
+      period_start: day(),
+      period_end: day(),
+      language: oneOf(["FR", "ES"] as const),
+      dimension: oneOf(["query", "page"] as const),
+      key: reqText(500),
+      clicks: int(),
+      impressions: int(),
+      position_x10: int(),
+      origin: oneOf(["import", "manual"] as const),
+      import_file: text(200),
+    },
+  },
+  /** Site audit runs (round 9): the last row is shown in Growth › Web › SEO. Pages and issues are compact JSON. */
+  SeoAudits: {
+    domain: "audience",
+    shape: {
+      ...base,
+      run_at: iso(),
+      founder_key: founder(),
+      site_urls: text(1_000),
+      pages_checked: int(),
+      facts: json(z.object({ robots: z.boolean(), sitemap: z.boolean(), llms: z.boolean() }), { robots: false, sitemap: false, llms: false }),
+      pages: json(z.array(z.object({ url: z.string(), status: z.number(), bytes: z.number(), titleLength: z.number(), metaLength: z.number(), h1Count: z.number(), canonical: z.boolean(), hreflang: z.array(z.string()), og: z.boolean(), types: z.array(z.string()), imagesWithoutAlt: z.number(), noindex: z.boolean() })), []),
+      issues: json(z.array(z.object({ code: z.string(), severity: z.enum(["act", "watch"]), page: z.string(), vars: z.record(z.string(), z.union([z.string(), z.number()])) })), []),
+    },
+  },
   /* ----- private founder spreadsheets only (spec 4.7) ----- */
   PrivateTasks: { domain: "private", shape: taskShape() },
 } as const;
@@ -645,8 +683,8 @@ export interface BaseRow {
 export type Row<T extends TableName> = RowMap[T] & BaseRow;
 export type BaseFields = keyof typeof base;
 /** Columns added after a table was first created: optional on create, filled by CREATE_DEFAULTS. */
-export const CREATE_DEFAULTS: Record<string, unknown> = { list_id: "", call_session_id: "", target_key: "", duration_sec: null, area: "sales", objections: [], replies: [], recurrence_days: [] , worked: "", blocked: "" };
-type LateKeys = "list_id" | "call_session_id" | "target_key" | "duration_sec" | "area" | "objections" | "replies" | "recurrence_days" | "worked" | "blocked";
+export const CREATE_DEFAULTS: Record<string, unknown> = { list_id: "", call_session_id: "", target_key: "", duration_sec: null, area: "sales", objections: [], replies: [], recurrence_days: [] , worked: "", blocked: "", offers_pitched: [] };
+type LateKeys = "list_id" | "call_session_id" | "target_key" | "duration_sec" | "area" | "objections" | "replies" | "recurrence_days" | "worked" | "blocked" | "offers_pitched";
 export type NewRow<T extends TableName> = Omit<Row<T>, Exclude<BaseFields, "id"> | LateKeys> &
   Partial<Pick<Row<T>, Extract<keyof Row<T>, LateKeys>>> & { id: string };
 

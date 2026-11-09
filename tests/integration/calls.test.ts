@@ -4,7 +4,8 @@ import type { FakeSheetsServer } from "@/fake-sheets/server";
 import type { AppContext } from "@/server/context";
 import { seedBaseline } from "@/server/services/baseline";
 import { commit } from "@/server/services/imports";
-import { callLists, callLog, callQueue, endSession, logCall, sessionSummary, startSession } from "@/server/services/calls";
+import { callLists, callLog, callQueue, endSession, logCall, sessionSummary, startSession, undoCall } from "@/server/services/calls";
+import { sendFollowUp, sendSchema } from "@/server/services/email";
 import { getMyDay, setMode } from "@/server/services/myday";
 import { optOutContact, crmSnapshot } from "@/server/services/crm";
 import { TEST_SHEET_ID, freshSheetsRepo } from "../helpers";
@@ -113,5 +114,78 @@ describe("Call mode: session unknown to the server", () => {
     expect(r.duplicate).toBe(false);
     const s = await sessionSummary(ctx, "theo", sid);
     expect(s.stats.dials).toBe(1);
+  });
+});
+
+describe("Call mode round 9: downsell ladder and instant mail during the call (D071)", () => {
+  it("logs ladder outcomes: Local yes = Local deal at the monthly price, 30/30 yes = 30/30 lead and no deal, refusals keep what was offered", async () => {
+    const listId = randomUUID();
+    await commit(ctx.repo, "theo", { import_id: listId, csv: CSV, brand: "consulting", owner_founder: null, lead_source: "x", list_name: "Ladder" });
+    const sid = randomUUID();
+    await startSession(ctx, "theo", { id: sid, list_id: listId });
+    const [a1, a2, a3] = (await callQueue(ctx, "theo", listId)).queue;
+    await call(sid, { account_id: a1.accountId, outcome: "interested", offer: "local", offers_pitched: ["local"] });
+    const k2 = randomUUID();
+    await logCall(ctx, "theo", { idempotency_key: k2, session_id: sid, account_id: a2.accountId, phone: "", market: null, objection: null, follow_up_date: "", note: "", business_name: "", contact_name: "", contact_type: "professional_named", outcome: "interested", offer: "thirty", offers_pitched: ["local", "thirty"] } as never);
+    await call(sid, { account_id: a3.accountId, outcome: "not_interested", offers_pitched: ["local", "thirty"] });
+    await expect(call(sid, { account_id: a3.accountId, outcome: "not_interested", offer: "local" })).rejects.toThrow(/positive outcome/);
+
+    const crm = await crmSnapshot(ctx.repo);
+    const deals = crm.opportunities.filter((o) => !o.is_archived);
+    expect(deals).toHaveLength(1); // only the yes to Local: 30/30 is not a Consulting deal
+    expect(deals[0]).toMatchObject({ account_id: a1.accountId, brand: "local", value_minor: 10_000, stage: "replied" });
+    expect(crm.accounts.find((a) => a.id === a2.accountId)?.brand).toBe("thirty");
+    const events = (await ctx.repo.list("ActivityEvents", { fresh: true })).rows.filter((e) => e.call_session_id === sid);
+    expect(events.find((e) => e.account_id === a1.accountId)?.offers_pitched).toEqual(["local_yes"]);
+    expect(events.find((e) => e.account_id === a2.accountId)?.offers_pitched).toEqual(["local", "thirty_yes"]);
+    expect(events.find((e) => e.account_id === a3.accountId)?.offers_pitched).toEqual(["local", "thirty"]);
+    const sum = await sessionSummary(ctx, "theo", sid);
+    expect(sum.ladder).toEqual({ localOffered: 3, localYes: 1, thirtyOffered: 2, thirtyYes: 1 });
+    const log = await callLog(ctx, "theo", { session_id: sid, days: 14 });
+    expect(log.find((r) => r.accountId === a2.accountId)).toMatchObject({ offer: "thirty", offered: ["local", "thirty"] });
+
+    // Undo the 30/30 yes: the event no longer counts and the business gets its brand back.
+    await undoCall(ctx, "theo", { idempotency_key: k2 });
+    expect((await ctx.repo.get("Accounts", a2.accountId, { fresh: true }))?.brand).toBe("consulting");
+  });
+
+  it("a call with no offer creates a Consulting deal (Local only through the ladder)", async () => {
+    const sid = randomUUID();
+    await startSession(ctx, "theo", { id: sid, list_id: "" });
+    await call(sid, { phone: "06 11 22 33 47", market: "FR", outcome: "meeting", business_name: "Menuiserie Conseil (test)" });
+    const crm = await crmSnapshot(ctx.repo);
+    expect(crm.opportunities.find((o) => o.name === "Menuiserie Conseil (test)")).toMatchObject({ brand: "consulting", value_minor: null });
+  });
+
+  it("instant mail during the call: the spelled-out address is kept on the contact, the send is linked to the call session and the business, once", async () => {
+    const listId = randomUUID();
+    await commit(ctx.repo, "theo", { import_id: listId, csv: CSV, brand: "consulting", owner_founder: null, lead_source: "x", list_name: "Mail" });
+    const sid = randomUUID();
+    await startSession(ctx, "theo", { id: sid, list_id: listId });
+    const [a1] = (await callQueue(ctx, "theo", listId)).queue;
+    expect(a1.email).toBe("");
+    const send = sendSchema.parse({ idempotency_key: randomUUID(), channel: "email", via: "mail_app", account_id: a1.accountId, call_session_id: sid, to: "alex@garage-un.example.com", subject: "Présentation", body: "Bonjour", template_key: "deck", language: "FR", market: "FR", save_address: true });
+    // Gmail compose path: the server checks first (and keeps the address), then records after "Sent?".
+    await sendFollowUp(ctx, "theo", null, { ...send, check_only: true });
+    const contact = (await ctx.repo.list("Contacts", { fresh: true })).rows.find((c) => c.account_id === a1.accountId);
+    expect(contact?.email).toBe("alex@garage-un.example.com");
+    const r1 = await sendFollowUp(ctx, "theo", null, send);
+    const r2 = await sendFollowUp(ctx, "theo", null, send);
+    expect(r2.duplicate).toBe(true);
+    expect(r1.send).toMatchObject({ call_session_id: sid, account_id: a1.accountId, template_key: "deck", status: "sent" });
+    // Then the call is logged (hung up after the mail): the session counts one message.
+    await call(sid, { account_id: a1.accountId, outcome: "call_back", objections: ["send_info"] });
+    expect((await sessionSummary(ctx, "theo", sid)).messages).toBe(1);
+    expect((await callQueue(ctx, "theo", listId)).queue.find((q) => q.accountId === a1.accountId)).toBeUndefined();
+  });
+
+  it("free dialling: a business named in an instant mail is the one the later yes lands on (never twice)", async () => {
+    const sid = randomUUID();
+    await startSession(ctx, "theo", { id: sid, list_id: "" });
+    await sendFollowUp(ctx, "theo", null, sendSchema.parse({ idempotency_key: randomUUID(), channel: "email", via: "mail_app", call_session_id: sid, to: "info@toiture-libre.example.com", subject: "Présentation", body: "Bonjour", template_key: "deck", language: "FR", market: "FR", business_name: "Toiture Libre (test)" }));
+    await call(sid, { phone: "06 11 22 33 48", market: "FR", outcome: "meeting", business_name: "toiture libre (test)" });
+    const crm = await crmSnapshot(ctx.repo);
+    expect(crm.accounts.filter((a) => a.name.toLowerCase() === "toiture libre (test)")).toHaveLength(1);
+    expect(crm.opportunities.filter((o) => o.account_id === crm.accounts.find((a) => a.name === "Toiture Libre (test)")!.id)).toHaveLength(1);
   });
 });

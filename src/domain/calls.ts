@@ -105,3 +105,77 @@ export function callStats(events: CallEv[], tz: string, session?: { started_at: 
     byHour: [...byHour.entries()].sort((a, b) => a[0] - b[0]).map(([hour, v]) => ({ hour, ...v })),
   };
 }
+
+/* ---------------- Round 9 (D071): the click path of a live call and the downsell ladder ---------------- */
+
+/**
+ * The live call, step by step: [New call] → ringing → [Picked up] (live) or [Not picked up] (missed: no answer or
+ * voicemail, logged at once) → during the call: objections, instant mail, the ladder → [Hung up] → one outcome.
+ */
+export type CallStep = "ready" | "ringing" | "missed" | "live" | "hungup";
+export type CallFlowAction = "dial" | "picked_up" | "not_picked_up" | "hang_up" | "back" | "logged";
+export function nextStep(step: CallStep, a: CallFlowAction): CallStep {
+  if (a === "logged") return "ready";
+  switch (step) {
+    case "ready": return a === "dial" || a === "hang_up" ? "ringing" : step;
+    case "ringing": return a === "picked_up" ? "live" : a === "not_picked_up" || a === "hang_up" ? "missed" : a === "back" ? "ready" : step;
+    case "missed": return a === "back" ? "ringing" : a === "picked_up" ? "live" : step;
+    case "live": return a === "hang_up" ? "hungup" : step;
+    case "hungup": return a === "back" ? "live" : step;
+  }
+}
+
+/** The two outcomes of a call nobody picked up. */
+export const MISSED_OUTCOMES = ["no_answer", "voicemail"] as const satisfies readonly CallOutcome[];
+
+/**
+ * Offers (founders, round 9): effort goes 100% to Consulting. Someone who says no to Consulting is offered Local
+ * (cheaper, monthly), then 30/30 (the AI product, marketing effort). Each step offered is stored on the call's event
+ * (`offers_pitched`): "local" = offered, "local_yes" = offered and accepted; same for "thirty".
+ */
+export const LADDER_STEPS = ["local", "local_yes", "thirty", "thirty_yes"] as const;
+export type LadderStep = (typeof LADDER_STEPS)[number];
+export type LadderOffer = "local" | "thirty";
+export interface LadderState { at: "idle" | "local" | "thirty" | "done"; pitched: LadderOffer[]; accepted: LadderOffer | null }
+export const LADDER_START: LadderState = { at: "idle", pitched: [], accepted: null };
+export function ladder(s: LadderState, a: "propose" | "yes" | "no" | "reset"): LadderState {
+  if (a === "reset") return LADDER_START;
+  if (s.at === "idle") return a === "propose" ? { at: "local", pitched: ["local"], accepted: null } : s;
+  if (s.at === "local") return a === "yes" ? { ...s, at: "done", accepted: "local" } : a === "no" ? { at: "thirty", pitched: ["local", "thirty"], accepted: null } : s;
+  if (s.at === "thirty") return a === "yes" ? { ...s, at: "done", accepted: "thirty" } : a === "no" ? { ...s, at: "done", accepted: null } : s;
+  return s;
+}
+/** What is stored on the event: each offer pitched, "_yes" for the one the call ended on. */
+export function ladderRecord(pitched: readonly LadderOffer[], offer: LadderOffer | null): LadderStep[] {
+  const all = [...new Set([...pitched, ...(offer ? [offer] : [])])];
+  return all.map((o) => (o === offer ? (`${o}_yes` as LadderStep) : o));
+}
+
+/** Outcomes of a picked-up call, in the order of their keys 1–7. Local / 30/30 appear once the ladder offered them. */
+export const AFTER_OUTCOMES = ["meeting", "call_back", "interested", "not_interested", "gatekeeper", "local_yes", "thirty_yes"] as const;
+export type AfterOutcome = (typeof AFTER_OUTCOMES)[number];
+export const AFTER_OUTCOME_LABELS: Record<AfterOutcome, string> = {
+  meeting: "Meeting booked", call_back: "Call back", interested: "Interested", not_interested: "Not interested", gatekeeper: "Gatekeeper / switchboard", local_yes: "Yes Local", thirty_yes: "Yes 30/30",
+};
+export function afterOutcomes(l: LadderState): AfterOutcome[] {
+  return AFTER_OUTCOMES.filter((o) => (o === "local_yes" ? l.pitched.includes("local") : o === "thirty_yes" ? l.pitched.includes("thirty") : true));
+}
+/** The outcome Enter picks after hanging up: the offer accepted on the ladder, a refusal when both were declined. */
+export function suggestedAfter(l: LadderState): AfterOutcome | null {
+  if (l.accepted === "local") return "local_yes";
+  if (l.accepted === "thirty") return "thirty_yes";
+  if (l.at === "done") return "not_interested";
+  return null;
+}
+/** An outcome tap → the event's outcome and the offer it carries (Local / 30/30 yes are "interested" with an offer). */
+export function resolveAfter(o: AfterOutcome): { outcome: CallOutcome; offer: LadderOffer | null } {
+  if (o === "local_yes") return { outcome: "interested", offer: "local" };
+  if (o === "thirty_yes") return { outcome: "interested", offer: "thirty" };
+  return { outcome: o, offer: null };
+}
+
+/** Ladder conversions from deduplicated events: how many were offered Local / 30/30 and how many said yes. */
+export function ladderStats(events: readonly { offers_pitched?: readonly string[] | null }[]) {
+  const n = (k: string) => events.filter((e) => e.offers_pitched?.includes(k)).length;
+  return { localOffered: n("local") + n("local_yes"), localYes: n("local_yes"), thirtyOffered: n("thirty") + n("thirty_yes"), thirtyYes: n("thirty_yes") };
+}

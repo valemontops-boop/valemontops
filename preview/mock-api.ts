@@ -44,6 +44,8 @@ import { seedDemoLinkedIn } from "@/server/services/demo-linkedin";
 import { contentLogSchema, logContent, marketingWeek } from "@/server/services/marketing-week";
 import { funnelsSchema, marketingFunnels, addBreakdown, addTraffic, breakdownSchema, importTraffic, marketingOverview, overviewSchema, trafficImportSchema, trafficManualSchema } from "@/server/services/marketing";
 import { dashboardSchema, reportsDashboard } from "@/server/services/dashboard";
+import { addSearchConsoleRow, gscImportSchema, gscManualSchema, importSearchConsole, runSiteAudit, seoOverview, seoSchema } from "@/server/services/seo";
+import { demoSiteFetcher } from "@/server/services/demo-seo";
 import { exportFile, exportSchema } from "@/server/services/export";
 import { trackerAction, trackerActionSchema, trackerStatus } from "@/server/services/tracker";
 import { createFolder, folderSchema } from "@/server/services/files";
@@ -161,7 +163,7 @@ const routes: Record<string, [z.ZodTypeAny | null, Handler]> = {
   "GET /api/audience/series": [seriesSchema, async (i, f) => audienceSeries(ctx, f, i as never)],
   "GET /api/settings/system": [null, async () => {
     const rows = (await repo.list("SystemSettings")).rows;
-    return Object.fromEntries(["drive_folder_id", "founder_point_video_link", "ideas_testing_limit", "hot_lead_stale_days", "conversion_min_sample", "company_name", "calendly_url_theo", "calendly_url_pablo", "deck_url_fr", "deck_url_es", "signature_theo", "signature_pablo", "offer_consulting_value_eur", "offer_local_monthly_eur", "linkedin_daily_invitation_limit", "linkedin_weekly_invitation_limit", "time_split_target"].map((k) => [k, rows.find((r) => r.key === k)?.value ?? ""]));
+    return Object.fromEntries(["drive_folder_id", "founder_point_video_link", "ideas_testing_limit", "hot_lead_stale_days", "conversion_min_sample", "company_name", "calendly_url_theo", "calendly_url_pablo", "deck_url_fr", "deck_url_es", "thirty_url", "signature_theo", "signature_pablo", "offer_consulting_value_eur", "offer_local_monthly_eur", "linkedin_daily_invitation_limit", "linkedin_weekly_invitation_limit", "time_split_target", "offer_priority", "effort_consulting_pct", "effort_local_pct", "effort_thirty", "prospecting_channels", "ads_monthly_spend_eur", "founder_hour_cost_eur", "website_url_fr", "website_url_es", "seo_brand_terms", "content_minutes_per_deliverable"].map((k) => [k, rows.find((r) => r.key === k)?.value ?? ""]));
   }],
   "POST /api/settings/system": [z.object({ key: z.string(), value: z.string().max(500) }), async (i, f) => {
     const { key, value } = i as { key: string; value: string };
@@ -186,6 +188,11 @@ const routes: Record<string, [z.ZodTypeAny | null, Handler]> = {
   "PATCH /api/money/category": [categorySchema, async (i, f) => setCategory(ctx, f, i as never)],
   "POST /api/money/import": [csvSchema, async (i, f) => importBankCsv(ctx, f, i as never)],
   "GET /api/marketing/funnels": [funnelsSchema, async (i, f) => marketingFunnels(ctx, f, i as never)],
+  "GET /api/marketing/seo": [seoSchema, async (i, f) => seoOverview(ctx, f, i as never)],
+  "POST /api/marketing/seo": [gscImportSchema, async (i, f) => importSearchConsole(ctx, f, i as never)],
+  "PUT /api/marketing/seo": [gscManualSchema, async (i, f) => addSearchConsoleRow(ctx, f, i as never)],
+  // No network in the preview: the audit reads the demo site pages (example.com) from memory.
+  "POST /api/marketing/seo/audit": [null, async (_, f) => runSiteAudit(ctx, f, demoSiteFetcher)],
   "GET /api/inbox": [inboxListSchema, async (i, f) => listInbox(ctx, f, i as never)],
   "POST /api/inbox": [inboxAddSchema, async (i, f) => addInboxItem(ctx, f, i as never)],
   "PATCH /api/inbox": [inboxStatusSchema, async (i, f) => setInboxStatus(ctx, f, i as never)],

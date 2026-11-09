@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { MessagesTab } from "./email-tab";
 import { Spark } from "./charts";
 import { GrowthOverviewTab } from "./marketing-funnels";
-import { StatStrip, StepFunnel, useFunnels, type Days, type GrowthFilter, type GrowthTab, type Scope } from "./growth-common";
+import { StatStrip, StepFunnel, useCostStat, useFunnels, type Days, type GrowthFilter, type GrowthTab, type Scope } from "./growth-common";
 import { useDateTag, useT } from "@/i18n/react";
 import { EmptyState, ErrorState, Field, Input, Panel, PanelTitle, SegmentedSwitch, Select, Skeleton } from "@/components/ui/form";
 import { Modal } from "@/components/ui/overlay";
@@ -96,6 +96,8 @@ function SocialTab({ network, filter }: { network: "linkedin" | "instagram"; fil
   const li = funnels.data?.all.find((c) => c.key === "linkedin");
   const steps = content.data?.platforms?.[network] ?? [];
   const n = (v: number | undefined) => (v === undefined ? "…" : v.toLocaleString(tag));
+  // Round 9: the network is never free — outreach and content time (+ its share of costs) per meeting and per client.
+  const costStat = useCostStat()(funnels.data?.networks?.[network]);
 
   const followerStat = { label: t("Followers"), value: known ? followers.toLocaleString(tag) : "—", note: known ? `${t("{n} account(s)", { n: known })}${change === null ? "" : ` · ${change >= 0 ? "+" : ""}${change.toLocaleString(tag)} ${t("in 30 days")}`}` : t("enter or import the numbers below") };
   const stats = network === "linkedin" ? [
@@ -103,10 +105,12 @@ function SocialTab({ network, filter }: { network: "linkedin" | "instagram"; fil
     { label: t("Invitations & messages"), value: n(li?.touches), note: t("{n} people reached", { n: li?.steps[1]?.value ?? 0 }) },
     { label: t("Replies"), value: n(li?.steps[2]?.value), note: li?.steps[1]?.value ? t("{pct} of people reached", { pct: `${Math.round(((li.steps[2]?.value ?? 0) / li.steps[1].value) * 100)}%` }) : t("replies to invitations and messages") },
     { label: t("Meetings"), value: n(li?.meetings), note: t("credited to LinkedIn (last touch)"), result: true },
+    costStat,
   ] : [
     followerStat,
     { label: t("Views"), value: n(steps[0]?.value), note: t("Instagram views in this period") },
     { label: t("Website visits"), value: n(steps[3]?.value), note: t("sessions coming from Instagram (GA4)") },
+    costStat,
   ];
 
   return (

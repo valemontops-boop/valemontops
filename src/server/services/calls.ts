@@ -3,7 +3,7 @@ import type { Row } from "@/data/repository";
 import { childId } from "@/lib/ids";
 import { CONTACT_TYPES, MARKETS, OBJECTIONS, STAGES, type FounderKey, type Stage } from "@/domain/constants";
 import { dedupeEvents } from "@/domain/activity";
-import { CALL_OUTCOMES, callStats, eventFor, isPositive, objectionsOf } from "@/domain/calls";
+import { CALL_OUTCOMES, LADDER_STEPS, callStats, eventFor, isPositive, ladderRecord, ladderStats, objectionsOf, type LadderOffer } from "@/domain/calls";
 import { OBJECTION_GUIDE, guideOf, pickVariant, replyStats } from "@/domain/objections";
 import { isOpen } from "@/domain/pipeline";
 import { outreachBlock } from "@/domain/suppression";
@@ -11,7 +11,7 @@ import { addDays, localDate } from "@/domain/time";
 import { RuleError } from "../errors";
 import type { AppContext } from "../context";
 import { logActivity, logActivitySchema } from "./activities";
-import { userRow } from "./common";
+import { offerDefaults, userRow } from "./common";
 
 /** LinkedIn sessions reuse the CallSessions tab, marked in `notes` (no new table). */
 export const LINKEDIN_SESSION = "linkedin";
@@ -83,6 +83,10 @@ export const callSchema = z.object({
   business_name: z.string().trim().max(200).default(""),
   contact_name: z.string().trim().max(200).default(""),
   contact_type: z.enum(CONTACT_TYPES).default("professional_named"),
+  /** Downsell ladder (D071): the offer the prospect said yes to (Local or 30/30), only with a positive outcome. */
+  offer: z.enum(["local", "thirty"]).nullable().optional(),
+  /** Ladder steps offered during the call ("local", "thirty"; the server marks the accepted one "_yes"). */
+  offers_pitched: z.array(z.enum(LADDER_STEPS)).max(4).optional(),
 });
 
 const ORDER = STAGES;
@@ -90,27 +94,47 @@ function forward(cur: Stage, to: Stage): Stage {
   return ORDER.indexOf(to) > ORDER.indexOf(cur) ? to : cur;
 }
 
-/** One tap = one event. A "yes" (call back / interested / meeting) creates or advances the deal with a dated next step. */
+/**
+ * One tap = one event. A "yes" (call back / interested / meeting) creates or advances the deal with a dated next step.
+ * Ladder (D071): a yes to Local creates or moves the deal with the Local offer and its monthly price; a yes to 30/30
+ * creates no Consulting deal, it marks the business as a 30/30 lead (brand thirty). Offers made are stored on the event.
+ */
 export async function logCall(ctx: AppContext, founder: FounderKey, input: z.infer<typeof callSchema>) {
   // A session can be unknown to the server after a reload or a restart: recreate it instead of losing the tap.
   const session = (await ctx.repo.get("CallSessions", input.session_id, { fresh: true })) ?? (await startSession(ctx, founder, { id: input.session_id, list_id: input.list_id }));
   if (isPositive(input.outcome) && !input.account_id && !input.business_name.trim()) throw new RuleError("Name the business that said yes so it lands in your pipeline.");
+  const offer: LadderOffer | null = input.offer ?? null;
+  if (offer && !isPositive(input.outcome)) throw new RuleError("A yes to an offer needs a positive outcome.");
+  const pitched = (input.offers_pitched ?? []).map((x) => x.replace(/_yes$/, "") as LadderOffer);
+  const offersPitched = ladderRecord(pitched, offer);
   const ev = eventFor(input.outcome);
   const u = await userRow(ctx.repo, founder);
   const today = localDate(new Date(), u.timezone);
   const due = input.follow_up_date || (input.outcome === "call_back" ? addDays(today, 2) : input.outcome === "interested" ? addDays(today, 1) : input.outcome === "meeting" ? addDays(today, 3) : "");
-  const nextAction = input.outcome === "meeting" ? "Meeting" : input.outcome === "interested" ? "Call back: they want to talk" : input.outcome === "call_back" ? "Call back" : "";
+  const nextAction = offer === "thirty" ? "30/30 lead: check they opened the link" : offer === "local" && input.outcome === "interested" ? "Local: send the offer and start" : input.outcome === "meeting" ? "Meeting" : input.outcome === "interested" ? "Call back: they want to talk" : input.outcome === "call_back" ? "Call back" : "";
+  // Free dialling: a business already created during this call (an instant mail named it) is reused, not created twice.
+  const sameName = isPositive(input.outcome) && !input.account_id && input.business_name.trim() ? await findByName(ctx, founder, input.business_name) : null;
+  if (sameName) input = { ...input, account_id: sameName };
   const positiveNew = isPositive(input.outcome) && !input.account_id;
+  // What an offer changes, kept on the event so "Undo" can put it back.
+  let before = "";
+  if (offer && input.account_id) {
+    const acc = await ctx.repo.get("Accounts", input.account_id, { fresh: true });
+    const open = (await ctx.repo.list("Opportunities", { fresh: true })).rows.find((o) => o.account_id === input.account_id && isOpen(o));
+    before = offer === "thirty" ? `[brand_before=${acc?.brand ?? ""}]` : open ? `[deal_before=${open.brand ?? ""}:${open.value_minor ?? ""}]` : "";
+  }
   const res = await logActivity(ctx.repo, founder, logActivitySchema.parse({
     idempotency_key: input.idempotency_key,
     activity_type: ev.activity_type,
     outcome: ev.outcome,
     account_id: input.account_id,
+    brand: offer,
     objection: input.objection,
     objections: input.objections,
     replies: input.replies,
+    offers_pitched: offersPitched,
     duration_sec: input.duration_sec,
-    notes: input.note,
+    notes: [input.note, before].filter(Boolean).join(" "),
     next_action: nextAction,
     next_action_due: due,
     call_session_id: input.session_id,
@@ -120,18 +144,34 @@ export async function logCall(ctx: AppContext, founder: FounderKey, input: z.inf
     fast_contact: positiveNew ? { company_name: input.business_name, contact_name: input.contact_name, phone: input.phone, email: "", country: input.market ?? "FR", contact_type: input.contact_type, niche: "" } : null,
   }));
   if (res.duplicate || !isPositive(input.outcome)) return { ...res, opportunityId: null };
+  if (offer === "thirty") {
+    // A 30/30 lead: no Consulting deal, the business carries the 30/30 brand.
+    const acc = await ctx.repo.get("Accounts", res.event.account_id, { fresh: true });
+    if (acc && acc.brand !== "thirty") await ctx.repo.update("Accounts", acc.id, acc.version, { brand: "thirty" }, { founder });
+    return { ...res, opportunityId: null };
+  }
   const opportunityId = await advanceDeal(ctx, founder, {
     key: input.idempotency_key, eventId: res.event.id, accountId: res.event.account_id, contactId: res.event.contact_id, target: input.outcome === "meeting" ? "discovery_scheduled" : "replied",
-    nextAction, due, high: input.outcome === "meeting", name: input.business_name, market: input.market, reason: "Call mode",
+    nextAction, due, high: input.outcome === "meeting", name: input.business_name, market: input.market, reason: offer === "local" ? "Call mode · yes to Local" : "Call mode", offer: offer === "local" ? "local" : null,
   });
   return { ...res, opportunityId };
+}
+
+/** A business of this founder with exactly this name (case and spaces ignored), for free dialling. */
+export async function findByName(ctx: AppContext, founder: FounderKey, name: string): Promise<string | null> {
+  const n = name.trim().toLowerCase().replace(/\s+/g, " ");
+  if (!n) return null;
+  const { rows } = await ctx.repo.list("Accounts", { fresh: true });
+  return rows.find((a) => !a.is_archived && (!a.owner_founder || a.owner_founder === founder) && a.name.trim().toLowerCase().replace(/\s+/g, " ") === n)?.id ?? null;
 }
 
 /**
  * A "yes" (phone or LinkedIn) creates the deal, or moves the open one forward (never backwards), with a dated next step.
  * Ids derive from the tap's idempotency key, so a retry never creates a second deal.
  */
-export async function advanceDeal(ctx: AppContext, founder: FounderKey, d: { key: string; eventId: string; accountId: string; contactId: string; target: Stage; nextAction: string; due: string; high: boolean; name: string; market: "FR" | "ES" | null; reason: string }) {
+export async function advanceDeal(ctx: AppContext, founder: FounderKey, d: { key: string; eventId: string; accountId: string; contactId: string; target: Stage; nextAction: string; due: string; high: boolean; name: string; market: "FR" | "ES" | null; reason: string; offer?: "local" | null }) {
+  // A yes to Local (ladder, D071): the deal carries the Local offer and its monthly price.
+  const local = d.offer === "local" ? { brand: "local" as const, value_minor: (await offerDefaults(ctx.repo)).local } : null;
   const { rows } = await ctx.repo.list("Opportunities", { fresh: true });
   const opp = rows.find((o) => o.account_id === d.accountId && isOpen(o));
   const acc = await ctx.repo.get("Accounts", d.accountId);
@@ -139,15 +179,15 @@ export async function advanceDeal(ctx: AppContext, founder: FounderKey, d: { key
     const id = childId(d.key, "opportunity");
     if (rows.some((o) => o.id === id)) return id;
     await ctx.repo.insert("Opportunities", [{
-      id, account_id: d.accountId, primary_contact_id: d.contactId, name: acc?.name ?? d.name, brand: acc?.brand ?? "local", market: acc?.country ?? d.market,
-      stage: d.target, owner_founder: founder, value_minor: null, currency: "EUR", expected_close: null, next_action: d.nextAction, next_action_due: d.due || null,
+      id, account_id: d.accountId, primary_contact_id: d.contactId, name: acc?.name ?? d.name, brand: local?.brand ?? "consulting", market: acc?.country ?? d.market,
+      stage: d.target, owner_founder: founder, value_minor: local?.value_minor ?? null, currency: "EUR", expected_close: null, next_action: d.nextAction, next_action_due: d.due || null,
       next_action_priority: d.high ? "high" : "normal", next_action_reason: "", lost_reason: "", anum_authority: "", anum_need: "", anum_urgency: "", anum_money: "",
     }], { founder });
     await ctx.repo.insert("OpportunityStageEvents", [{ id: childId(id, "created"), opportunity_id: id, from_stage: null, to_stage: d.target, changed_at: new Date().toISOString(), changed_by: founder, reason: d.reason }], { founder });
     return id;
   }
   const stage = forward(opp.stage, d.target);
-  await ctx.repo.update("Opportunities", opp.id, opp.version, { stage, next_action: d.nextAction, next_action_due: d.due || null, owner_founder: opp.owner_founder ?? founder }, { founder });
+  await ctx.repo.update("Opportunities", opp.id, opp.version, { stage, next_action: d.nextAction, next_action_due: d.due || null, owner_founder: opp.owner_founder ?? founder, ...(local ?? {}) }, { founder });
   if (stage !== opp.stage) await ctx.repo.insert("OpportunityStageEvents", [{ id: childId(opp.id, "stage", d.eventId), opportunity_id: opp.id, from_stage: opp.stage, to_stage: stage, changed_at: new Date().toISOString(), changed_by: founder, reason: d.reason }], { founder });
   return opp.id;
 }
@@ -167,6 +207,17 @@ export async function undoCall(ctx: AppContext, founder: FounderKey, input: z.in
   const sends = (await ctx.repo.list("EmailSends", { fresh: true })).rows;
   if (ev.account_id && sends.some((x) => x.account_id === ev.account_id && x.status === "sent" && !x.is_archived && (x.sent_at ?? "") >= ev.occurred_at)) throw new RuleError("A message already went out after this call: correct it in the CRM.");
   await ctx.repo.update("ActivityEvents", ev.id, ev.version, { is_archived: true }, { founder });
+  // A yes to 30/30 marked the business; a yes to Local changed the open deal's offer: put them back.
+  const brandBefore = /\[brand_before=([a-z]*)\]/.exec(ev.notes)?.[1];
+  if (brandBefore !== undefined && ev.account_id) {
+    const acc = await ctx.repo.get("Accounts", ev.account_id, { fresh: true });
+    if (acc && acc.brand === "thirty") await ctx.repo.update("Accounts", acc.id, acc.version, { brand: (brandBefore || null) as Row<"Accounts">["brand"] }, { founder });
+  }
+  const dealBefore = /\[deal_before=([a-z]*):(\d*)\]/.exec(ev.notes);
+  if (dealBefore && ev.account_id) {
+    const open = (await ctx.repo.list("Opportunities", { fresh: true })).rows.find((o) => o.account_id === ev.account_id && isOpen(o));
+    if (open) await ctx.repo.update("Opportunities", open.id, open.version, { brand: (dealBefore[1] || null) as Row<"Opportunities">["brand"], value_minor: dealBefore[2] ? Number(dealBefore[2]) : null }, { founder });
+  }
   const oppId = childId(input.idempotency_key, "opportunity");
   const created = await ctx.repo.get("Opportunities", oppId, { fresh: true });
   if (created && !created.is_archived) await ctx.repo.update("Opportunities", oppId, created.version, { is_archived: true }, { founder });
@@ -195,7 +246,8 @@ export async function sessionSummary(ctx: AppContext, founder: FounderKey, id: s
     return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
   };
   const messages = t.EmailSends.rows.filter((r) => r.call_session_id === id && r.status === "sent" && !r.is_archived).length;
-  return { session: s, stats, messages, previous: { sessions: previous.length, pickupRate: avg((x) => x.pickupRate), positiveRate: avg((x) => x.positiveRate), dials: avg((x) => x.dials) } };
+  const ladder = ladderStats(events.filter((e) => e.call_session_id === id));
+  return { session: s, stats, messages, ladder, previous: { sessions: previous.length, pickupRate: avg((x) => x.pickupRate), positiveRate: avg((x) => x.positiveRate), dials: avg((x) => x.dials) } };
 }
 
 export async function listSessions(ctx: AppContext, founder: FounderKey) {
@@ -285,6 +337,7 @@ export async function callLog(ctx: AppContext, founder: FounderKey, input: z.inf
       id: e.id, at: e.occurred_at, date: e.local_date, outcome: OUTCOME_OF(e), objections: objectionsOf(e), duration_sec: e.duration_sec,
       name: a?.name ?? "", niche: a?.niche ?? "", phone: a?.phone ?? "", accountId: e.account_id, contact: t.Contacts.rows.find((c) => c.account_id === e.account_id)?.full_name ?? "",
       message: msg ? { channel: msg.channel, template: msg.template_key, at: msg.sent_at } : null, next_action: e.next_action, next_action_due: e.next_action_due,
+      offer: e.offers_pitched.includes("local_yes") ? "local" : e.offers_pitched.includes("thirty_yes") ? "thirty" : null, offered: e.offers_pitched.map((x) => x.replace(/_yes$/, "")),
     };
   });
 }

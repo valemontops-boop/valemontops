@@ -53,9 +53,9 @@ describe("Scenario 1: mode and exact saved targets from Sheets", () => {
     const reloaded = await getMyDay(makeRepo(url), "theo", NOW); // new instance = reload
     expect(reloaded.mode).toBe("FULL_TIME");
     expect(reloaded.targets?.calls).toEqual({ target: 33, weight: 2, minutes: 4 });
-    // Brief round 8 seeds, same for both founders: FULL_TIME = 15 invitations + 10 DMs, 15 emails, 90 new businesses.
+    // Brief round 8/9 seeds, same for both founders: FULL_TIME = 15 invitations + 10 DMs, emails counted with no target (D073), 90 new businesses.
     expect(reloaded.targets?.dms.target).toBe(10);
-    expect(reloaded.targets?.cold_emails.target).toBe(15);
+    expect(reloaded.targets?.cold_emails.target).toBe(0);
     expect(reloaded.targets?.new_businesses.target).toBe(90);
     const grid = fake.sheet(TEST_SHEET_ID, "DailyPlans")!.grid;
     expect(grid).toHaveLength(2); // one snapshot row for today
