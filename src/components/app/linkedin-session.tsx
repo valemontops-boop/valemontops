@@ -9,7 +9,7 @@ import {
   LINKEDIN_RESULTS, LINKEDIN_RESULT_KEYS, LINKEDIN_RESULT_LABELS, LI_STAGE_LABELS, normalizeLinkedInUrl, resultForKey, resultsFor,
   type LinkedInResult, type LiStage, type LiStats,
 } from "@/domain/linkedin";
-import { LINKEDIN_NOTE_MAX, LINKEDIN_TEMPLATES, LINKEDIN_TEMPLATE_LABELS, fill, findItem, type Lang, type LinkedInTemplate } from "@/domain/playbook";
+import { LINKEDIN_NOTE_MAX, LINKEDIN_TEMPLATES, LINKEDIN_TEMPLATE_LABELS, customTemplates, fill, findItem, type Lang, type LinkedInTemplate } from "@/domain/playbook";
 import { useDateTag, useLocale, useT } from "@/i18n/react";
 import { ApiError, api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -127,14 +127,17 @@ export function LinkedInSession({ id, listId, onEnd }: { id: string; listId: str
   const limits = summary.data?.limits ?? queue.data?.limits;
   // A new prospect (or a new step for the same one) brings its own suggested message; a choice or an edit sticks to it.
   const curKey = current ? `${current.key}:${current.stage}:${current.messagesSinceReply}` : "";
-  const [choice, setChoice] = React.useState<{ k: string; tpl: LinkedInTemplate } | null>(null);
-  const tpl: LinkedInTemplate = choice?.k === curKey ? choice.tpl : current?.next.template ?? (current?.stage === "new" ? "invitation" : "follow_up");
-  const setTpl = (v: LinkedInTemplate) => setChoice({ k: curKey, tpl: v });
-  const textFor = (k: LinkedInTemplate) => {
+  const [choice, setChoice] = React.useState<{ k: string; tpl: string } | null>(null);
+  const tpl: string = choice?.k === curKey ? choice.tpl : current?.next.template ?? (current?.stage === "new" ? "invitation" : "follow_up");
+  const setTpl = (v: string) => setChoice({ k: curKey, tpl: v });
+  // The founders' own LinkedIn templates (Settings › Templates, D090) come after the built-in steps.
+  const custom = pb.data ? customTemplates(pb.data.items, "linkedin", lang) : [];
+  const textFor = (k: string) => {
     const it = pb.data ? findItem(pb.data.items, "linkedin", k, lang) : null;
     const v = { first_name: current?.firstName, business: current?.company, founder: pb.data?.founderName, signature: pb.data?.signature, calendly: pb.data?.links.calendly, deck: lang === "ES" ? pb.data?.links.deckES : pb.data?.links.deckFR };
-    return { subject: k === "inmail" ? fill(it?.subject ?? "", v) : "", body: fill(it?.body ?? "", v) };
+    return { subject: k === "inmail" || it?.subject ? fill(it?.subject ?? "", v) : "", body: fill(it?.body ?? "", v) };
   };
+  const hasSubject = tpl === "inmail" || Boolean(custom.find((c) => c.key === tpl)?.subject);
   const [draft, setDraft] = React.useState<{ k: string; subject: string; body: string } | null>(null);
   const draftKey = `${curKey}:${tpl}`;
   const text = draft?.k === draftKey ? draft : textFor(tpl);
@@ -157,7 +160,7 @@ export function LinkedInSession({ id, listId, onEnd }: { id: string; listId: str
     onError: (e) => toast(e instanceof ApiError ? e.message : t("Error: {message}. Tap again to retry (it won't count twice).", { message: (e as Error).message })),
   });
   const copy = async () => {
-    const s = tpl === "inmail" ? `${text.subject}\n\n${text.body}` : text.body;
+    const s = hasSubject ? `${text.subject}\n\n${text.body}` : text.body;
     try { await navigator.clipboard.writeText(s); toast(t("Copied: paste it in LinkedIn")); } catch { toast(t("Copy blocked by the browser: select the text")); }
   };
   const openProfile = () => { if (current?.linkedinUrl) window.open(current.linkedinUrl, "_blank", "noopener"); else toast(t("Paste the LinkedIn profile link (linkedin.com/in/…).")); };
@@ -244,8 +247,12 @@ export function LinkedInSession({ id, listId, onEnd }: { id: string; listId: str
                     {t(LINKEDIN_TEMPLATE_LABELS[k])}{k === current.next.template ? <span className={cn("ml-1 text-[11px]", tpl === k ? "text-panel/70" : "text-text-3")}>· {t("suggested")}</span> : null}
                   </button>
                 ))}
+                {custom.map((c) => (
+                  <button key={c.key} type="button" role="radio" aria-checked={tpl === c.key} onClick={() => setTpl(c.key)}
+                    className={cn("min-h-8 rounded-full border border-dashed px-3 text-[13px]", tpl === c.key ? "border-ink bg-ink text-panel" : "border-control bg-panel hover:bg-subtle")}>{c.name}</button>
+                ))}
               </div>
-              {tpl === "inmail" ? <Input aria-label={t("Subject")} value={text.subject} onChange={(e) => setText({ ...text, subject: e.target.value })} className="h-9 bg-panel font-medium" /> : null}
+              {hasSubject ? <Input aria-label={t("Subject")} value={text.subject} onChange={(e) => setText({ ...text, subject: e.target.value })} className="h-9 bg-panel font-medium" /> : null}
               <Textarea aria-label={t("Message to copy")} rows={tpl === "invitation" ? 4 : 6} value={text.body} onChange={(e) => setText({ ...text, body: e.target.value })} className="bg-panel text-[14px] leading-relaxed" />
               <div className="flex flex-wrap items-center gap-2">
                 <Button variant="dark" onClick={() => void copy()}><Copy /> {t("Copy")} <span className="text-[11px] opacity-60">C</span></Button>

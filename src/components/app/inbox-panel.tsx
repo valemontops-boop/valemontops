@@ -14,6 +14,7 @@ import { ApiError, api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { InboxView } from "@/server/services/inbox";
 import { useMe } from "./providers";
+import { WhatsAppSend, copyToClipboard, openWhatsAppChat } from "./whatsapp-send";
 
 /**
  * "To reply" (iteration 8): comments and messages waiting for an answer, signalled automatically (webhooks,
@@ -48,18 +49,6 @@ function useAge() {
   };
 }
 
-async function copyText(text: string) {
-  try { await navigator.clipboard.writeText(text); return true; } catch { /* fall back below */ }
-  try {
-    const el = document.createElement("textarea");
-    el.value = text; el.setAttribute("readonly", ""); el.style.position = "fixed"; el.style.opacity = "0";
-    document.body.appendChild(el); el.select();
-    const ok = document.execCommand("copy");
-    el.remove();
-    return ok;
-  } catch { return false; }
-}
-
 function useSetStatus() {
   const t = useT();
   const qc = useQueryClient();
@@ -75,11 +64,20 @@ function ItemRow({ item, full }: { item: InboxView; full?: boolean }) {
   const age = useAge()(item.received_at);
   const set = useSetStatus();
   const busy = set.isPending;
-  const copy = async (key?: ReplyKey) => {
+  const [wa, setWa] = React.useState<{ key: string; phone: string; text: string } | null>(null);
+  const label = (r: { key: string; label?: string }) => (r.label ? r.label : t(REPLY_LABELS[r.key as ReplyKey] ?? r.key));
+  // WhatsApp items (D090): the reply goes in a new chat to the number (prefilled from the conversation, editable).
+  const isWa = item.source === "whatsapp";
+  const openWa = (key?: string) => {
+    const reply = item.replies.find((r) => r.key === key) ?? item.replies[0];
+    const digits = /wa\.me\/(\d+)/.exec(item.url)?.[1] ?? "";
+    setWa({ key: reply.key, phone: digits ? `+${digits}` : "", text: reply.text });
+  };
+  const copy = async (key?: string) => {
     const reply = item.replies.find((r) => r.key === key) ?? item.replies[0];
     // Open the conversation first (a popup opened after an await is blocked), then copy: the founder pastes and sends.
     if (item.url && !key) window.open(item.url, "_blank", "noopener,noreferrer");
-    toast((await copyText(reply.text)) ? (item.url && !key ? t("Reply copied: paste it in the conversation that just opened.") : t("Reply copied.")) : t("Could not copy. Select the text and copy it."));
+    toast((await copyToClipboard(reply.text)) ? (item.url && !key ? t("Reply copied: paste it in the conversation that just opened.") : t("Reply copied.")) : t("Could not copy. Select the text and copy it."));
   };
   return (
     <li className="flex gap-3 border-t border-hairline py-3 first:border-t-0 first:pt-0">
@@ -93,7 +91,7 @@ function ItemRow({ item, full }: { item: InboxView; full?: boolean }) {
         </p>
         <p className={cn("mt-0.5 text-sm text-text-2", !full && "line-clamp-2")}>{item.excerpt ? `« ${item.excerpt} »` : t(item.summary)}</p>
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          <Button size="sm" variant="outline" onClick={() => copy()} title={item.replies[0]?.text}><Copy />{t("Copy a reply")}</Button>
+          {isWa ? <Button size="sm" variant="outline" onClick={() => openWa()} title={item.replies[0]?.text}><MessageCircle />{t("Reply on WhatsApp")}</Button> : <Button size="sm" variant="outline" onClick={() => copy()} title={item.replies[0]?.text}><Copy />{t("Copy a reply")}</Button>}
           {item.url ? <Button size="sm" variant="ghost" asChild><a href={item.url} target="_blank" rel="noopener noreferrer"><ExternalLink />{t("Open")}</a></Button> : null}
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => set.mutate({ id: item.id, status: "replied", expected_version: item.version })}><Check />{t("Mark as replied")}</Button>
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => set.mutate({ id: item.id, status: "ignored", expected_version: item.version })}><X />{t("Ignore")}</Button>
@@ -101,8 +99,15 @@ function ItemRow({ item, full }: { item: InboxView; full?: boolean }) {
         {full ? (
           <p className="mt-2 flex flex-wrap items-center gap-1.5 text-[12px] text-text-3">
             {t("Other replies:")}
-            {item.replies.map((r) => <button key={r.key} type="button" title={r.text} onClick={() => copy(r.key)} className="rounded-full border border-hairline px-2 py-0.5 text-text-2 hover:bg-subtle hover:text-ink">{t(REPLY_LABELS[r.key])}</button>)}
+            {item.replies.map((r) => <button key={r.key} type="button" title={r.text} onClick={() => (isWa ? openWa(r.key) : copy(r.key))} className={cn("rounded-full border px-2 py-0.5 text-text-2 hover:bg-subtle hover:text-ink", r.label ? "border-dashed border-control" : "border-hairline")}>{label(r)}</button>)}
           </p>
+        ) : null}
+        {wa ? (
+          <div className="mt-2 flex flex-col gap-2 rounded-[14px] border border-hairline p-3">
+            <Textarea aria-label={t("Message")} rows={3} value={wa.text} onChange={(e) => setWa({ ...wa, text: e.target.value })} className="text-[13px]" />
+            <WhatsAppSend id={`ib-wa-${item.id}`} phone={wa.phone} onPhone={(v) => setWa({ ...wa, phone: v })} market={null} text={wa.text}
+              onOpen={(e164) => openWhatsAppChat(e164, wa.text)} extra={<Button variant="ghost" onClick={() => setWa(null)}>{t("Close")}</Button>} />
+          </div>
         ) : null}
       </div>
     </li>

@@ -1,10 +1,11 @@
 "use client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDownRight, ArrowRight, Check, ChevronLeft, ChevronRight, Clock, Mail, MoreHorizontal, Pause, Phone, PhoneOff, Play, RefreshCw, RotateCcw, SkipForward, X } from "lucide-react";
+import { ArrowDownRight, ArrowRight, Check, ChevronLeft, ChevronRight, Clock, Mail, MessageCircle, MoreHorizontal, Pause, Phone, PhoneOff, Play, RefreshCw, RotateCcw, SkipForward, X } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { EmptyState, Input, Panel, Skeleton } from "@/components/ui/form";
+import { EmptyState, Input, Panel, Skeleton, Textarea } from "@/components/ui/form";
+import { WhatsAppSend, isNewNumber } from "./whatsapp-send";
 import { useDateTag, useLocale, useT } from "@/i18n/react";
 import { ConfirmSent, ConnectGmail, InCallMail, MailPreview, MessageCard, SentLine, useInstantSend, type Playbook, type SendTarget } from "./instant-send";
 import { CallLog } from "./call-log";
@@ -54,7 +55,9 @@ type After = { target: Target; outcome: CallOutcome | null; objections: Objectio
  */
 type Missed = {
   kind: "missed" | "callback"; outcome: CallOutcome; callKey: string; target: Target; phone: string; template: TemplateKey; mailKey: string;
-  view: "menu" | "mail" | "callback"; mailed: { to: string; via: "gmail" | "mail_app" | "whatsapp" } | null; callback: { at: string } | null; accountId: string; consent: boolean;
+  view: "menu" | "mail" | "callback" | "whatsapp"; mailed: { to: string; via: "gmail" | "mail_app" | "whatsapp" } | null; callback: { at: string } | null; accountId: string; consent: boolean;
+  /** D090: the same message by WhatsApp (W): its own idempotency key, and the number it was opened for. */
+  waKey: string; whatsapped: string | null;
 };
 
 /**
@@ -151,6 +154,7 @@ export function ActiveSession({ id, listId, onEnd }: { id: string; listId: strin
         setMissed({
           kind: panel, outcome: o, callKey: key, target, phone: listId ? current?.phone ?? "" : phone, template: tpl, mailKey: crypto.randomUUID(),
           view: panel === "callback" ? "callback" : "menu", mailed: mailed.length ? { to: target.email, via: "gmail" } : null, callback: null, accountId: target.accountId, consent: Boolean(listId && current?.consent),
+          waKey: crypto.randomUUID(), whatsapped: null,
         });
         setAfter(null);
       } else {
@@ -263,6 +267,14 @@ export function ActiveSession({ id, listId, onEnd }: { id: string; listId: strin
     setMailBusy(false);
     if (r) setMissed((m) => (m ? { ...m, mailed: { to, via: r.via }, accountId: m.accountId || r.accountId, target: { ...m.target, email: to, name: v.business || m.target.name }, view: "menu" } : m));
   };
+  /** D090: the missed-call message by WhatsApp: opens a new chat to the number (typed or known), "Sent?" confirms it. */
+  const sendMissedWhatsApp = async (v: { to: string; business: string; body: string; savePhone: boolean }) => {
+    if (!missed || mailBusy) return;
+    setMailBusy(true);
+    const r = await instant.send({ channel: "whatsapp", target: { ...missed.target, accountId: missed.target.accountId || missed.accountId, name: v.business || missed.target.name, phone: v.to }, template: missed.template, key: missed.waKey, to: v.to, subject: "", body: v.body, business: v.business, savePhone: v.savePhone });
+    setMailBusy(false);
+    if (r) setMissed((m) => (m ? { ...m, whatsapped: v.to, accountId: m.accountId || r.accountId, view: "menu" } : m));
+  };
   /** Cold mail ("tried to reach you") to Spain needs prior consent (LSSI art. 21); the server checks it again. */
   const mailBlocked = missed ? contextOf(missed.template) === "cold" && missed.target.market === "ES" && !missed.consent : false;
   const skip = () => { if (current && step === "ready") { setSkipped((x) => [...x, current.accountId]); resetCall(); } };
@@ -293,7 +305,7 @@ export function ActiveSession({ id, listId, onEnd }: { id: string; listId: strin
       // After a missed call (D080): M mail, R call-back (then 1–5), Enter next call, Esc back to the three actions.
       if (missed && step === "ready") {
         if (e.key === "Escape") { if (missed.view !== "menu") { e.preventDefault(); setMissedView("menu"); } return; }
-        if (missed.view === "mail" || isTyping(e.target)) return; // the mail form: Enter sends
+        if (missed.view === "mail" || missed.view === "whatsapp" || isTyping(e.target)) return; // the mail / WhatsApp form answers its own keys
         if (k === "u" && undo) { e.preventDefault(); undoLast.mutate(undo.key); return; }
         if (k === "enter") {
           const a = document.activeElement;
@@ -302,6 +314,7 @@ export function ActiveSession({ id, listId, onEnd }: { id: string; listId: strin
         }
         if (missed.view === "callback") { if (digit >= 1 && digit <= choices.length) { e.preventDefault(); scheduleAt(choices[digit - 1].at); } return; }
         if (k === "m" && !mailBlocked && !missed.mailed) { e.preventDefault(); setMissedView("mail"); }
+        else if (k === "w" && !mailBlocked && !missed.whatsapped) { e.preventDefault(); setMissedView("whatsapp"); }
         else if (k === "r") { e.preventDefault(); setMissedView("callback"); }
         return;
       }
@@ -483,7 +496,7 @@ export function ActiveSession({ id, listId, onEnd }: { id: string; listId: strin
               <>
                 {step === "ready" && missed ? (
                   <MissedPanel m={missed} s={instant} nextRef={nextRef} choices={choices} scheduling={schedule.isPending} mailBusy={mailBusy || instant.busy} mailBlocked={mailBlocked}
-                    onView={setMissedView} onSchedule={scheduleAt} onSendMail={(v) => void sendMissedMail(v)} onNext={nextProspect} />
+                    onView={setMissedView} onSchedule={scheduleAt} onSendMail={(v) => void sendMissedMail(v)} onSendWhatsApp={(v) => void sendMissedWhatsApp(v)} onNext={nextProspect} />
                 ) : step === "ready" ? (
                   <>
                     {listId && current ? (
@@ -590,9 +603,10 @@ function ObjectionList({ groups, on, focus, onToggle, className }: { groups: { t
  * call you" mail (exact preview, editable, Enter sends), a call-back (quick times or a free date), the next call
  * (focused, Enter). Each done action leaves a confirmation line. A picked-up "call back" opens on the call-back times.
  */
-function MissedPanel({ m, s, nextRef, choices, scheduling, mailBusy, mailBlocked, onView, onSchedule, onSendMail, onNext }: {
+function MissedPanel({ m, s, nextRef, choices, scheduling, mailBusy, mailBlocked, onView, onSchedule, onSendMail, onSendWhatsApp, onNext }: {
   m: Missed; s: ReturnType<typeof useInstantSend>; nextRef: React.RefObject<HTMLButtonElement | null>; choices: { choice: CallbackChoice; at: Date }[]; scheduling: boolean; mailBusy: boolean; mailBlocked: boolean;
-  onView: (v: Missed["view"]) => void; onSchedule: (at: Date, business?: string) => void; onSendMail: (v: { to: string; business: string; subject: string; body: string }) => void; onNext: () => void;
+  onView: (v: Missed["view"]) => void; onSchedule: (at: Date, business?: string) => void; onSendMail: (v: { to: string; business: string; subject: string; body: string }) => void;
+  onSendWhatsApp: (v: { to: string; business: string; body: string; savePhone: boolean }) => void; onNext: () => void;
 }) {
   const t = useT();
   const tag = useDateTag();
@@ -609,8 +623,9 @@ function MissedPanel({ m, s, nextRef, choices, scheduling, mailBusy, mailBlocked
         <h2 className="text-xl font-semibold tracking-tight">{m.kind === "missed" ? t("Missed call — {name}", { name }) : t("Call back — {name}", { name })}</h2>
         <span className="flex items-center gap-1 text-[13px] text-text-2"><Check className="size-4 text-win" />{t(CALL_OUTCOME_LABELS[m.outcome])} · {t("logged")}</span>
       </div>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1.3fr_1fr_1fr]">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1.3fr_1fr_1fr_1fr]">
         <ActionTile icon={<Mail />} hint="M" active={m.view === "mail"} done={Boolean(m.mailed)} disabled={mailBlocked || Boolean(m.mailed)} onClick={() => onView(m.view === "mail" ? "menu" : "mail")}>{mailLabel}</ActionTile>
+        <ActionTile icon={<MessageCircle />} hint="W" active={m.view === "whatsapp"} done={Boolean(m.whatsapped)} disabled={mailBlocked || Boolean(m.whatsapped)} onClick={() => onView(m.view === "whatsapp" ? "menu" : "whatsapp")}>WhatsApp</ActionTile>
         <ActionTile icon={<Clock />} hint="R" active={m.view === "callback"} done={Boolean(m.callback)} onClick={() => onView(m.view === "callback" ? "menu" : "callback")}>{m.callback ? t("Move the call-back") : t("Schedule a call-back")}</ActionTile>
         <button ref={nextRef} type="button" onClick={onNext} className="flex min-h-[76px] items-center justify-center gap-2 rounded-[16px] border-2 border-ink bg-ink px-3 text-[18px] font-semibold text-panel hover:opacity-90 focus-visible:ring-4 focus-visible:ring-sales/50">
           {t("Next call")} <ArrowRight className="size-5" /><span className="text-[12px] font-normal opacity-70">↵</span>
@@ -618,10 +633,15 @@ function MissedPanel({ m, s, nextRef, choices, scheduling, mailBusy, mailBlocked
       </div>
       {mailBlocked && !m.mailed ? <p className="text-[13px] text-text-2">{t("Spain: no cold mail without prior consent (LSSI art. 21). Schedule a call-back instead.")}</p> : null}
       {m.mailed ? <p role="status" className="flex items-center gap-2 rounded-[12px] bg-win/10 px-3 py-2 text-[14px]"><Check className="size-4 shrink-0 text-win" />{m.mailed.via === "gmail" ? t("Mail sent to {to}", { to: m.mailed.to }) : t("Gmail opened for {to}: confirm once sent", { to: m.mailed.to })}</p> : null}
+      {m.whatsapped ? <p role="status" className="flex items-center gap-2 rounded-[12px] bg-win/10 px-3 py-2 text-[14px]"><Check className="size-4 shrink-0 text-win" />{t("WhatsApp opened for {to}: confirm once sent", { to: m.whatsapped })}</p> : null}
       {m.callback ? <p role="status" className="flex items-center gap-2 rounded-[12px] bg-win/10 px-3 py-2 text-[14px]"><Check className="size-4 shrink-0 text-win" />{t("Call-back set: {when}", { when: when(new Date(m.callback.at)) })}</p> : null}
 
       {m.view === "mail" && s.playbook ? (
         <MailPreview key={m.mailKey} s={s} template={m.template} initial={{ to: m.target.email, business, ...text }} needsBusiness={needsBusiness} busy={mailBusy} onSend={onSendMail} onCancel={() => onView("menu")} />
+      ) : null}
+
+      {m.view === "whatsapp" && s.playbook ? (
+        <MissedWhatsApp key={m.waKey} m={m} s={s} business={business} setBusiness={setBusiness} needsBusiness={needsBusiness} busy={mailBusy} onSend={onSendWhatsApp} onCancel={() => onView("menu")} />
       ) : null}
 
       {m.view === "callback" ? (
@@ -644,6 +664,28 @@ function MissedPanel({ m, s, nextRef, choices, scheduling, mailBusy, mailBlocked
         </div>
       ) : null}
     </section>
+  );
+}
+
+/** WhatsApp after a missed call (D090): the text (editable), the number (known or typed), Copy / Open WhatsApp. */
+function MissedWhatsApp({ m, s, business, setBusiness, needsBusiness, busy, onSend, onCancel }: {
+  m: Missed; s: ReturnType<typeof useInstantSend>; business: string; setBusiness: (v: string) => void; needsBusiness: boolean; busy: boolean;
+  onSend: (v: { to: string; business: string; body: string; savePhone: boolean }) => void; onCancel: () => void;
+}) {
+  const t = useT();
+  const [phone, setPhone] = React.useState(m.target.phone || m.phone);
+  const [save, setSave] = React.useState(false);
+  const [body, setBody] = React.useState(() => (s.playbook ? messageFor(s.playbook, s.lang, "whatsapp", m.template, { name: business || m.target.name, contact: m.target.contact }).body : ""));
+  const known = Boolean(m.target.accountId || m.accountId);
+  return (
+    <div role="group" aria-label={t("WhatsApp message")} className="flex flex-col gap-2 rounded-[16px] border-2 border-sales bg-panel p-3">
+      {needsBusiness ? <Input aria-label={t("Business name")} placeholder={t("Business name (required to follow up)")} value={business} onChange={(e) => setBusiness(e.target.value)} className="h-10" /> : null}
+      <Textarea aria-label={t("Message")} rows={4} value={body} onChange={(e) => setBody(e.target.value)} className="text-[14px] leading-relaxed" />
+      <WhatsAppSend id={`missed-wa-${m.waKey}`} phone={phone} onPhone={setPhone} market={m.target.market} text={body} busy={busy} autoFocus={!phone}
+        canSave={known && isNewNumber(phone, m.target.phone, m.target.market)} save={save} onSave={setSave}
+        onOpen={(e164) => { if (needsBusiness && !business.trim()) { toast(t("Name the business first.")); return; } onSend({ to: e164, business, body, savePhone: save }); }}
+        extra={<Button variant="ghost" onClick={onCancel}>{t("Cancel")} <span className="text-[11px] opacity-60">Esc</span></Button>} />
+    </div>
   );
 }
 

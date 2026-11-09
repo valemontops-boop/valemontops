@@ -27,6 +27,8 @@ import { ExportButton } from "./export-dialog";
 import { dealValue } from "@/domain/conversion";
 import { WonToProject } from "./won-project";
 import { CsvExportButton } from "./csv-tools";
+import { ConfirmSent, MessageCard, useInstantSend } from "./instant-send";
+import { templateChips } from "@/domain/messages";
 
 /** Default deal values per offer from Settings › Workspace (Consulting value, Local monthly price), in cents. */
 function useOfferDefaults() {
@@ -320,6 +322,20 @@ function ContactsTab({ accounts, opps, selected, onSelect }: { accounts: CrmAcco
   );
 }
 
+/** D090: the same message card as after a call, from the business's record (email or WhatsApp, any template, own templates too). */
+function CrmMessage({ instant, account, contacts, onClose }: { instant: ReturnType<typeof useInstantSend>; account: CrmAccount; contacts: CrmContact[]; onClose: () => void }) {
+  const [sendKey] = React.useState(() => crypto.randomUUID());
+  const c = contacts.find((x) => x.email) ?? contacts.find((x) => x.phone) ?? contacts[0];
+  const market = (account.country ?? "FR") as "FR" | "ES";
+  if (!instant.ready) return <Skeleton className="h-40" />;
+  return (
+    <div className="flex flex-col gap-2">
+      <MessageCard s={instant} sendKey={sendKey} gmailHint target={{ accountId: account.id, name: account.name, contact: c?.full_name ?? "", email: c?.email || account.email || "", phone: c?.phone || account.phone || "", market }}
+        chips={templateChips(null, [], market).chips} suggested={null} onDone={onClose} onSkip={onClose} />
+    </div>
+  );
+}
+
 function AccountPanel({ account, data, onClose }: { account: CrmAccount; data: Crm; onClose: () => void }) {
   const t = useT();
   const tag = useDateTag();
@@ -330,6 +346,9 @@ function AccountPanel({ account, data, onClose }: { account: CrmAccount; data: C
   const timeline = useQuery({ queryKey: ["timeline", account.id], queryFn: () => api<{ events: { id: string; activity_type: keyof typeof ACTIVITY_LABELS; founder_key: string; local_date: string; outcome: string | null; notes: string; late_logged: boolean }[] }>(`/api/crm/timeline?account_id=${account.id}`) });
   const [more, setMore] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
+  const [messaging, setMessaging] = React.useState(false);
+  // Kept at panel level: "Sent?" (Gmail compose / WhatsApp opened) survives the card closing.
+  const instant = useInstantSend();
   return (
     <DetailPanel open onClose={onClose}
       title={<div><h2 className="truncate text-lg font-semibold">{account.name}</h2><p className="text-[13px] text-text-2">{[main ? t(STAGE_LABELS[main.stage]) : null, account.country, account.niche].filter(Boolean).join(" · ")}</p></div>}
@@ -344,6 +363,11 @@ function AccountPanel({ account, data, onClose }: { account: CrmAccount; data: C
           </div>
         ) : null}
         {opps.filter((o) => o.stage === "won" && !o.is_archived).map((o) => <WonToProject key={o.id} opportunityId={o.id} name={o.name} />)}
+        <ConfirmSent s={instant} />
+        {!account.blocked_reason ? (
+          messaging ? <CrmMessage instant={instant} account={account} contacts={contacts} onClose={() => setMessaging(false)} />
+            : <Button size="sm" variant="outline" className="self-start" onClick={() => setMessaging(true)}><Mail /> {t("Send a message (email or WhatsApp)")}</Button>
+        ) : null}
 
         <a className="self-start text-sm underline underline-offset-2" target="_blank" rel="noreferrer noopener"
           href={`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(t("Meeting · {name}", { name: account.name }))}&details=${encodeURIComponent(t("Valemont meeting. Add the guests and send the invitation yourself."))}`}>
