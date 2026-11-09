@@ -21,16 +21,16 @@
   --market-fr: #17161a;
   --market-es: #8e8a92;
   --subtle: #ebe9e3;
-  /* One color system for the whole app (D044): sales/volume blue, results green, marketing violet, ops teal.
-     Soft = the matching tint for tiles and headers. Values and text stay in ink; color marks identity. */
+  /* Sober color system (D047, replaces D044): ink + one blue for data, green only for results.
+     No tinted tiles: soft tokens equal the panel. Marketing and ops reuse the blue. */
   --sales: #2a78d6;
-  --sales-soft: #e9f1fb;
+  --sales-soft: #fbfaf7;
   --win: #16946a;
-  --win-soft: #e3f3ec;
-  --mkt: #7a4fd6;
-  --mkt-soft: #efe9fb;
-  --ops: #0e8fa3;
-  --ops-soft: #e0f2f5;
+  --win-soft: #fbfaf7;
+  --mkt: #2a78d6;
+  --mkt-soft: #fbfaf7;
+  --ops: #2a78d6;
+  --ops-soft: #fbfaf7;
   color-scheme: light;
 }
 

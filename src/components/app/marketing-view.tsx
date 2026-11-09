@@ -5,6 +5,8 @@ import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YA
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmailTab } from "./email-tab";
+import { FunnelsTab } from "./marketing-funnels";
+import { useT } from "@/i18n/react";
 import { EmptyState, ErrorState, Field, Input, Panel, PanelTitle, SegmentedSwitch, Select, Skeleton } from "@/components/ui/form";
 import { Modal } from "@/components/ui/overlay";
 import { BRANDS, BRAND_LABELS } from "@/domain/constants";
@@ -19,17 +21,18 @@ const METRIC_NAMES: Record<string, string> = { followers: "Followers", views: "V
 const PLATFORM: Record<string, string> = { instagram: "Instagram", linkedin_page: "LinkedIn page", linkedin_personal: "LinkedIn personal" };
 
 export function MarketingView() {
-  const [tab, setTab] = React.useState<"overview" | "email" | "audience" | "traffic" | "content">("overview");
+  const t = useT();
+  const [tab, setTab] = React.useState<"funnels" | "email" | "website" | "social" | "content">("funnels");
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Marketing</h1>
-          <p className="text-sm text-text-2">Where people come from, which funnel converts, and whether we reach the right countries.</p>
+          <h1 className="text-2xl font-semibold tracking-tight">{t("Marketing")}</h1>
+          <p className="text-sm text-text-2">{t("Which channel brings meetings, for how much work.")}</p>
         </div>
-        <SegmentedSwitch label="Section" value={tab} onChange={setTab} options={[{ value: "overview", label: "Overview" }, { value: "email", label: "Email" }, { value: "audience", label: "Audience" }, { value: "traffic", label: "Traffic" }, { value: "content", label: "Content" }]} />
+        <SegmentedSwitch label={t("Section")} value={tab} onChange={setTab} options={[{ value: "funnels", label: t("Funnels") }, { value: "email", label: t("Email") }, { value: "website", label: t("Website") }, { value: "social", label: t("Social") }, { value: "content", label: t("Content") }]} />
       </div>
-      {tab === "overview" ? <MarketingOverview /> : tab === "email" ? <EmailTab /> : tab === "audience" ? <AudienceTab /> : tab === "traffic" ? <TrafficTab /> : <ContentTab />}
+      {tab === "funnels" ? <FunnelsTab /> : tab === "email" ? <EmailTab /> : tab === "website" ? <><MarketingOverview /><TrafficTab /></> : tab === "social" ? <AudienceTab /> : <ContentTab />}
     </div>
   );
 }

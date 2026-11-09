@@ -7,7 +7,12 @@ export function cn(...inputs: ClassValue[]) {
 
 export function formatEur(minor: number | null | undefined): string {
   if (minor === null || minor === undefined) return "—";
-  return new Intl.NumberFormat("en-IE", { style: "currency", currency: "EUR", maximumFractionDigits: minor % 100 === 0 ? 0 : 2 }).format(minor / 100);
+  return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: minor % 100 === 0 ? 0 : 2 }).format(minor / 100);
+}
+/** Any currency, French/Spanish style (1 234,50 €). */
+export function formatMoney(minor: number | null | undefined, currency = "EUR"): string {
+  if (minor === null || minor === undefined) return "—";
+  return new Intl.NumberFormat("fr-FR", { style: "currency", currency, maximumFractionDigits: minor % 100 === 0 ? 0 : 2 }).format(minor / 100);
 }
 
 export function relTime(iso: string | null | undefined, now = Date.now()): string {

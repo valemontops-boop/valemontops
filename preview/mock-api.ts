@@ -34,9 +34,12 @@ import { addIdea, convertIdea, convertSchema, ideaSchema, ideaUpdateSchema, list
 import { filesFor, linkFile, linkSchema, listFolder, uploadFile, uploadSchema } from "@/server/services/files";
 import { addManualEntry, addSocialAccount, audienceSeries, importLinkedIn, importSchema, listAccounts, manualEntrySchema, seriesSchema, socialAccountSchema } from "@/server/services/audience";
 import { childId } from "@/lib/ids";
+import { MemoryBank, demoWiseStore } from "@/fake-wise/store";
+import { categorySchema, csvSchema, importBankCsv, moneyOverview, setCategory, syncBank } from "@/server/services/bank";
+import { LOCALE_OF, translate } from "@/i18n";
 import { callQueue, callSchema, callLists, endSession, endSessionSchema, listSessions, logCall, objectionReport, sessionSummary, startSession, startSessionSchema } from "@/server/services/calls";
 import { contentLogSchema, logContent, marketingWeek } from "@/server/services/marketing-week";
-import { addBreakdown, addTraffic, breakdownSchema, importTraffic, marketingOverview, overviewSchema, trafficImportSchema, trafficManualSchema } from "@/server/services/marketing";
+import { funnelsSchema, marketingFunnels, addBreakdown, addTraffic, breakdownSchema, importTraffic, marketingOverview, overviewSchema, trafficImportSchema, trafficManualSchema } from "@/server/services/marketing";
 import { dashboardSchema, reportsDashboard } from "@/server/services/dashboard";
 import { createFolder, folderSchema } from "@/server/services/files";
 import { getPlaybook, playbookEditSchema, savePlaybookItem } from "@/server/services/playbook";
@@ -61,6 +64,7 @@ export const ctx: AppContext = {
   drive: new MemoryDrive(store),
   uploaderFor: (f, grant) => (grant ? new MemoryDriveUploader(store, f) : null),
   mailerFor: (f, grant) => (grant ? new MemoryMailer(store, f) : null),
+  bank: new MemoryBank(demoWiseStore()),
   baseUrl: "https://preview.example.com",
   mode: "demo",
 };
@@ -160,6 +164,11 @@ const routes: Record<string, [z.ZodTypeAny | null, Handler]> = {
   "GET /api/email/sends": [null, async () => listSends(ctx)],
   "PATCH /api/email/sends": [replySchema, async (i, f) => markReply(ctx, f, i as never)],
   "GET /api/email/benchmarks": [null, async (_, f) => emailBenchmarksFor(ctx, f)],
+  "GET /api/money": [null, async (_, f) => moneyOverview(ctx, f)],
+  "POST /api/money/sync": [null, async (_, f) => syncBank(ctx, { founder: f })],
+  "PATCH /api/money/category": [categorySchema, async (i, f) => setCategory(ctx, f, i as never)],
+  "POST /api/money/import": [csvSchema, async (i, f) => importBankCsv(ctx, f, i as never)],
+  "GET /api/marketing/funnels": [funnelsSchema, async (i, f) => marketingFunnels(ctx, f, i as never)],
   "GET /api/email/queue": [null, async (_, f) => followUpQueue(ctx, f)],
   "POST /api/email/batch": [batchSchema, async (i, f) => sendBatch(ctx, f, gmailGrant[f] ? `preview-gmail-${f}` : null, i as never)],
   "POST /api/activities": [logActivitySchema, async (i, f) => logActivity(repo, f, i as never)],
@@ -235,6 +244,7 @@ export function installMockFetch() {
       return json(200, (await handler(input, founder)) ?? { ok: true });
     } catch (e) {
       const [s, b] = mapError(e);
+      if (typeof b.message === "string") b.message = translate(LOCALE_OF[founder], b.message);
       return json(s, b);
     }
   };

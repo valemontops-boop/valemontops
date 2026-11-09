@@ -5,6 +5,8 @@ import { Toaster } from "sonner";
 import { api } from "@/lib/api";
 import type { PublicConfig } from "@/server/config";
 import type { FounderKey } from "@/domain/constants";
+import { LOCALE_OF } from "@/i18n";
+import { I18nProvider } from "@/i18n/react";
 
 /* ---------- save-state store (server-confirmed only) ---------- */
 type SaveState = { lastSavedAt: string | null; lastError: string | null };
@@ -53,11 +55,13 @@ export function Providers({ me, children }: { me: Me; children: React.ReactNode 
   }, [client]);
   return (
     <MeCtx.Provider value={me}>
+      <I18nProvider locale={LOCALE_OF[me.founder]}>
       <QueryClientProvider client={client}>
         <SyncPoller pollSeconds={me.config.pollSeconds} />
         {children}
         <Toaster position="bottom-center" toastOptions={{ style: { borderRadius: 999, background: "#17161A", color: "#FBFAF7", border: "none" } }} />
       </QueryClientProvider>
+      </I18nProvider>
     </MeCtx.Provider>
   );
 }

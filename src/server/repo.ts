@@ -11,6 +11,8 @@ import { seedDemo } from "./services/demo-seed";
 import type { AppContext } from "./context";
 import { GoogleHttp } from "@/data/google/http";
 import { GmailSender, GoogleCalendarAdapter, GoogleDriveAdapter, GoogleDriveUploader } from "@/data/google/adapters";
+import { MemoryBank, demoWiseStore } from "@/fake-wise/store";
+import { WiseAdapter } from "@/data/bank/wise";
 import { MemoryCalendar, MemoryDrive, MemoryDriveUploader, MemoryMailer } from "@/fake-google/store";
 import { demoGoogleStore } from "./services/demo-google";
 import { seedDemoWork } from "./services/demo-seed";
@@ -99,6 +101,7 @@ async function buildContext(cfg: AppConfig): Promise<AppContext> {
       drive: new MemoryDrive(store),
       uploaderFor: (f, grant) => (grant ? new MemoryDriveUploader(store, f) : null),
       mailerFor: (f, grant) => (grant ? new MemoryMailer(store, f) : null),
+      bank: new MemoryBank(demoWiseStore()),
       baseUrl: cfg.baseUrl,
       mode: "demo",
     };
@@ -120,6 +123,7 @@ async function buildContext(cfg: AppConfig): Promise<AppContext> {
     drive: new GoogleDriveAdapter(new GoogleHttp(api, googleToken)),
     uploaderFor: (_f, grant) => (grant ? new GoogleDriveUploader(new GoogleHttp(api, async () => grant)) : null),
     mailerFor: (_f, grant) => (grant ? new GmailSender(new GoogleHttp(api, async () => grant)) : null),
+    bank: wiseFromEnv(),
     baseUrl: cfg.baseUrl,
     mode: "live",
   };
@@ -138,4 +142,12 @@ export async function getContext(): Promise<AppContext> {
     });
   }
   return g.__valemontCtx.ctx;
+}
+
+/** Wise read access from env (never in Sheets): WISE_API_TOKEN, optional WISE_PROFILE_ID and WISE_SCA_PRIVATE_KEY_BASE64. */
+function wiseFromEnv() {
+  const token = process.env.WISE_API_TOKEN;
+  if (!token) return null;
+  const key = process.env.WISE_SCA_PRIVATE_KEY_BASE64 ? Buffer.from(process.env.WISE_SCA_PRIVATE_KEY_BASE64, "base64").toString("utf8") : null;
+  return new WiseAdapter(process.env.WISE_API_BASE_URL || "https://api.wise.com", token, key, process.env.WISE_PROFILE_ID || null);
 }

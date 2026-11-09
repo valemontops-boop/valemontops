@@ -1,3 +1,5 @@
+import { channelFunnels } from "@/domain/funnels";
+import { MINUTES_PER_ACTION_SEED } from "@/domain/seeds";
 import { z } from "zod";
 import Papa from "papaparse";
 import { childId } from "@/lib/ids";
@@ -104,4 +106,21 @@ export async function addBreakdown(ctx: AppContext, founder: FounderKey, input: 
   const fresh = rows.filter((r) => !existing.has(r.id));
   if (fresh.length) await ctx.repo.insert("AudienceBreakdown", fresh, { founder });
   return { added: fresh.length };
+}
+
+/* ---------------- funnels across every channel (round 5) ---------------- */
+export const funnelsSchema = z.object({ days: z.coerce.number().int().refine((d) => [7, 30, 90].includes(d)).default(30), scope: z.enum(["team", "me"]).default("team") });
+/** Calls, field visits, LinkedIn, email, WhatsApp and website/social funnels for the period, with meetings per hour of work. */
+export async function marketingFunnels(ctx: AppContext, founder: FounderKey, input: z.infer<typeof funnelsSchema>) {
+  const u = await userRow(ctx.repo, founder);
+  const today = localDate(new Date(), u.timezone);
+  const from = addDays(today, -input.days + 1);
+  const t = await ctx.repo.listMany(["ActivityEvents", "EmailSends", "Opportunities", "OpportunityStageEvents", "TrafficDaily"]);
+  const mine = (f: string) => input.scope === "team" || f === founder;
+  const events = dedupeEvents(t.ActivityEvents.rows).filter((e) => mine(e.founder_key));
+  const r = channelFunnels({
+    events, sends: t.EmailSends.rows.filter((s) => mine(s.founder_key)), opps: t.Opportunities.rows, stageEvents: t.OpportunityStageEvents.rows,
+    traffic: t.TrafficDaily.rows.filter((x) => !x.is_archived), from, to: today, minutes: MINUTES_PER_ACTION_SEED,
+  });
+  return { from, to: today, ...r };
 }

@@ -78,8 +78,10 @@ async function weeklyNewBusinessTarget(ctx: AppContext, weekStart: string) {
 export async function commandCenter(ctx: AppContext, founder: FounderKey, now = new Date()) {
   const td = await today(ctx, founder, now);
   const week = startOfWeek(td);
-  const t = await ctx.repo.listMany(["Opportunities", "Accounts", "ActivityEvents", "IntegrationStatuses"]);
+  const t = await ctx.repo.listMany(["Opportunities", "Accounts", "ActivityEvents", "IntegrationStatuses", "BankBalances"]);
   const probs = await stageProbabilities(ctx.repo);
+  const eur = t.BankBalances.rows.filter((b) => !b.is_archived && b.currency === "EUR");
+  const cash = eur.length ? eur.reduce((a, b) => a + b.amount_minor, 0) : null;
   const events = dedupeEvents(t.ActivityEvents.rows);
   const open = t.Opportunities.rows.filter(isOpen);
   const weighted = Math.round(open.reduce((s, o) => s + (o.value_minor ?? 0) * probs[o.stage], 0));
@@ -114,7 +116,9 @@ export async function commandCenter(ctx: AppContext, founder: FounderKey, now = 
     now: {
       // Exactly five primary numbers (spec 5.1 / scenario 23). Finance figures are Stage 3: shown as not tracked, never as 0.
       numbers: [
-        { key: "cash", label: "Cash balance", value: null as number | null, display: "Not tracked yet", note: "Finance arrives in Stage 3 (opening balances + transactions)" },
+        cash === null
+          ? { key: "cash", label: "Cash balance", value: null as number | null, display: "Not tracked yet", note: "Connect Wise in Money" }
+          : { key: "cash", label: "Cash balance", value: cash as number | null, display: null as string | null, note: "Wise, EUR balances", money: true },
         { key: "mrr", label: "MRR", value: null as number | null, display: "Not tracked yet", note: "Recurring contracts arrive in Stage 3" },
         { key: "weighted", label: "Weighted pipeline", value: weighted, display: null as string | null, note: `${open.length} open deals × stage probability`, money: true },
         { key: "contacted", label: "New businesses this week", value: contacted, display: null, note: nbTarget.target ? `target ${nbTarget.target} (${nbTarget.basis})` : "no weekly target set", target: nbTarget.target },

@@ -9,7 +9,6 @@ import { DetailPanel, Modal } from "@/components/ui/overlay";
 import { FOUNDERS, FOUNDER_NAMES } from "@/domain/constants";
 import { addDays, startOfWeek } from "@/domain/time";
 import { ApiError, api } from "@/lib/api";
-import { TONE_SOFT, TONE_TEXT, AREA_TONE } from "@/lib/tones";
 import { cn } from "@/lib/utils";
 import type { TaskRow } from "@/server/services/tasks";
 import { Pill, fmtDay } from "./bits";
@@ -52,7 +51,7 @@ export function TaskRowItem({ t, onOpen }: { t: TaskRow; onOpen?: () => void }) 
           <span className={cn(t.priority === "P0" && "font-semibold text-ink")}>{t.priority}</span>
           {t.due_at ? <span className={cn(overdue && "font-medium text-bad")}>{overdue ? "Overdue · " : ""}{fmtDay(t.due_at)}</span> : null}
           <span>{t.owner ? FOUNDER_NAMES[t.owner] : "Unassigned"}</span>
-          <span className={cn("rounded-full px-1.5 font-medium", TONE_SOFT[AREA_TONE[t.area]], TONE_TEXT[AREA_TONE[t.area]])}>{AREA_LABEL[t.area]}</span>
+          <span className="rounded-full bg-subtle px-1.5">{AREA_LABEL[t.area]}</span>
           {t.recurrence !== "none" ? <span>repeats {t.recurrence}</span> : null}
           {t.snoozed_until && t.snoozed_until > today() ? <span>snoozed to {fmtDay(t.snoozed_until)}</span> : null}
         </p>

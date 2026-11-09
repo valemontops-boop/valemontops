@@ -1,4 +1,5 @@
 import type { DataRepository } from "@/data/repository";
+import type { BankPort } from "@/data/bank/wise";
 import type { CalendarPort, DrivePort, DriveUploader, MailSender } from "@/data/google/ports";
 
 /** Everything a service needs, independent of mode (LIVE, DEMO memory, DEMO fake Sheets, browser preview). */
@@ -12,6 +13,8 @@ export interface AppContext {
   uploaderFor: (founder: string, grantToken: string | null) => DriveUploader | null;
   /** Gmail sender acting as the founder (gmail.send grant), or null when not connected. */
   mailerFor: (founder: string, grantToken: string | null) => MailSender | null;
+  /** Wise (read-only) when configured; null otherwise. */
+  bank?: BankPort | null;
   baseUrl: string;
   mode: "live" | "demo";
 }

@@ -74,7 +74,7 @@ export function MyDayView() {
               <Button asChild variant="primary" size="lg"><Link href="/call"><PhoneCall /> Start calling</Link></Button>
             </div>
             <div className="mb-4 grid grid-cols-4 gap-2 text-center" aria-label="Calls today">
-              {([["Dials", c.dials, "bg-sales-soft"], ["Picked up", c.pickedUp, "bg-sales-soft"], ["Yes", c.interested + c.callBacks + c.meetings, "bg-win-soft"], ["Meetings", c.meetings, "bg-win text-panel"]] as const).map(([l, v, cls]) => (
+              {([["Dials", c.dials, "bg-subtle/70"], ["Picked up", c.pickedUp, "bg-subtle/70"], ["Yes", c.interested + c.callBacks + c.meetings, "bg-subtle/70"], ["Meetings", c.meetings, "bg-ink text-panel"]] as const).map(([l, v, cls]) => (
                 <div key={l} className={cn("rounded-[12px] p-3", cls)}><p className="num text-[24px] font-semibold leading-none">{v}</p><p className={cn("mt-1 text-[11px]", l === "Meetings" ? "text-panel/85" : "text-text-2")}>{l}</p></div>
               ))}
             </div>

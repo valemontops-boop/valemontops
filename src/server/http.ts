@@ -10,6 +10,8 @@ import { ConsentRequiredError } from "@/data/google/ports";
 import { SESSION_COOKIE, readSessionToken, type Session } from "./session";
 
 import { BlockedError, ForbiddenError, RuleError } from "./errors";
+import { LOCALE_OF, translate } from "@/i18n";
+import type { FounderKey } from "@/domain/constants";
 export { BlockedError, ForbiddenError, RuleError };
 
 const MAX_BODY = 1_200_000;
@@ -35,10 +37,12 @@ export function route<S extends z.ZodTypeAny | undefined>(
     const started = Date.now();
     const correlationId = randomUUID();
     let status = 200;
+    let founder: FounderKey | null = null;
     try {
       const cfg = getConfig();
       if (!cfg.ok) throw new SetupRequiredError(cfg.errors);
       const session = await readSessionToken(req.cookies.get(SESSION_COOKIE)?.value, cfg.sessionSecret, cfg.mode);
+      founder = session?.founder ?? null;
       if (!session) {
         status = 401;
         return NextResponse.json({ error: "unauthenticated" }, { status });
@@ -73,6 +77,8 @@ export function route<S extends z.ZodTypeAny | undefined>(
     } catch (e) {
       const [s, body] = mapError(e);
       status = s;
+      // Messages reach the founder in their own language (D048); unknown sentences stay as written.
+      if (founder && typeof body.message === "string") body.message = translate(LOCALE_OF[founder], body.message);
       return NextResponse.json({ ...body, correlationId }, { status: s });
     } finally {
       // Structured log: no bodies, no personal data, no secrets.

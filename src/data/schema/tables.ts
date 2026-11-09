@@ -19,10 +19,11 @@ import {
   SUPPRESSION_KINDS,
   WORK_MODES,
 } from "@/domain/constants";
+import { BANK_CATEGORIES } from "@/domain/bank";
 import { bool, day, int, iso, json, oneOf, oneOfOr, optDay, optInt, optIso, optOneOf, reqText, text } from "./codecs";
 
 /** Revision domains: a mutation in a table bumps its domain token (spec 4.1). */
-export const DOMAINS = ["settings", "activity", "crm", "audit", "work", "audience", "private"] as const;
+export const DOMAINS = ["settings", "activity", "crm", "audit", "work", "audience", "private", "finance"] as const;
 export type Domain = (typeof DOMAINS)[number];
 
 const base = {
@@ -550,6 +551,43 @@ export const TABLES = {
       gmail_thread_id: text(80),
       replied_at: optIso(),
       reply_kind: optOneOf(["positive", "neutral", "negative", "bounce"] as const),
+    },
+  },
+  /** Bank movements (Wise): from the API statement, live webhooks or a CSV export. Amounts in minor units, signed. */
+  BankTransactions: {
+    domain: "finance",
+    shape: {
+      ...base,
+      bank: oneOf(["wise"] as const),
+      source_id: reqText(120),
+      origin: oneOf(["api", "webhook", "csv", "demo"] as const),
+      balance_id: text(40),
+      currency: reqText(3),
+      amount_minor: int(),
+      fee_minor: optInt(),
+      direction: oneOf(["credit", "debit"] as const),
+      date: day(),
+      occurred_at: iso(),
+      description: text(500),
+      counterparty: text(200),
+      bank_type: text(60),
+      merchant_category: text(120),
+      category: oneOf(BANK_CATEGORIES),
+      category_source: oneOf(["auto", "manual"] as const),
+      running_balance_minor: optInt(),
+      note: text(500),
+    },
+  },
+  BankBalances: {
+    domain: "finance",
+    shape: {
+      ...base,
+      bank: oneOf(["wise"] as const),
+      balance_id: reqText(40),
+      currency: reqText(3),
+      name: text(120),
+      amount_minor: int(),
+      as_of: iso(),
     },
   },
   /* ----- private founder spreadsheets only (spec 4.7) ----- */

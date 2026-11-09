@@ -134,7 +134,8 @@ export function Ring({ value, size = 64, tone = "win", label }: { value: number 
 
 /** Section heading with its color key. */
 export function ToneTitle({ tone, children, id, className }: { tone: Tone; children: React.ReactNode; id?: string; className?: string }) {
-  return <h2 id={id} className={cn("flex items-center gap-2 text-lg font-semibold", className)}><span aria-hidden className={cn("h-5 w-1.5 rounded-full", TONE_BAR[tone])} />{children}</h2>;
+  void tone; // kept for call sites; headings stay plain (D047)
+  return <h2 id={id} className={cn("text-lg font-semibold", className)}>{children}</h2>;
 }
 
 /** Stacked share bar (e.g. won vs lost) with labels underneath. */

@@ -1,5 +1,5 @@
 "use client";
-import { PhoneCall, Bell, CalendarDays, ChevronDown, Command, FileText, Gauge, Lightbulb, LayoutList, ListChecks, Megaphone, Plus, RefreshCw, Settings, Sun, Users, AlertCircle, Check, Loader2, BarChart3, X } from "lucide-react";
+import { PhoneCall, Bell, CalendarDays, ChevronDown, Command, FileText, Gauge, Lightbulb, LayoutList, ListChecks, Megaphone, Plus, RefreshCw, Settings, Sun, Users, AlertCircle, Check, Loader2, BarChart3, X, Wallet } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { IdeaCapture } from "./idea-capture";
@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/form";
 import { Modal } from "@/components/ui/overlay";
 import { WORK_MODE_LABELS } from "@/domain/constants";
-import { TONE_SOFT, TONE_TEXT, type Tone } from "@/lib/tones";
 import { cn, relTime } from "@/lib/utils";
 import { Providers, useMe, useSyncStatus, type Me } from "./providers";
 import { QUICK_KINDS, QuickActionProvider, useQuickAction } from "./quick-action";
@@ -22,6 +21,7 @@ const NAV = [
   { href: "/call", label: "Call mode", icon: PhoneCall },
   { href: "/crm", label: "Sales CRM", icon: Users },
   { href: "/marketing", label: "Marketing", icon: Megaphone },
+  { href: "/money", label: "Money", icon: Wallet },
 ];
 const WORKSPACE = [
   { href: "/tasks", label: "Tasks", icon: ListChecks },
@@ -73,16 +73,12 @@ function Notifications() {
   );
 }
 
-/** Each section keeps its color in the menu: sales blue, marketing violet, ops teal, results green. */
-const NAV_TONE: Record<string, Tone> = { "/my-day": "sales", "/call": "sales", "/crm": "sales", "/marketing": "mkt", "/tasks": "ops", "/agenda": "ops", "/ideas": "mkt", "/files": "ops", "/reports": "win", "/command-center": "win" };
-
 function NavLink({ href, label, icon: Icon, path, badge }: { href: string; label: string; icon: React.ComponentType<{ className?: string }>; path: string; badge?: number }) {
   const active = path.startsWith(href);
-  const tone = NAV_TONE[href];
   return (
     <Link href={href} aria-current={active ? "page" : undefined}
-      className={cn("flex h-10 items-center gap-3 rounded-[12px] px-3 text-sm font-medium", active ? cn(tone ? TONE_SOFT[tone] : "bg-subtle", "text-ink") : "text-text-2 hover:bg-subtle hover:text-ink")}>
-      <Icon className={cn("size-4", tone ? TONE_TEXT[tone] : "")} />
+      className={cn("flex h-10 items-center gap-3 rounded-[12px] px-3 text-sm font-medium", active ? "bg-subtle text-ink" : "text-text-2 hover:bg-subtle hover:text-ink")}>
+      <Icon className="size-4" />
       <span className="flex-1">{label}</span>
       {badge ? <span className="num rounded-full bg-ink px-2 text-[12px] text-panel">{badge}</span> : null}
     </Link>

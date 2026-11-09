@@ -97,7 +97,7 @@ function FunnelStrip({ m }: { m: Crm["month"] }) {
         const rate = prev ? Math.round((v / prev) * 100) : null;
         const won = i === 4;
         return (
-          <div key={label} className={cn("flex flex-col gap-0.5 rounded-[16px] px-3 py-3 sm:px-4", won ? "bg-win text-panel" : i >= 2 ? "bg-win-soft" : "bg-sales-soft")}>
+          <div key={label} className={cn("flex flex-col gap-0.5 rounded-[16px] px-3 py-3 sm:px-4", won ? "bg-ink text-panel" : "bg-panel")}>
             <span className={cn("text-[12px] font-medium", won ? "text-panel/85" : "text-text-2")}>{label}</span>
             <span className="num text-[26px] font-semibold leading-none sm:text-[32px]">{v}</span>
             <span className={cn("mt-1 h-1.5 overflow-hidden rounded-full", won ? "bg-panel/25" : "bg-panel")} aria-hidden><span className={cn("block h-full rounded-full", won ? "bg-panel" : i >= 2 ? "bg-win" : "bg-sales")} style={{ width: `${(v / max) * 100}%`, minWidth: v ? 3 : 0 }} /></span>
