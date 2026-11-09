@@ -2,6 +2,13 @@
 
 Updated: 2026-11-09 · Stage: **Stages 1–4 complete (fake-verified) + iteration 11** · Next: live validation with real credentials (docs/DEPLOYMENT.md, docs/ACCEPTANCE.md).
 
+## Iteration 14 · templates, sending address, WhatsApp card (D090, 2026-11-09)
+| Change | Status |
+|---|---|
+| Settings › Templates: every prospect-facing text (opener, pitches, objection replies as 3 steps, emails, WhatsApp, LinkedIn ≤ 300, inbox replies), FR/ES tabs, search, preview, placeholder chips, counters, back to original, 409 on stale save; own templates per channel shown as extra chips (call card, message session, CRM, LinkedIn, inbox) | VERIFIED_FAKE (unit, integration routes + fake Sheets, e2e, preview FR/ES) |
+| One sending address (`email_sender_address`, default EMAIL_SENDER_ADDRESS): Gmail grant refused unless the id_token's verified email is that address, `From:` header, compose `authuser`, "Envoyé depuis …" | VERIFIED_FAKE — the Google sign-in check is NOT RUN live (needs credentials) |
+| WhatsApp card everywhere (number → E.164 with error, Copier le texte, Ouvrir WhatsApp new chat, save number on the contact) | VERIFIED_FAKE (unit, integration, e2e, preview) |
+
 ## Stage 4B · backups, audit log, observability, security, deployment (D084, 2026-11-09)
 | Feature | Status |
 |---|---|

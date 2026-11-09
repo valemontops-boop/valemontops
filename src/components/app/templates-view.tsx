@@ -79,7 +79,8 @@ export function TemplatesView() {
     entries.push({ item, title: item.name ?? key, group: "custom", missing: !mine });
   }
   const needle = search.trim().toLowerCase();
-  const shown = needle ? entries.filter((e) => `${e.title} ${e.item.subject} ${e.item.body}`.toLowerCase().includes(needle)) : entries;
+  // The text being edited stays on screen even when the edit no longer matches the search.
+  const shown = needle ? entries.filter((e) => open === `${e.item.kind}:${e.item.key}:${lang}` || `${e.title} ${e.item.subject} ${e.item.body}`.toLowerCase().includes(needle)) : entries;
   const sample = { contact: "Julien", first_name: "Julien", business: lang === "ES" ? "Fontanería Gil" : "Plomberie Martin", founder: pb.founderName, signature: pb.signature, calendly: pb.links.calendly, deck: lang === "ES" ? pb.links.deckES : pb.links.deckFR, thirty: pb.links.thirty, local_price: pb.localPrice };
   return (
     <div className="flex flex-col gap-4">

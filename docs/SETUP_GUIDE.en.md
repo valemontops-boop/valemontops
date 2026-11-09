@@ -107,7 +107,10 @@ USD→EUR rate for supplier payments in dollars. The application can never move 
 
 ### Phase 5 · Email (Gmail) and calendar (each for yourself · 10 min each, + possible Google delay)
 
-- [ ] Check that `gmail.send` is on the consent screen, then each of you clicks **Autoriser** (Authorize) on the Gmail row.
+- [ ] Set the client-email sending address (`EMAIL_SENDER_ADDRESS` in Vercel, or **Réglages › Espace de travail ›
+      Adresse d'envoi des e-mails clients** (Settings › Workspace › Sending address)), then check that `gmail.send` is on
+      the consent screen and each of you clicks **Autoriser** (Authorize) on the Gmail row **signing in with that sending
+      address** (§2.6).
 - [ ] Check that the Agenda merges the calendars properly (the other founder's personal calendar shows as « Occupé » (Busy)).
 
 **Unlocks:** one-click email sending from Appels and Croissance › Messages (Growth › Messages) (always after your click).
@@ -300,16 +303,27 @@ shared folder.
 ### 2.6 Gmail (send only)
 
 **What it's for:** the emails prepared by the application (after a call, follow-ups, Croissance › Messages)
-are sent from **your** Gmail **when you click**. The application never reads your inbox. Without Gmail
-connected, it opens a pre-filled Gmail draft: nothing is blocked.
+are sent **when you click**, and **all from Valemont's sending address** (the same for both of you; each keeps their
+own signature, D090). The application never reads the inbox. Without Gmail connected, it opens a pre-filled Gmail
+draft **on the sending address's mailbox** (`authuser`): nothing is blocked.
 
 **Steps**
-1. Check (step 3 of §2.4) that the Gmail API is enabled, that `gmail.send` is in Data access and
-   that the URI `/api/auth/google/gmail/callback` is registered.
-2. Each of you, in the application: **Réglages › Intégrations › Gmail › Autoriser** (or « Connecter Gmail » (Connect
-   Gmail) in Appels). Google shows the consent screen: accept.
+1. Set the sending address: variable `EMAIL_SENDER_ADDRESS` in Vercel (default value), or **Réglages › Espace de
+   travail › Adresse d'envoi des e-mails clients** (Settings › Workspace, takes priority). It must be a **real Google
+   mailbox** (Gmail or Google Workspace) you can sign in to, not just an alias.
+2. Check (step 3 of §2.4) that the Gmail API is enabled, that `openid`, `.../auth/userinfo.email` and `gmail.send`
+   are in Data access, and that the **third** redirect URI `https://<your-app>/api/auth/google/gmail/callback` is
+   registered on the OAuth client (it is one of the three addresses of §2.4).
+3. **External app in Testing**: also add the sending address under **Test users**. **Internal** app: the sending
+   address must belong to the same Google Workspace.
+4. Each of you, in the application: **Réglages › Intégrations › Gmail › Autoriser** (or « Connecter Gmail » (Connect
+   Gmail) in Appels). Google suggests the sending address (`login_hint`): **pick that account**, then accept. The app
+   asks for `gmail.send` + `openid email` to read the verified address of the chosen account: **any other address is
+   refused** with the message « Connecte-toi avec … (l'adresse d'envoi de Valemont) » (Sign in with … (Valemont's
+   sending address)), and nothing is stored.
 
-**Where it goes:** nothing to paste (same OAuth client).
+**Where it goes:** nothing to paste (same OAuth client). The authorization stays in an encrypted cookie in your
+browser; if the sending address changes, connect Gmail again.
 
 **Check:** the Gmail row shows the authorization as active in this browser. There is **no** « Tester la
 connexion » for Gmail (a test would send a real email): send yourself a test email from a contact record to your
@@ -730,6 +744,7 @@ Two places:
 | `SYNC_POLL_SECONDS` | Vercel (base) | Optional (30) | 30 to 60 | Core |
 | `LOG_LEVEL` | Vercel (base) | Optional (`info`) | `debug` / `info` / `warn` / `error` / `silent` | Logs |
 | `FOUNDER_THEO_EMAIL`, `FOUNDER_PABLO_EMAIL` | Vercel (base) | Required | Your Google addresses | Sign-In |
+| `EMAIL_SENDER_ADDRESS` | Vercel (base) or Settings › Workspace | Recommended | The client-email sending address (a Google mailbox) | Gmail |
 | `FOUNDER_THEO_TIMEZONE`, `FOUNDER_PABLO_TIMEZONE` | Vercel (base) | Optional (default `Europe/Paris`, `Europe/Madrid`) | `Europe/Paris`, `Europe/Madrid` | Core |
 | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | Vercel (base) | Required | Google Auth Platform › Clients | Sign-In, Drive, Gmail |
 | `SHEETS_SPREADSHEET_ID` | Vercel (base) | Required | Sheet URL | Google Sheets |
