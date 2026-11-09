@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { FOUNDERS, type FounderKey } from "./constants";
+import { DEFAULT_PLAYBOOK, customTemplates, fill, findItem, type PlaybookItem } from "./playbook";
 
 /**
  * "To reply" inbox (iteration 8): comments and messages waiting for an answer, wherever they arrived.
@@ -134,32 +135,34 @@ export function deriveInboxItems(i: { sends: SendLite[]; events: EvLite[]; accou
 
 export type ReplyKey = "thanks" | "price" | "call";
 const PRICE = /\b(prix|tarifs?|combien|co[uû]te?s?|devis|price|pricing|cost|precios?|cu[aá]nto|cuesta|coste|tarifas?|presupuesto)\b/i;
-const TEMPLATES: Record<"FR" | "ES", Record<ReplyKey, (name: string, link: string) => string>> = {
-  FR: {
-    thanks: (n) => `Merci beaucoup pour votre commentaire${n ? `, ${n}` : ""} ! Ça nous fait plaisir. Si vous voulez en parler, écrivez-nous en message privé.`,
-    price: (n, l) => `Bonjour${n ? ` ${n}` : ""}, merci pour votre question ! Le tarif dépend de votre activité et de ce que vous voulez automatiser. Le plus simple : 15 minutes ensemble pour vous donner un chiffre précis. ${l ? `Choisissez un créneau ici : ${l}` : "Dites-moi quand vous êtes disponible."}`,
-    call: (n, l) => `Bonjour${n ? ` ${n}` : ""}, merci pour votre message ! Le plus simple est d'en parler 15 minutes. ${l ? `Choisissez le créneau qui vous arrange ici : ${l}` : "Dites-moi quand vous êtes disponible."}`,
-  },
-  ES: {
-    thanks: (n) => `¡Muchas gracias por su comentario${n ? `, ${n}` : ""}! Nos alegra mucho. Si quiere hablarlo, escríbanos por mensaje privado.`,
-    price: (n, l) => `Hola${n ? ` ${n}` : ""}, ¡gracias por su pregunta! El precio depende de su actividad y de lo que quiera automatizar. Lo más sencillo: 15 minutos juntos para darle una cifra concreta. ${l ? `Elija un hueco aquí: ${l}` : "Dígame cuándo le viene bien."}`,
-    call: (n, l) => `Hola${n ? ` ${n}` : ""}, ¡gracias por su mensaje! Lo más sencillo es hablarlo 15 minutos. ${l ? `Elija el hueco que mejor le venga aquí: ${l}` : "Dígame cuándo le viene bien."}`,
-  },
-};
+/** Without a booking link, the sentence that would carry it asks for a time instead. */
+const NO_LINK: Record<"FR" | "ES", string> = { FR: "Dites-moi quand vous êtes disponible.", ES: "Dígame cuándo le viene bien." };
 
 /** The reply that fits best: a price question gets the price answer, a public comment a thank-you, anything else the call invitation. */
 export function bestReplyKey(item: { source: InboxSource; excerpt: string }): ReplyKey {
   if (PRICE.test(item.excerpt)) return "price";
   return item.source === "instagram_comment" || item.source === "linkedin_comment" ? "thanks" : "call";
 }
-/** Three ready-to-send replies in the founder's language (D053: Théo French, Pablo Spanish), the best one first. */
-export function suggestReplies(item: { source: InboxSource; excerpt: string; from_name: string }, language: "FR" | "ES", calendly: string | null): { key: ReplyKey; text: string }[] {
+export interface SuggestedReply { key: string; text: string; /** The founder's own template name (custom templates only). */ label?: string }
+/**
+ * Ready-to-send replies in the founder's language (D053: Théo French, Pablo Spanish), the best one first. The texts are
+ * the Playbook `inbox` items (editable in Settings › Templates, D090), then the founders' own WhatsApp / LinkedIn / email
+ * templates as extra options. Placeholders: {contact} {first_name} (the first name when known), {calendly}, {founder}.
+ */
+export function suggestReplies(item: { source: InboxSource; excerpt: string; from_name: string }, language: "FR" | "ES", calendly: string | null, items: readonly PlaybookItem[] = DEFAULT_PLAYBOOK, founder = ""): SuggestedReply[] {
   const first = item.from_name.startsWith("@") ? "" : item.from_name.trim().split(/\s+/)[0] ?? "";
   // Business names ("Garage Bernard (demo)") are not greeted by name.
   const name = first && item.source !== "website_form" && item.source !== "email_reply" && item.source !== "whatsapp" ? first : "";
   const best = bestReplyKey(item);
   const link = safeUrl(calendly);
-  return ([best, ...(["call", "price", "thanks"] as const).filter((k) => k !== best)] as ReplyKey[]).map((key) => ({ key, text: TEMPLATES[language][key](name, link) }));
+  const render = (body: string) => {
+    const text = link ? body : body.replace(/[^.!?\n]*\{calendly\}[^.!?\n]*[.!?]?/g, (m) => `${m.startsWith(" ") ? " " : ""}${NO_LINK[language]}`);
+    return fill(text, { contact: name, first_name: name, calendly: link, founder });
+  };
+  const builtIn = ([best, ...(["call", "price", "thanks"] as const).filter((k) => k !== best)] as ReplyKey[])
+    .map((key) => ({ key, text: render(findItem(items, "inbox", key, language)?.body ?? "") }));
+  const custom = (["whatsapp", "linkedin", "email"] as const).flatMap((k) => customTemplates(items, k, language)).map((i) => ({ key: i.key, label: i.name ?? i.key, text: render(i.body) }));
+  return [...builtIn, ...custom];
 }
 
 /** Hours since an item arrived; > 24 h is shown in red. */

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { childId } from "@/lib/ids";
 import { route } from "@/server/http";
 import { SETTINGS_SEEDS } from "@/domain/seeds";
+import { SENDER_SETTING, envSenderAddress } from "@/server/sender";
 
 /** Founder-editable workspace settings (allowlisted keys only). */
 const KEYS = {
@@ -32,6 +33,7 @@ const KEYS = {
   website_url_es: "Spanish website address (https), audited in Growth › Web › SEO.",
   seo_brand_terms: "Brand words in search queries, comma separated (brand vs non-brand share).",
   content_minutes_per_deliverable: "Minutes of work per content piece, JSON (used for the cost of social networks).",
+  email_sender_address: "Address every client email leaves from (both founders; Gmail must be connected with it).",
 } as const;
 /** Shown in Settings › Workspace but not editable there (iteration 9 seeds, D073). */
 const READ_ONLY_KEYS = ["effort_thirty", "prospecting_channels"];
@@ -43,7 +45,8 @@ const URL_KEYS = ["calendly_url_theo", "calendly_url_pablo", "deck_url_fr", "dec
 export const GET = route(undefined, async ({ repo }) => {
   const rows = (await repo.list("SystemSettings")).rows;
   // A key not written yet shows its seed (e.g. ads 0, founder hour 30) until the baseline or a founder writes it.
-  const seed = (k: string) => SETTINGS_SEEDS.find((s) => s.key === k)?.value ?? "";
+  // The sending address falls back to EMAIL_SENDER_ADDRESS (D090) until a founder writes it here.
+  const seed = (k: string) => (k === SENDER_SETTING ? envSenderAddress() : SETTINGS_SEEDS.find((s) => s.key === k)?.value ?? "");
   return Object.fromEntries([...Object.keys(KEYS), ...READ_ONLY_KEYS].map((k) => [k, rows.find((r) => r.key === k)?.value ?? seed(k)]));
 });
 
@@ -66,13 +69,17 @@ export const POST = route(z.object({ key: z.enum(Object.keys(KEYS) as [keyof typ
   if (URL_KEYS.includes(input.key) && input.value && !/^https:\/\/[^\s"'<>]+$/.test(input.value)) {
     return Response.json({ error: "validation_error", message: "Enter a full https:// link" }, { status: 400 });
   }
+  if (input.key === SENDER_SETTING && input.value && !/^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/.test(input.value)) {
+    return Response.json({ error: "validation_error", message: "Enter a valid email address." }, { status: 400 });
+  }
   if (input.key === "content_minutes_per_deliverable" && input.value && !isMinutesJson(input.value)) {
     return Response.json({ error: "validation_error", message: "Enter minutes per piece, e.g. {\"concept\": 60, \"reel\": 90, \"brand_post\": 30}" }, { status: 400 });
   }
+  const value = input.key === SENDER_SETTING ? input.value.toLowerCase() : input.value;
   const id = childId("setting", input.key);
   const cur = await repo.get("SystemSettings", id, { fresh: true });
-  if (cur) return repo.update("SystemSettings", id, cur.version, { value: input.value }, { founder: session.founder });
-  return (await repo.insert("SystemSettings", [{ id, key: input.key, value: input.value, description: KEYS[input.key] }], { founder: session.founder }))[0];
+  if (cur) return repo.update("SystemSettings", id, cur.version, { value }, { founder: session.founder });
+  return (await repo.insert("SystemSettings", [{ id, key: input.key, value, description: KEYS[input.key] }], { founder: session.founder }))[0];
 });
 
 /** {"reel": 90, …}: known deliverables only, whole minutes 0–1000. */

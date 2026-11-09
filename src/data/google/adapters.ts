@@ -92,19 +92,19 @@ export class GoogleDriveUploader implements DriveUploader {
 }
 
 /** RFC 2822 message, UTF-8 subject (RFC 2047) and base64 body. CR/LF are stripped from headers (no header injection). */
-export function buildRawEmail(to: string, subject: string, body: string): string {
+export function buildRawEmail(to: string, subject: string, body: string, from = ""): string {
   const clean = (s: string) => s.replace(/[\r\n]+/g, " ").trim();
   const subj = `=?UTF-8?B?${Buffer.from(clean(subject), "utf8").toString("base64")}?=`;
   const b64 = Buffer.from(body.replace(/\r?\n/g, "\r\n"), "utf8").toString("base64").replace(/.{76}/g, "$&\r\n");
-  const msg = [`To: ${clean(to)}`, `Subject: ${subj}`, "MIME-Version: 1.0", 'Content-Type: text/plain; charset="UTF-8"', "Content-Transfer-Encoding: base64", "", b64].join("\r\n");
+  const msg = [...(clean(from) ? [`From: ${clean(from)}`] : []), `To: ${clean(to)}`, `Subject: ${subj}`, "MIME-Version: 1.0", 'Content-Type: text/plain; charset="UTF-8"', "Content-Transfer-Encoding: base64", "", b64].join("\r\n");
   return Buffer.from(msg, "utf8").toString("base64url");
 }
 
 /** Gmail send with the founder's own short-lived gmail.send token. Never retried: a send is not idempotent. */
 export class GmailSender implements MailSender {
   constructor(private readonly http: GoogleHttp) {}
-  async send(msg: { to: string; subject: string; body: string }) {
-    const r = await this.http.request<{ id: string; threadId: string }>("POST", "/gmail/v1/users/me/messages/send", { idempotent: false, body: { raw: buildRawEmail(msg.to, msg.subject, msg.body) } });
+  async send(msg: { to: string; subject: string; body: string; from?: string }) {
+    const r = await this.http.request<{ id: string; threadId: string }>("POST", "/gmail/v1/users/me/messages/send", { idempotent: false, body: { raw: buildRawEmail(msg.to, msg.subject, msg.body, msg.from ?? "") } });
     return { id: r.data?.id ?? "", threadId: r.data?.threadId ?? "" };
   }
 }

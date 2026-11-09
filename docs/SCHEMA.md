@@ -81,7 +81,7 @@ Money: integer EUR cents (`value_minor`) + `currency`.
 | Tab | Columns (after base) |
 |---|---|
 | PrivateTasks | private | title, description, owner, created_by_founder, account_id, opportunity_id, project_id, client_id, priority, status, estimated_minutes, due_at, recurrence, recurrence_days, recurrence_parent_id, dependency_ids, completion_evidence, completed_at, visibility, snoozed_until, snooze_reason, area, source, source_id |
-| Playbook | settings | kind, key, language, subject, body |
+| Playbook | settings | kind, key, language, subject, body, template_name |
 | EmailSends | activity | idempotency_key, founder_key, account_id, contact_id, activity_event_id, call_session_id, channel, via, context, template_key, language, brand, market, niche, to_address, subject, status, sent_at, local_date, gmail_message_id, gmail_thread_id, replied_at, reply_kind |
 
 ## Relations
@@ -92,7 +92,7 @@ Money: integer EUR cents (`value_minor`) + `currency`.
 - DailyResults (one per founder/day, UUIDv5) ← DailyPlans snapshot, ActivityEvents, DailyReviews, DailyResultCorrections
 - FilesIndex.record_id → Accounts/Opportunities/Tasks/Ideas; SocialAccountDaily.account_id → SocialAccounts.id
 - Calendar titles are never stored: only CalendarLinks (calendar id, event id, record).
-- ActivityEvents.replies lists reply variants used ("too_expensive#2"); ActivityEvents.offers_pitched (late column, D071) lists the downsell offers made during a call ("local", "thirty"; "local_yes" / "thirty_yes" = accepted); ActivityEvents.next_action_at (late column, D080) is the call-back time set after a call (ISO, the queue brings the business back first once due); EmailSends.account_id → Accounts.id; activity_event_id → ActivityEvents.id (the follow-up event); Playbook overrides built-in templates by (kind, key, language)
+- ActivityEvents.replies lists reply variants used ("too_expensive#2"); ActivityEvents.offers_pitched (late column, D071) lists the downsell offers made during a call ("local", "thirty"; "local_yes" / "thirty_yes" = accepted); ActivityEvents.next_action_at (late column, D080) is the call-back time set after a call (ISO, the queue brings the business back first once due); EmailSends.account_id → Accounts.id; activity_event_id → ActivityEvents.id (the follow-up event); Playbook overrides built-in templates by (kind, key, language), id = UUIDv5("playbook", kind, key, language), version-checked (409); kind `inbox` (D090) holds the inbox suggested replies (keys thanks / price / call); custom templates (D090) are rows with kind email / whatsapp / linkedin, key `custom_<32 hex>` (from the client UUID, so a retried create adds nothing) and the late column `template_name`; archived = deleted (custom) or back to the built-in text
 - CallLists.id = import id; Accounts.list_id → CallLists.id; CallSessions → ActivityEvents.call_session_id
 - ContentLog (weekly deliverables), TrafficDaily (GA4/manual), AudienceBreakdown (country split per SocialAccount)
 - TrafficDaily.source/medium is classified at read time (src/domain/marketing.ts `classifyTraffic`): web browser (search, paid, direct, referral, other), AI engines, social networks

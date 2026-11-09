@@ -5,6 +5,8 @@ import { MARKETS, type FounderKey } from "@/domain/constants";
 import { emailBenchmarks } from "@/domain/email";
 import { COLD_TEMPLATES, TEMPLATES } from "@/domain/playbook";
 import { normalizeEmail, normalizePhone } from "@/domain/normalize";
+import { normalizeWhatsApp } from "@/domain/whatsapp";
+import { senderAddress } from "../sender";
 import { outreachBlock } from "@/domain/suppression";
 import { addDays, localDate } from "@/domain/time";
 import { dedupeEvents } from "@/domain/activity";
@@ -39,6 +41,8 @@ export const sendSchema = z.object({
   check_only: z.boolean().default(false),
   /** Instant mail during a call (D071): the address the prospect spelled out is kept on the contact / business. */
   save_address: z.boolean().optional(),
+  /** WhatsApp card (D090): the number the founder typed is saved on the business's contact (ticked box; suppression checked first). */
+  save_phone: z.boolean().optional(),
 });
 export type SendInput = z.infer<typeof sendSchema>;
 
@@ -52,7 +56,8 @@ export async function sendFollowUp(ctx: AppContext, founder: FounderKey, grant: 
   // A "tried to reach you" message is cold whatever the caller says: no conversation happened.
   const input = { ...raw, context: raw.context === "cold" || (COLD_TEMPLATES as readonly string[]).includes(raw.template_key) ? ("cold" as const) : raw.context };
   if (input.channel === "email" && !EMAIL_RE.test(input.to)) throw new RuleError("Enter a valid email address.");
-  if (input.channel === "whatsapp" && normalizePhone(input.to, input.market).replace(/\D/g, "").length < 8) throw new RuleError("Enter the WhatsApp number with its country code.");
+  const wa = input.channel === "whatsapp" ? normalizeWhatsApp(input.to, input.market) : null;
+  if (wa && !wa.ok) throw new RuleError("Enter the WhatsApp number with its country code.");
   if (input.via === "gmail" && input.channel !== "email") throw new RuleError("Gmail only sends emails.");
   if (input.via === "gmail" && (!input.subject || !input.body.trim())) throw new RuleError("Write a subject and a message.");
   if (hasMissingLink(input.body)) throw new RuleError("A link is missing: add it in Settings › Workspace first.");
@@ -71,13 +76,14 @@ export async function sendFollowUp(ctx: AppContext, founder: FounderKey, grant: 
   const contact = contacts.find((c) => (input.channel === "email" ? normalizeEmail(c.email) === normalizeEmail(input.to) : normalizePhone(c.phone, account?.country) === normalizePhone(input.to, account?.country))) ?? contacts[0] ?? null;
   // Hard block on fresh suppression data, also for the typed address itself (spec 5.5).
   const supp = (await ctx.repo.list("SuppressionList", { fresh: true })).rows;
-  const typed = { id: "", consent_status: contact?.consent_status ?? "unknown", email: input.channel === "email" ? input.to : "", phone: input.channel === "whatsapp" ? input.to : "" };
+  const typed = { id: "", consent_status: contact?.consent_status ?? "unknown", email: input.channel === "email" ? input.to : "", phone: input.channel === "whatsapp" ? (wa?.ok ? wa.e164 : input.to) : "" };
   for (const b of [outreachBlock(contact as never, account as never, supp), outreachBlock(typed as never, account as never, supp)]) if (b.blocked) throw new BlockedError(b.reason ?? "Outreach is blocked.");
   const market = account?.country ?? input.market;
   if (input.context === "cold" && market === "ES" && contact?.consent_status !== "consented") {
     throw new RuleError(`Spain: a ${input.channel === "email" ? "cold email" : "cold WhatsApp message"} needs prior consent (LSSI art. 21). Wait until you have talked, or record the consent on the contact.`);
   }
   if (input.save_address && input.channel === "email" && account) await saveAddress(ctx, founder, account, contacts, input.to);
+  if (input.save_phone && wa?.ok && account) await savePhone(ctx, founder, account, contacts, wa.e164);
   if (input.check_only) return { send: null, duplicate: false, warnings: [] as string[] };
 
   const mailer = input.via === "gmail" ? ctx.mailerFor(founder, grant) : null;
@@ -96,7 +102,8 @@ export async function sendFollowUp(ctx: AppContext, founder: FounderKey, grant: 
     row = existing ? await ctx.repo.update("EmailSends", sendId, existing.version, { status: "pending" }, { founder }) : (await ctx.repo.insert("EmailSends", [{ id: sendId, ...base, status: "pending" }], { founder }))[0];
     let res: { id: string; threadId: string };
     try {
-      res = await mailer!.send({ to: input.to, subject: input.subject, body: input.body });
+      // Every client email leaves from the Valemont sending address (D090); the signature stays the founder's.
+      res = await mailer!.send({ to: input.to, subject: input.subject, body: input.body, from: await senderAddress(ctx.repo) });
     } catch (e) {
       await ctx.repo.update("EmailSends", sendId, row.version, { status: "failed" }, { founder }).catch(() => undefined);
       throw e;
@@ -134,6 +141,20 @@ async function saveAddress(ctx: AppContext, founder: FounderKey, account: Row<"A
   } else if (!account.email) {
     const fresh = await ctx.repo.get("Accounts", account.id, { fresh: true });
     if (fresh && !fresh.email) await ctx.repo.update("Accounts", account.id, fresh.version, { email: to }, { founder });
+  }
+}
+
+/** Saves the WhatsApp number typed in the card on the business's contact (or the business when it has none): the founder ticked it. */
+async function savePhone(ctx: AppContext, founder: FounderKey, account: Row<"Accounts">, contacts: Row<"Contacts">[], e164: string) {
+  const live = contacts.filter((c) => !c.is_archived);
+  if (live.some((c) => normalizePhone(c.phone, account.country) === e164)) return;
+  const c = live[0];
+  if (c) {
+    const fresh = await ctx.repo.get("Contacts", c.id, { fresh: true });
+    if (fresh) await ctx.repo.update("Contacts", c.id, fresh.version, { phone: e164 }, { founder });
+  } else if (normalizePhone(account.phone, account.country) !== e164) {
+    const fresh = await ctx.repo.get("Accounts", account.id, { fresh: true });
+    if (fresh) await ctx.repo.update("Accounts", account.id, fresh.version, { phone: e164 }, { founder });
   }
 }
 

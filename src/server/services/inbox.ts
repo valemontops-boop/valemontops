@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Row } from "@/data/schema/tables";
 import { FOUNDERS, type FounderKey } from "@/domain/constants";
 import { dedupeEvents } from "@/domain/activity";
+import { mergePlaybook } from "@/domain/playbook";
 import { INBOX_SOURCES, INBOX_STATUSES, clip, deriveInboxItems, inboxItemInputSchema, safeUrl, suggestReplies, type InboxItemInput } from "@/domain/inbox";
 import { childId, newId } from "@/lib/ids";
 import { RuleError } from "../errors";
@@ -38,7 +39,8 @@ export type InboxView = Awaited<ReturnType<typeof listInbox>>["items"][number];
 
 /** Items still to reply to (stored + derived), oldest first, each with three suggested replies in the founder's language. */
 export async function listInbox(ctx: AppContext, founder: FounderKey, input: z.infer<typeof inboxListSchema>) {
-  const t = await ctx.repo.listMany(["InboxItems", "EmailSends", "ActivityEvents", "Accounts", "SystemSettings"]);
+  const t = await ctx.repo.listMany(["InboxItems", "EmailSends", "ActivityEvents", "Accounts", "SystemSettings", "Playbook"]);
+  const templates = mergePlaybook(t.Playbook.rows); // replies edited in Settings › Templates (D090)
   const stored = new Map(t.InboxItems.rows.filter((r) => !r.is_archived).map((r) => [r.id, r]));
   const derived = deriveInboxItems({ sends: t.EmailSends.rows, events: dedupeEvents(t.ActivityEvents.rows), accounts: t.Accounts.rows, now: new Date() })
     .map((d) => ({ ...d, id: inboxId(d.external_id) }))
@@ -53,7 +55,7 @@ export async function listInbox(ctx: AppContext, founder: FounderKey, input: z.i
   ]
     .filter((x) => visible(x.assigned_founder))
     .sort((a, b) => a.received_at.localeCompare(b.received_at))
-    .map((x) => ({ ...x, replies: suggestReplies(x, language, calendly) }));
+    .map((x) => ({ ...x, replies: suggestReplies(x, language, calendly, templates) }));
   return { items, count: items.length };
 }
 

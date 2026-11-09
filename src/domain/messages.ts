@@ -1,5 +1,5 @@
 import {
-  COLD_TEMPLATES, TEMPLATES, fill, findItem, hasMissingLink, suggestedFollowUp,
+  COLD_TEMPLATES, TEMPLATES, TEMPLATE_SHORT, customTemplates, fill, findItem, hasMissingLink, isCustomKey, suggestedFollowUp,
   type Lang, type PlaybookItem, type TemplateKey,
 } from "./playbook";
 
@@ -10,18 +10,33 @@ import {
  */
 export type Channel = "email" | "whatsapp";
 export interface SendTarget { accountId: string; name: string; contact: string; email: string; phone: string; market: Lang }
-export interface PlaybookData { items: PlaybookItem[]; links: { calendly: string; deckFR: string; deckES: string; thirty?: string }; founderName: string; signature: string; /** Valemont Local monthly price, e.g. "100 €" (setting offer_local_monthly_eur). */ localPrice?: string }
+export interface PlaybookData {
+  items: PlaybookItem[]; links: { calendly: string; deckFR: string; deckES: string; thirty?: string }; founderName: string; signature: string;
+  /** Valemont Local monthly price, e.g. "100 €" (setting offer_local_monthly_eur). */ localPrice?: string;
+  /** The address every client email leaves from (Workspace setting email_sender_address, D090); "" = not set yet. */ sender?: string;
+}
+
+/** A chip's label: the short built-in name (English source, translated by the caller) or the founder's own name for a custom template. */
+export function chipLabel(pb: PlaybookData | null | undefined, key: string): { text: string; custom: boolean } {
+  if (isCustomKey(key)) return { text: pb?.items.find((i) => i.key === key)?.name ?? key, custom: true };
+  return { text: TEMPLATE_SHORT[key as TemplateKey] ?? key, custom: false };
+}
+
+/** The founders' own templates for a message channel, as extra chips after the built-in ones. */
+export function customChips(pb: PlaybookData | null | undefined, channel: Channel, lang: Lang): string[] {
+  return pb ? customTemplates(pb.items, channel, lang).map((i) => i.key) : [];
+}
 export interface SentRow { account_id: string; channel: Channel; template_key: string; sent_at: string | null; status?: string; is_archived?: boolean }
 
 /** Subject and body of a template, in the founder's language, signed by them, for this person. */
-export function messageFor(pb: PlaybookData, lang: Lang, channel: Channel, template: TemplateKey, target: Pick<SendTarget, "name" | "contact">) {
+export function messageFor(pb: PlaybookData, lang: Lang, channel: Channel, template: string, target: Pick<SendTarget, "name" | "contact">) {
   const it = findItem(pb.items, channel === "whatsapp" ? "whatsapp" : "email", template, lang);
   const v = { business: target.name, contact: target.contact, founder: pb.founderName, signature: pb.signature, calendly: pb.links.calendly, deck: lang === "ES" ? pb.links.deckES : pb.links.deckFR, thirty: pb.links.thirty, local_price: pb.localPrice };
   return { subject: channel === "email" ? fill(it?.subject ?? "", v) : "", body: fill(it?.body ?? "", v) };
 }
 
 /** A message to someone you have not talked to is cold (stricter rules: Spain needs prior consent, LSSI art. 21). */
-export const contextOf = (template: TemplateKey): "cold" | "after_call" => ((COLD_TEMPLATES as readonly string[]).includes(template) ? "cold" : "after_call");
+export const contextOf = (template: string): "cold" | "after_call" => ((COLD_TEMPLATES as readonly string[]).includes(template) ? "cold" : "after_call");
 
 /**
  * Template chips for a call outcome: the suggested one first, then the others that make sense.

@@ -558,11 +558,13 @@ export const TABLES = {
     domain: "settings",
     shape: {
       ...base,
-      kind: oneOf(["opener", "objection", "email", "whatsapp", "linkedin"] as const),
+      kind: oneOf(["opener", "objection", "email", "whatsapp", "linkedin", "inbox"] as const),
       key: reqText(60),
       language: oneOf(["FR", "ES"] as const),
       subject: text(300),
       body: text(5_000),
+      /** Late column (D090): the founders' name for their own template (key `custom_<32 hex>`); empty for built-in texts. */
+      template_name: text(80),
     },
   },
   /** One row per follow-up sent to a prospect (email or WhatsApp). Replies are marked by a founder (gmail.send only, no inbox access). */
@@ -1311,8 +1313,8 @@ export interface BaseRow {
 export type Row<T extends TableName> = RowMap[T] & BaseRow;
 export type BaseFields = keyof typeof base;
 /** Columns added after a table was first created: optional on create, filled by CREATE_DEFAULTS. */
-export const CREATE_DEFAULTS: Record<string, unknown> = { list_id: "", call_session_id: "", target_key: "", duration_sec: null, area: "sales", objections: [], replies: [], recurrence_days: [] , worked: "", blocked: "", offers_pitched: [], next_action_at: null, http_status: null, audit_scope: "team", input_hash: "", ip_hash: "", fx_currency: "", fx_amount_minor: null, wise_tx_id: "" };
-type LateKeys = "list_id" | "call_session_id" | "target_key" | "duration_sec" | "area" | "objections" | "replies" | "recurrence_days" | "worked" | "blocked" | "offers_pitched" | "next_action_at" | "http_status" | "audit_scope" | "input_hash" | "ip_hash" | "fx_currency" | "fx_amount_minor" | "wise_tx_id";
+export const CREATE_DEFAULTS: Record<string, unknown> = { list_id: "", call_session_id: "", target_key: "", duration_sec: null, area: "sales", objections: [], replies: [], recurrence_days: [] , worked: "", blocked: "", offers_pitched: [], next_action_at: null, http_status: null, audit_scope: "team", input_hash: "", ip_hash: "", fx_currency: "", fx_amount_minor: null, wise_tx_id: "", template_name: "" };
+type LateKeys = "list_id" | "call_session_id" | "target_key" | "duration_sec" | "area" | "objections" | "replies" | "recurrence_days" | "worked" | "blocked" | "offers_pitched" | "next_action_at" | "http_status" | "audit_scope" | "input_hash" | "ip_hash" | "fx_currency" | "fx_amount_minor" | "wise_tx_id" | "template_name";
 export type NewRow<T extends TableName> = Omit<Row<T>, Exclude<BaseFields, "id"> | LateKeys> &
   Partial<Pick<Row<T>, Extract<keyof Row<T>, LateKeys>>> & { id: string };
 

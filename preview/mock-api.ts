@@ -62,7 +62,7 @@ import { connectorEnvSync } from "@/server/connector-env";
 import { csvExportSchema, exportList } from "@/server/services/csv-lists";
 import { trackerAction, trackerActionSchema, trackerStatus } from "@/server/services/tracker";
 import { createFolder, folderSchema } from "@/server/services/files";
-import { getPlaybook, playbookEditSchema, savePlaybookItem } from "@/server/services/playbook";
+import { createCustomTemplate, customCreateSchema, customDeleteSchema, deleteCustomTemplate, getPlaybook, playbookEditSchema, savePlaybookItem } from "@/server/services/playbook";
 import { addInboxItem, inboxAddSchema, inboxListSchema, inboxStatusSchema, listInbox, setInboxStatus } from "@/server/services/inbox";
 import { batchSchema, followUpQueue, sendBatch, benchmarks as emailBenchmarksFor, listSends, markReply, replySchema, sendFollowUp, sendSchema } from "@/server/services/email";
 
@@ -179,7 +179,7 @@ const routes: Record<string, [z.ZodTypeAny | null, Handler]> = {
   "GET /api/audience/series": [seriesSchema, async (i, f) => audienceSeries(ctx, f, i as never)],
   "GET /api/settings/system": [null, async () => {
     const rows = (await repo.list("SystemSettings")).rows;
-    return Object.fromEntries(["drive_folder_id", "founder_point_video_link", "ideas_testing_limit", "hot_lead_stale_days", "conversion_min_sample", "company_name", "calendly_url_theo", "calendly_url_pablo", "deck_url_fr", "deck_url_es", "thirty_url", "signature_theo", "signature_pablo", "offer_consulting_value_eur", "offer_local_monthly_eur", "linkedin_daily_invitation_limit", "linkedin_weekly_invitation_limit", "time_split_target", "offer_priority", "effort_consulting_pct", "effort_local_pct", "effort_thirty", "prospecting_channels", "ads_monthly_spend_eur", "founder_hour_cost_eur", "website_url_fr", "website_url_es", "seo_brand_terms", "content_minutes_per_deliverable"].map((k) => [k, rows.find((r) => r.key === k)?.value ?? ""]));
+    return Object.fromEntries(["drive_folder_id", "founder_point_video_link", "ideas_testing_limit", "hot_lead_stale_days", "conversion_min_sample", "company_name", "calendly_url_theo", "calendly_url_pablo", "deck_url_fr", "deck_url_es", "thirty_url", "signature_theo", "signature_pablo", "offer_consulting_value_eur", "offer_local_monthly_eur", "linkedin_daily_invitation_limit", "linkedin_weekly_invitation_limit", "time_split_target", "offer_priority", "effort_consulting_pct", "effort_local_pct", "effort_thirty", "prospecting_channels", "ads_monthly_spend_eur", "founder_hour_cost_eur", "website_url_fr", "website_url_es", "seo_brand_terms", "content_minutes_per_deliverable", "email_sender_address"].map((k) => [k, rows.find((r) => r.key === k)?.value ?? ""]));
   }],
   "POST /api/settings/system": [z.object({ key: z.string(), value: z.string().max(500) }), async (i, f) => {
     const { key, value } = i as { key: string; value: string };
@@ -190,6 +190,8 @@ const routes: Record<string, [z.ZodTypeAny | null, Handler]> = {
   "GET /api/my-day": [null, async (_, f) => getMyDay(repo, f)],
   "GET /api/playbook": [null, async (_, f) => getPlaybook(ctx, f)],
   "POST /api/playbook": [playbookEditSchema, async (i, f) => savePlaybookItem(ctx, f, i as never)],
+  "POST /api/playbook/custom": [customCreateSchema, async (i, f) => createCustomTemplate(ctx, f, i as never)],
+  "DELETE /api/playbook/custom": [customDeleteSchema, async (i, f) => deleteCustomTemplate(ctx, f, i as never)],
   "GET /api/calls/log": [callLogSchema, async (i, f) => callLog(ctx, f, i as never)],
   "GET /api/calls/objections": [null, async (_, f) => objectionReport(ctx, f)],
   "GET /api/email/status": [null, async (_, f) => ({ connected: gmailGrant[f], mode: "demo" })],

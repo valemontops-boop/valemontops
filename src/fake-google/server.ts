@@ -115,10 +115,11 @@ export class FakeGoogleServer {
         const b = JSON.parse(raw.toString("utf8")) as { raw?: string };
         const mime = Buffer.from(b.raw ?? "", "base64url").toString("utf8");
         const to = /^To: (.*)$/m.exec(mime)?.[1]?.trim() ?? "";
+        const from = /^From: (.*)$/m.exec(mime)?.[1]?.trim() ?? "";
         const subjB64 = /^Subject: =\?UTF-8\?B\?([^?]*)\?=/m.exec(mime)?.[1] ?? "";
         const bodyB64 = mime.split("\r\n\r\n").slice(1).join("").replace(/\r\n/g, "");
         if (!to) return send(400, { error: { code: 400, message: "Invalid To header" } });
-        return send(200, s.sendMail({ to, subject: Buffer.from(subjB64, "base64").toString("utf8"), body: Buffer.from(bodyB64, "base64").toString("utf8") }, token));
+        return send(200, s.sendMail({ to, ...(from ? { from } : {}), subject: Buffer.from(subjB64, "base64").toString("utf8"), body: Buffer.from(bodyB64, "base64").toString("utf8") }, token));
       }
       return send(404, { error: { code: 404, message: `Unsupported ${method} ${url.pathname}` } });
     } catch (e) {

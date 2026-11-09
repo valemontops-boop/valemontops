@@ -12,9 +12,9 @@ export class FakeGoogleStore {
   /** who performed writes: "service-account" or a founder token label */
   writes: { kind: string; by: string }[] = [];
   /** Emails "sent" through the fake Gmail: they never leave the process. */
-  sentMail: { id: string; threadId: string; to: string; subject: string; body: string; by: string }[] = [];
+  sentMail: { id: string; threadId: string; to: string; subject: string; body: string; from?: string; by: string }[] = [];
 
-  sendMail(m: { to: string; subject: string; body: string }, by: string) {
+  sendMail(m: { to: string; subject: string; body: string; from?: string }, by: string) {
     const id = `msg-${this.sentMail.length + 1}`;
     const rec = { id, threadId: `thr-${this.sentMail.length + 1}`, ...m, by };
     this.sentMail.push(rec);
@@ -120,7 +120,7 @@ export class MemoryDriveUploader implements DriveUploader {
 }
 export class MemoryMailer implements MailSender {
   constructor(private readonly s: FakeGoogleStore, private readonly founder: string) {}
-  async send(m: { to: string; subject: string; body: string }) {
+  async send(m: { to: string; subject: string; body: string; from?: string }) {
     return this.s.sendMail(m, this.founder);
   }
 }

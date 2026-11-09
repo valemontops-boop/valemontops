@@ -168,6 +168,8 @@ async function seedDemoCallsAndEmails(repo: DataRepository, today: string) {
     { id: childId("setting", "calendly_url_pablo"), key: "calendly_url_pablo", value: "https://calendly.example.com/pablo-demo/15min", description: "Pablo's booking link inserted in call follow-ups." },
     { id: childId("setting", "deck_url_fr"), key: "deck_url_fr", value: "https://drive.example.com/file/demo-deck-fr", description: "Commercial deck link (French)." },
     { id: childId("setting", "deck_url_es"), key: "deck_url_es", value: "https://drive.example.com/file/demo-deck-es", description: "Commercial deck link (Spanish)." },
+    // D090: the shared sending address (DEMO: a placeholder; LIVE: Settings › Workspace or EMAIL_SENDER_ADDRESS).
+    { id: childId("setting", "email_sender_address"), key: "email_sender_address", value: "contact@valemont-demo.example.com", description: "Address every client email leaves from (both founders)." },
   ], sys);
   // A small call list so call mode can be tried end to end (3 FR for Théo, 3 ES for Pablo).
   const listId = childId("demo-call-list", "1");

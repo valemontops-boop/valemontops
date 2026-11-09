@@ -3,14 +3,28 @@ import { objectionDefaults } from "./objections";
 
 /**
  * Call playbook: opener, objection replies and follow-up templates, in French and Spanish.
- * These are built-in starting points; a founder can override any of them in Settings › Playbook
+ * These are built-in starting points; a founder can override any of them in Settings › Templates
  * (rows in the Playbook tab win over these defaults). Placeholders: {business} {contact} {founder}
  * {calendly} {deck}. Nothing here is sent automatically.
  */
 export type Lang = "FR" | "ES";
-export type PlaybookKind = "opener" | "objection" | "email" | "whatsapp" | "linkedin";
-export const PLAYBOOK_KINDS = ["opener", "objection", "email", "whatsapp", "linkedin"] as const satisfies readonly PlaybookKind[];
-export interface PlaybookItem { kind: PlaybookKind; key: string; language: Lang; subject: string; body: string }
+export type PlaybookKind = "opener" | "objection" | "email" | "whatsapp" | "linkedin" | "inbox";
+export const PLAYBOOK_KINDS = ["opener", "objection", "email", "whatsapp", "linkedin", "inbox"] as const satisfies readonly PlaybookKind[];
+/**
+ * One text in one language. `version` is the Playbook row's version (0 = still the built-in text, no row yet) and is sent
+ * back as expected_version on save (409 when the other founder saved first). Custom templates (D090) have a key
+ * `custom_<32 hex>` and a `name`; they exist only as rows.
+ */
+export interface PlaybookItem {
+  kind: PlaybookKind; key: string; language: Lang; subject: string; body: string;
+  name?: string; version?: number; edited?: boolean; custom?: boolean; updated_by?: string; updated_at?: string;
+}
+/** Channels a founder can add their own templates to (Settings › Templates). */
+export const CUSTOM_KINDS = ["email", "whatsapp", "linkedin"] as const;
+export type CustomKind = (typeof CUSTOM_KINDS)[number];
+export const isCustomKey = (k: string) => /^custom_[0-9a-f]{32}$/.test(k);
+/** Deterministic key from the client's UUID: a retried "create" makes the same template, never a second one. */
+export const customKeyOf = (uuid: string) => `custom_${uuid.replace(/-/g, "").toLowerCase()}`;
 
 /** Follow-up templates, in the order shown in call mode. */
 export const FOLLOW_UPS = [
@@ -103,17 +117,55 @@ const D: PlaybookItem[] = [
   { kind: "linkedin", key: "follow_up", language: "ES", subject: "", body: "Hola {first_name}, le escribo de nuevo. ¿Las llamadas perdidas son un tema en {business}, o no le molesto más? Me basta con una palabra. {founder}" },
   { kind: "linkedin", key: "inmail", language: "FR", subject: "Les appels manqués chez {business}", body: "Bonjour {first_name},\n\nQuand vous êtes sur le terrain et qu'un client appelle, qui lui répond ? Un appel manqué, c'est souvent un client qui part ailleurs.\n\nChez Valemont, on met en place un système qui répond, qualifie chaque demande et vous prévient tout de suite.\n\nSi le sujet vous parle, 15 minutes suffisent pour vous montrer : {calendly}\n\n{signature}" },
   { kind: "linkedin", key: "inmail", language: "ES", subject: "Las llamadas perdidas en {business}", body: "Hola {first_name}:\n\nCuando está trabajando y llama un cliente, ¿quién le contesta? Una llamada perdida suele ser un cliente que se va a otro.\n\nEn Valemont montamos un sistema que contesta, cualifica cada solicitud y le avisa al momento.\n\nSi le interesa, con 15 minutos se lo enseño: {calendly}\n\n{signature}" },
+
+  // Inbox suggested replies (D090; were hard-coded in inbox.ts). {contact} = the first name when known. Without a
+  // Calendly link, the sentence holding {calendly} becomes "tell me when you are free" (see suggestReplies).
+  { kind: "inbox", key: "thanks", language: "FR", subject: "", body: "Merci beaucoup pour votre commentaire, {contact} ! Ça nous fait plaisir. Si vous voulez en parler, écrivez-nous en message privé." },
+  { kind: "inbox", key: "thanks", language: "ES", subject: "", body: "¡Muchas gracias por su comentario, {contact}! Nos alegra mucho. Si quiere hablarlo, escríbanos por mensaje privado." },
+  { kind: "inbox", key: "price", language: "FR", subject: "", body: "Bonjour {contact}, merci pour votre question ! Le tarif dépend de votre activité et de ce que vous voulez automatiser. Le plus simple : 15 minutes ensemble pour vous donner un chiffre précis. Choisissez un créneau ici : {calendly}" },
+  { kind: "inbox", key: "price", language: "ES", subject: "", body: "Hola {contact}, ¡gracias por su pregunta! El precio depende de su actividad y de lo que quiera automatizar. Lo más sencillo: 15 minutos juntos para darle una cifra concreta. Elija un hueco aquí: {calendly}" },
+  { kind: "inbox", key: "call", language: "FR", subject: "", body: "Bonjour {contact}, merci pour votre message ! Le plus simple est d'en parler 15 minutes. Choisissez le créneau qui vous arrange ici : {calendly}" },
+  { kind: "inbox", key: "call", language: "ES", subject: "", body: "Hola {contact}, ¡gracias por su mensaje! Lo más sencillo es hablarlo 15 minutos. Elija el hueco que mejor le venga aquí: {calendly}" },
 ];
 export const DEFAULT_PLAYBOOK: readonly PlaybookItem[] = D;
 
-/** Default items overridden by founder-edited rows (same kind + key + language). */
-export function mergePlaybook(rows: { kind: PlaybookKind; key: string; language: Lang; subject: string; body: string; is_archived?: boolean }[]): PlaybookItem[] {
-  const own = new Map(rows.filter((r) => !r.is_archived && r.body.trim()).map((r) => [`${r.kind}:${r.key}:${r.language}`, r]));
-  const out = D.map((d) => {
-    const o = own.get(`${d.kind}:${d.key}:${d.language}`);
-    return o ? { kind: d.kind, key: d.key, language: d.language, subject: o.subject, body: o.body } : d;
+type PlaybookRowLike = { kind: PlaybookKind; key: string; language: Lang; subject: string; body: string; is_archived?: boolean; template_name?: string; version?: number; updated_by?: string; updated_at?: string };
+/**
+ * Default items overridden by founder-edited rows (same kind + key + language), then the founders' own templates.
+ * An archived or empty row means "back to the built-in text" (its version is kept for the next save's check).
+ */
+export function mergePlaybook(rows: readonly PlaybookRowLike[]): PlaybookItem[] {
+  const all = new Map(rows.map((r) => [`${r.kind}:${r.key}:${r.language}`, r]));
+  const meta = (r: PlaybookRowLike | undefined) => (r ? { version: r.version ?? 0, ...(r.updated_by ? { updated_by: r.updated_by } : {}), ...(r.updated_at ? { updated_at: r.updated_at } : {}) } : { version: 0 });
+  const out: PlaybookItem[] = D.map((d) => {
+    const o = all.get(`${d.kind}:${d.key}:${d.language}`);
+    const live = o && !o.is_archived && o.body.trim();
+    return live ? { kind: d.kind, key: d.key, language: d.language, subject: o.subject, body: o.body, edited: true, ...meta(o) } : { ...d, edited: false, ...meta(o) };
   });
+  // Custom templates: every language row that is alive; the name is shared (taken from any row of the key).
+  const names = new Map<string, string>();
+  for (const r of rows) if (isCustomKey(r.key) && r.template_name?.trim()) names.set(r.key, r.template_name.trim());
+  for (const r of rows) {
+    if (!isCustomKey(r.key) || r.is_archived || !r.body.trim() || !(CUSTOM_KINDS as readonly string[]).includes(r.kind)) continue;
+    out.push({ kind: r.kind, key: r.key, language: r.language, subject: r.subject, body: r.body, name: names.get(r.key) ?? r.key, custom: true, edited: true, ...meta(r) });
+  }
   return out;
+}
+
+/** The founders' own templates for a channel, one per key, in this language when written (else the other one). */
+export function customTemplates(items: readonly PlaybookItem[], kind: CustomKind, lang: Lang): PlaybookItem[] {
+  const keys = [...new Set(items.filter((i) => i.custom && i.kind === kind).map((i) => i.key))];
+  return keys.map((k) => items.find((i) => i.custom && i.kind === kind && i.key === k && i.language === lang) ?? items.find((i) => i.custom && i.kind === kind && i.key === k)!);
+}
+
+/** Placeholders a template can use (Settings › Templates shows them as chips to insert). */
+export const PLACEHOLDERS = ["contact", "first_name", "business", "founder", "signature", "calendly", "deck", "local_price", "thirty"] as const;
+export type Placeholder = (typeof PLACEHOLDERS)[number];
+
+/** Character limit of a text, when the channel has one (LinkedIn connection note: 300). */
+export function textLimit(kind: PlaybookKind, key: string): number | null {
+  if (kind === "linkedin" && key === "invitation") return LINKEDIN_NOTE_MAX;
+  return null;
 }
 
 export function findItem(items: readonly PlaybookItem[], kind: PlaybookKind, key: string, language: Lang): PlaybookItem | null {
@@ -129,6 +181,7 @@ export function fill(text: string, v: FillVars): string {
     .replace(/, \{first_name\}/g, first ? `, ${first}` : "")
     .replace(/ \{first_name\}/g, first ? ` ${first}` : "")
     .replace(/\{first_name\}/g, first)
+    .replace(/, \{contact\}/g, contact ? `, ${contact}` : "")
     .replace(/ \{contact\}/g, contact ? ` ${contact}` : "")
     .replace(/\{contact\}/g, contact)
     .replace(/, \{business\}/g, v.business?.trim() ? `, ${v.business.trim()}` : "")
@@ -177,7 +230,11 @@ export function suggestedFollowUp(outcome: string, objections: readonly string[]
   return null;
 }
 
-/** Gmail web compose, prefilled (used when Gmail sending is not connected): opens straight in Gmail, ready to send. */
-export function gmailComposeLink(to: string, subject: string, body: string): string {
-  return `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(to)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+/**
+ * Gmail web compose, prefilled (used when Gmail sending is not connected): opens straight in Gmail, ready to send.
+ * `authuser` (D090) opens it on the Valemont sending mailbox when the browser is signed in to several Google accounts.
+ */
+export function gmailComposeLink(to: string, subject: string, body: string, authuser = ""): string {
+  const au = authuser.trim() ? `authuser=${encodeURIComponent(authuser.trim())}&` : "";
+  return `https://mail.google.com/mail/?${au}view=cm&fs=1&to=${encodeURIComponent(to)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
