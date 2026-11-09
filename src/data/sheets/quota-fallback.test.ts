@@ -35,4 +35,18 @@ describe("Sheets read quota (429)", () => {
     const repo = new GoogleSheetsRepository(s.client);
     await expect(repo.list("Ideas")).rejects.toThrow(/429/);
   });
+
+  it("fresh reads in the same few seconds cost one request, and fall back to recent data when Google refuses", async () => {
+    const s = stub();
+    const repo = new GoogleSheetsRepository(s.client);
+    await repo.list("Ideas", { fresh: true });
+    const after1 = s.calls();
+    await repo.list("Ideas", { fresh: true });
+    await repo.listMany(["Ideas"], { fresh: true });
+    expect(s.calls()).toBe(after1); // served from the last 3 s
+    s.setQuota(true);
+    await new Promise((r) => setTimeout(r, 3_100));
+    const res = await repo.list("Ideas", { fresh: true });
+    expect(res.rows).toEqual([]); // the recent rows, not an error
+  });
 });

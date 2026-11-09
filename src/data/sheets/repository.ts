@@ -71,15 +71,17 @@ export class GoogleSheetsRepository implements DataRepository {
   /* ---------------- revisions ---------------- */
 
   async revisions(opts: ReadOptions = {}): Promise<Record<Domain, string>> {
-    if (!opts.fresh && this.revCache && Date.now() - this.revCache.at < this.revTtl) return this.revCache.value;
-    if (!opts.fresh && this.revInflight) return this.revInflight;
+    // A "fresh" read accepts tokens read in the last few seconds: several fresh reads in one action cost one request.
+    const maxAge = opts.fresh ? FRESH_WINDOW_MS : this.revTtl;
+    if (this.revCache && Date.now() - this.revCache.at < maxAge) return this.revCache.value;
+    if (this.revInflight) return this.revInflight;
     const p = (async () => {
       let grid: Awaited<ReturnType<SheetsClient["batchGet"]>>[number];
       try {
         [grid] = await this.client.batchGet([`${quoteSheet(REVISIONS_TAB)}!A1:C${DOMAINS.length + 10}`]);
       } catch (e) {
         // Over the per-minute read quota: keep the last known tokens for another TTL instead of failing every screen.
-        if (isQuota(e) && this.revCache && !opts.fresh) {
+        if (isQuota(e) && this.revCache && Date.now() - this.revCache.at < QUOTA_FALLBACK_MS) {
           this.revCache = { value: this.revCache.value, at: Date.now() };
           return this.revCache.value;
         }
@@ -125,10 +127,12 @@ export class GoogleSheetsRepository implements DataRepository {
     const now = Date.now();
     const stale = tables.filter((t) => {
       const c = this.cache.get(t);
-      return opts.fresh || !c || c.token !== revs[domainOf(t)] || now - c.fetchedAt > this.tableTtl;
+      if (!c) return true;
+      if (opts.fresh) return now - c.fetchedAt > FRESH_WINDOW_MS;
+      return c.token !== revs[domainOf(t)] || now - c.fetchedAt > this.tableTtl;
     });
     if (stale.length > 0) {
-      const key = [...stale].sort().join("|") + (opts.fresh ? `|fresh:${randomUUID()}` : "");
+      const key = [...stale].sort().join("|");
       let p = this.readInflight.get(key);
       if (!p) {
         p = (async () => {
@@ -137,7 +141,8 @@ export class GoogleSheetsRepository implements DataRepository {
             grids = await this.client.batchGet(stale.map((t) => this.rangeFor(t)));
           } catch (e) {
             // Over quota but every table is cached: serve the cached rows (at most a minute old in practice).
-            if (isQuota(e) && !opts.fresh && stale.every((t) => this.cache.has(t))) return;
+            // Over the per-minute quota but every table was read recently: serve those rows instead of failing.
+            if (isQuota(e) && stale.every((t) => now - (this.cache.get(t)?.fetchedAt ?? 0) < QUOTA_FALLBACK_MS)) return;
             throw e;
           }
           stale.forEach((t, i) => {
@@ -261,6 +266,11 @@ export class GoogleSheetsRepository implements DataRepository {
     };
   }
 }
+
+/** A fresh read accepts data read this recently (one action often reads the same tabs several times). */
+const FRESH_WINDOW_MS = 3_000;
+/** When Google refuses reads (per-minute quota), data read this recently is served instead of an error. */
+const QUOTA_FALLBACK_MS = 5 * 60_000;
 
 /** Google Sheets per-minute quota exceeded (HTTP 429). */
 function isQuota(e: unknown): boolean {
