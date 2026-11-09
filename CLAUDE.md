@@ -19,8 +19,9 @@ Spec: `docs/SPEC.md` (binding). Resume from `docs/STATUS.md`, `docs/DECISIONS.md
   every mutation (AuditLog, names only) and logs JSON with `x-request-id` (`src/server/log.ts`). Unauthenticated endpoints use `guardInbound` (rate limit + size cap).
 - No real emails, IDs, handles or tokens in code/fixtures (`tests/integration/build-separation.test.ts`). Fixtures use example.com.
 - The building Claude account/connectors are NEVER used on Valemont's real resources (spec §3.15), with one exception
-  authorised by the founders (D088): one-time setup of the hosting (Vercel project, environment variables, deploy) with a
-  founder-provided token entered through a secure form. Never business data, never banking/Stripe/Meta/Google accounts.
+  authorised by the founders (D088): one-time setup of the hosting (Vercel project, environment variables, deploy) and of the Google Cloud base (project,
+  APIs, service account, empty database Sheet shared with it) with founder-provided short-lived tokens entered through a
+  secure form. Never business data, never banking/Stripe/Meta accounts, never Gmail/Drive content.
 - UI in French for Théo and Spanish for Pablo (no English UI, D048): wrap every visible string with t() from `src/i18n/react` and add [FR, ES] to `src/i18n/dict`. Design tokens and limits in `docs/DESIGN.md` (≤5 numbers, ≤1 chart, accent ≤2, one ink block).
 - No inert buttons: later-stage modules stay out of navigation; list them in Settings › Roadmap.
 - Status words: VERIFIED_LIVE / VERIFIED_FAKE / PARTIAL / NOT_STARTED / BLOCKED. Nothing is VERIFIED_LIVE without real credentials.
