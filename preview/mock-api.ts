@@ -24,7 +24,7 @@ import type { AppContext } from "@/server/context";
 import { ConsentRequiredError } from "@/data/google/ports";
 import { MemoryCalendar, MemoryDrive, MemoryDriveUploader, MemoryMailer } from "@/fake-google/store";
 import { demoGoogleStore } from "@/server/services/demo-google";
-import { seedDemoWork } from "@/server/services/demo-seed";
+import { seedDemoWork, seedPreviewRecentCalls } from "@/server/services/demo-seed";
 import { createTask, createTaskSchema, listTasks, updateTask, updateTaskSchema, addComment, commentSchema, listComments } from "@/server/services/tasks";
 import { applyLateCorrection, correctionSchema, getReview, reviewSchema, saveReview, streakSummary } from "@/server/services/results";
 import { createSprint, sprintProgress, sprintSchema } from "@/server/services/sprints";
@@ -40,7 +40,7 @@ import { addBreakdown, addTraffic, breakdownSchema, importTraffic, marketingOver
 import { dashboardSchema, reportsDashboard } from "@/server/services/dashboard";
 import { createFolder, folderSchema } from "@/server/services/files";
 import { getPlaybook, playbookEditSchema, savePlaybookItem } from "@/server/services/playbook";
-import { benchmarks as emailBenchmarksFor, listSends, markReply, replySchema, sendFollowUp, sendSchema } from "@/server/services/email";
+import { batchSchema, followUpQueue, sendBatch, benchmarks as emailBenchmarksFor, listSends, markReply, replySchema, sendFollowUp, sendSchema } from "@/server/services/email";
 
 export const repo = new InMemoryRepository();
 const store = demoGoogleStore();
@@ -73,6 +73,7 @@ export async function seed() {
   await seedBaseline(repo, { theo: "Europe/Paris", pablo: "Europe/Madrid" });
   await seedDemo(repo);
   await seedDemoWork(repo, (f) => privates[f] ?? null);
+  await seedPreviewRecentCalls(repo);
   // Preview only: every day is a workday so the meters are visible whenever someone opens it.
   for (const f of ["theo", "pablo"] as const) {
     const u = await userRow(repo, f);
@@ -159,6 +160,8 @@ const routes: Record<string, [z.ZodTypeAny | null, Handler]> = {
   "GET /api/email/sends": [null, async () => listSends(ctx)],
   "PATCH /api/email/sends": [replySchema, async (i, f) => markReply(ctx, f, i as never)],
   "GET /api/email/benchmarks": [null, async (_, f) => emailBenchmarksFor(ctx, f)],
+  "GET /api/email/queue": [null, async (_, f) => followUpQueue(ctx, f)],
+  "POST /api/email/batch": [batchSchema, async (i, f) => sendBatch(ctx, f, gmailGrant[f] ? `preview-gmail-${f}` : null, i as never)],
   "POST /api/activities": [logActivitySchema, async (i, f) => logActivity(repo, f, i as never)],
   "POST /api/report": [z.object({ next_day_priority: z.string().trim().max(300).default("") }), async (i, f) => ({ text: await whatsappReport(repo, f, (i as { next_day_priority: string }).next_day_priority) })],
   "POST /api/settings/mode": [setModeSchema, async (i, f) => setMode(repo, f, i as never)],

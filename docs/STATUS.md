@@ -1,6 +1,14 @@
 # Status
 
-Updated: 2026-11-09 · Stage: **1B complete + founder feedback round 3 (fake-verified)** · Next: Stage 2 (revenue operations).
+Updated: 2026-11-09 · Stage: **1B complete + founder feedback round 4 (fake-verified)** · Next: Stage 2 (revenue operations).
+
+## Feedback round 4 (2026-11-09)
+| Change | Status |
+|---|---|
+| Objections v3: brush-off vs real, 12 objections (keys A…T), 3-step replies (Label / Ask / Next step) × 2 variants FR/ES, best reply learned from results (← → to switch), pause cue, objection drill, analytics by country | VERIFIED_FAKE (playbook.test.ts, followups.test.ts, e2e) |
+| Messages: suggested message after every outcome (key M), thank-you / door-open / missed-call / nudge templates, "Messages to send" queue with Send all by Gmail, messages counted per session | VERIFIED_FAKE (followups.test.ts, preview) |
+| One color system across the app (sales blue, results green, marketing violet, ops teal), tinted tiles, colored menu and section headers | VERIFIED_FAKE (preview screenshots) |
+| Dashboards: sparklines on KPIs, visual funnels (Reports, CRM, Command Center, Call summary, Marketing), founder bars instead of tables, weekday columns and trade bars in Email | VERIFIED_FAKE (preview) |
 
 ## Feedback round 3 (2026-11-09)
 | Change | Status |
@@ -28,7 +36,7 @@ No Google credentials exist in the build environment, so nothing is `VERIFIED_LI
 | Check | Result |
 |---|---|
 | `npm run lint` / `npm run typecheck` | pass |
-| `npm test` (vitest: unit, contract, integration on fake Sheets + fake Calendar/Drive HTTP servers) | 135/135 pass |
+| `npm test` (vitest: unit, contract, integration on fake Sheets + fake Calendar/Drive HTTP servers) | 139/139 pass |
 | `npm run test:e2e` (Playwright, production build, DEMO on fake Sheets + LIVE-without-credentials server) | 17/17 pass |
 | `npm run test:live` | NOT RUN (no credentials) |
 | Browser preview artifact (all pages load, no console errors, Théo→Pablo task, agenda privacy) | pass |

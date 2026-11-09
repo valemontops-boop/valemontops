@@ -19,7 +19,11 @@ semantic (`--canvas`, `--panel`, …) so a dark theme can be added later.
 | accent | #17161A | primary action fill with `on-accent` #FBFAF7 text (orange removed at the founders' request, D017) |
 | accent-text | #17161A | links (underlined) |
 | good / bad | #17704F / #B3261E | status only, with icon and sign |
-| brand-consulting / brand-local / brand-thirty | #2F5FBF / #C4730A / #7A4FD6 | data colors, fixed per entity |
+| sales / sales-soft | #2A78D6 / #E9F1FB | sales activity everywhere: calls, dials, outreach, Call mode, CRM, My Day › Sales (D044) |
+| win / win-soft | #16946A / #E3F3EC | results: yes, meetings, won, targets reached, passed days |
+| mkt / mkt-soft | #7A4FD6 / #EFE9FB | marketing: traffic, audience, content, ideas |
+| ops / ops-soft | #0E8FA3 / #E0F2F5 | ops: tasks, agenda, files |
+| brand-consulting / brand-local / brand-thirty | #2F5FBF / #D6457A / #7A4FD6 | brand dots only (Local was orange; founders asked for no orange) |
 | market FR / ES | ink / #8E8A92 | direct-labelled |
 
 Type: Geist (via the `geist` package, `next/font/local` under the hood), `tabular-nums` on every number.
@@ -27,6 +31,12 @@ Scale 12/14/16/20/24/32/48; hero number 40–48px weight 500–600, tight tracki
 
 Shape: panels radius 20, inner rows 12, controls/segmented switches fully rounded. Spacing 4/8/16/24/32/48.
 Surfaces separate by tone and hairline; shadow only on floating layers. No card inside a card.
+
+Color rule (D044): one meaning per color across the app; tiles take the soft tint of their area with a colored key dot,
+values stay in ink. Section headers carry a colored bar; the active menu item takes its section's tint. Colorblind
+validation was dropped at the founders' request; meaning is still never color-only (labels and values are printed).
+Shared pieces in `src/components/app/charts.tsx`: Kpi (tint, delta, sparkline, progress), Funnel (step conversion),
+Bars, Columns, Spark, Ring, SplitBar, ToneTitle; tokens in `src/lib/tones.ts`.
 
 ## Limits (§8.2) — checked per screen
 ≤5 primary numbers above the fold · ≤1 chart above the fold · accent ≤2 per screen (primary action + focus) ·

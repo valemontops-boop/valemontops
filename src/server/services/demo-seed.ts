@@ -201,7 +201,7 @@ async function seedDemoCallsAndEmails(repo: DataRepository, today: string) {
     return {
       id: childId("demo-call-ev", String(i)), idempotency_key: childId("demo-call-key", String(i)), founder_key: "theo" as const,
       activity_type: outcome === "no_answer" ? ("cold_call" as const) : ("connected_call" as const), channel: null, account_id: "", contact_id: "", opportunity_id: "", campaign_id: "",
-      brand: "local" as const, market: "FR" as const, outcome, objection: (objections[0] ?? null) as never, objections: objections as never, objection_note: "", met_person: "", notes: "",
+      brand: "local" as const, market: "FR" as const, outcome, objection: (objections[0] ?? null) as never, objections: objections as never, replies: objections.map((o) => `${o}#${(i % 2) + 1}`), objection_note: "", met_person: "", notes: "",
       next_action: "", next_action_due: null, occurred_at: at, logged_at: at, timezone: "Europe/Paris", local_date: day, late_logged: false, source: "manual" as const,
       corrects_event_id: "", call_session_id: sid, list_id: "", target_key: `demo-target-${i}`, duration_sec: outcome === "no_answer" ? null : 60 + ((i * 37) % 200),
     };
@@ -226,4 +226,20 @@ async function seedDemoCallsAndEmails(repo: DataRepository, today: string) {
     };
   });
   await repo.insert("EmailSends", rows, sys);
+}
+
+/** Browser preview only: three calls in the last hour, so "Messages to send" has something to show. Not in DEMO (tests start from a clean day). */
+export async function seedPreviewRecentCalls(repo: DataRepository) {
+  const sys = { founder: "system" };
+  const recent: [number, "connected_call" | "cold_call", "interested" | "not_interested" | "no_answer", string[]][] = [[0, "connected_call", "interested", ["send_info"]], [2, "connected_call", "not_interested", ["enough_work"]], [3, "cold_call", "no_answer", []]];
+  await repo.insert("ActivityEvents", recent.map(([acc, type, outcome, objections], i) => {
+    const at = new Date(Date.now() - (50 - i * 10) * 60_000).toISOString();
+    return {
+      id: childId("demo-recent-ev", String(i)), idempotency_key: childId("demo-recent-key", String(i)), founder_key: "theo" as const, activity_type: type, channel: null,
+      account_id: childId("demo-account", String(acc)), contact_id: "", opportunity_id: "", campaign_id: "", brand: "local" as const, market: "FR" as const, outcome,
+      objection: (objections[0] ?? null) as never, objections: objections as never, replies: objections.map((o) => `${o}#1`), objection_note: "", met_person: "", notes: "",
+      next_action: "", next_action_due: null, occurred_at: at, logged_at: at, timezone: "Europe/Paris", local_date: localDate(new Date(at), "Europe/Paris"), late_logged: false,
+      source: "manual" as const, corrects_event_id: "", call_session_id: "", list_id: "", target_key: "", duration_sec: type === "connected_call" ? 140 : null,
+    };
+  }), sys);
 }

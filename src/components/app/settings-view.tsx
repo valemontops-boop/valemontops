@@ -315,7 +315,7 @@ function SettingField({ k, label, hint, initial, onSave }: { k: string; label: s
   );
 }
 
-const KIND_TITLES: Record<PlaybookItem["kind"], string> = { opener: "Call opener", objection: "Objection replies (shown live in call mode)", email: "Follow-up emails", whatsapp: "WhatsApp messages" };
+const KIND_TITLES: Record<PlaybookItem["kind"], string> = { opener: "Call opener", objection: "Objection replies: 3 lines = Label · Ask · Next step (shown live in call mode, best reply first)", email: "Follow-up emails", whatsapp: "WhatsApp messages" };
 function PlaybookTab() {
   const qc = useQueryClient();
   const [lang, setLang] = React.useState<Lang>("FR");

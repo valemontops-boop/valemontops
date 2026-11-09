@@ -16,17 +16,21 @@
   --good: #17704f;
   --bad: #b3261e;
   --brand-consulting: #2f5fbf;
-  --brand-local: #c4730a;
+  --brand-local: #d6457a; /* was orange; founders asked for no orange (D044) */
   --brand-thirty: #7a4fd6;
   --market-fr: #17161a;
   --market-es: #8e8a92;
   --subtle: #ebe9e3;
-  /* Report series colors (D041): volume = activity counts, yes = conversions. Validated with the dataviz
-     palette checker on --panel: CVD ΔE 19.6, normal-vision ΔE 20.6, both ≥ 3:1. No orange, never a status. */
-  --viz-volume: #2a78d6;
-  --viz-yes: #16946a;
-  --viz-volume-soft: #e7eff9;
-  --viz-yes-soft: #e4f2ec;
+  /* One color system for the whole app (D044): sales/volume blue, results green, marketing violet, ops teal.
+     Soft = the matching tint for tiles and headers. Values and text stay in ink; color marks identity. */
+  --sales: #2a78d6;
+  --sales-soft: #e9f1fb;
+  --win: #16946a;
+  --win-soft: #e3f3ec;
+  --mkt: #7a4fd6;
+  --mkt-soft: #efe9fb;
+  --ops: #0e8fa3;
+  --ops-soft: #e0f2f5;
   color-scheme: light;
 }
 
@@ -45,10 +49,14 @@
   --color-good: var(--good);
   --color-bad: var(--bad);
   --color-subtle: var(--subtle);
-  --color-viz-volume: var(--viz-volume);
-  --color-viz-yes: var(--viz-yes);
-  --color-viz-volume-soft: var(--viz-volume-soft);
-  --color-viz-yes-soft: var(--viz-yes-soft);
+  --color-sales: var(--sales);
+  --color-sales-soft: var(--sales-soft);
+  --color-win: var(--win);
+  --color-win-soft: var(--win-soft);
+  --color-mkt: var(--mkt);
+  --color-mkt-soft: var(--mkt-soft);
+  --color-ops: var(--ops);
+  --color-ops-soft: var(--ops-soft);
   --color-brand-consulting: var(--brand-consulting);
   --color-brand-local: var(--brand-local);
   --color-brand-thirty: var(--brand-thirty);
@@ -115,4 +123,10 @@ body {
 .hatch-strong {
   background-color: var(--subtle);
   background-image: repeating-linear-gradient(135deg, var(--control-border) 0 1.5px, transparent 1.5px 6px);
+}
+
+/* Call mode: a 2-second "pause before you answer" cue when an objection is ticked. */
+@keyframes vos-pause {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
 }

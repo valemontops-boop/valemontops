@@ -8,7 +8,7 @@ import { BRANDS, BRAND_LABELS } from "@/domain/constants";
 import { api } from "@/lib/api";
 import { cn, formatEur } from "@/lib/utils";
 import type { marketingOverview } from "@/server/services/marketing";
-import { Bars, Kpi } from "./charts";
+import { Bars, Funnel, Kpi } from "./charts";
 
 type Overview = Awaited<ReturnType<typeof marketingOverview>>;
 const pct = (n: number | null | undefined, digits = 0) => (n === null || n === undefined ? "—" : `${(n * 100).toFixed(digits)}%`);
@@ -33,9 +33,9 @@ function Body({ d }: { d: Overview }) {
   return (
     <>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Kpi label="Website sessions" value={d.totals.sessions.toLocaleString("en")} note={d.hasTraffic ? `${d.from} → ${d.to}` : "import GA4 to see this"} />
-        <Kpi label="Leads" value={String(d.totals.leads)} note="from tracked sources" />
-        <Kpi label="30/30 purchases" value={String(d.totals.purchases)} note={d.totals.revenue_minor ? formatEur(d.totals.revenue_minor) : "revenue not imported"} />
+        <Kpi tone="mkt" label="Website sessions" value={d.totals.sessions.toLocaleString("en")} note={d.hasTraffic ? `${d.from} → ${d.to}` : "import GA4 to see this"} />
+        <Kpi tone="mkt" label="Leads" value={String(d.totals.leads)} note="from tracked sources" />
+        <Kpi tone="win" label="30/30 purchases" value={String(d.totals.purchases)} note={d.totals.revenue_minor ? formatEur(d.totals.revenue_minor) : "revenue not imported"} />
         <Kpi label="Visit → lead or sale" value={pct(conv, 1)} dark note="conversion of website sessions" />
       </div>
 
@@ -44,7 +44,7 @@ function Body({ d }: { d: Overview }) {
         <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {d.insights.map((i, k) => (
             <li key={k} className={cn("flex flex-col gap-1 rounded-[12px] border p-3", i.severity === "act" ? "border-ink" : "border-hairline")}>
-              <span className={cn("self-start rounded-full px-2 py-0.5 text-[11px] font-semibold", i.severity === "act" ? "bg-ink text-panel" : i.severity === "good" ? "bg-[#e6f2ec] text-good" : "bg-subtle text-text-2")}>{i.severity === "act" ? "Act" : i.severity === "good" ? "Working" : "Watch"}</span>
+              <span className={cn("self-start rounded-full px-2 py-0.5 text-[11px] font-semibold", i.severity === "act" ? "bg-mkt text-panel" : i.severity === "good" ? "bg-win-soft text-win" : "bg-subtle text-text-2")}>{i.severity === "act" ? "Act" : i.severity === "good" ? "Working" : "Watch"}</span>
               <p className="font-semibold leading-snug">{i.title}</p>
               <p className="text-[13px] text-text-2">{i.evidence}</p>
               <p className="text-[13px]">{i.action}</p>
@@ -57,7 +57,7 @@ function Body({ d }: { d: Overview }) {
         {d.funnels.map((f) => (
           <Panel key={f.brand}>
             <PanelTitle><span className="flex items-center gap-2"><span className="size-2.5 rounded-full" style={{ background: `var(--brand-${f.brand})` }} />{f.label} funnel</span></PanelTitle>
-            {f.hasData ? <Bars data={f.steps} showShare /> : <p className="text-sm text-text-2">No data for this brand yet.</p>}
+            {f.hasData ? <Funnel steps={f.steps.map((x: { label: string; value: number }, i: number) => ({ ...x, tone: i === 0 ? ("mkt" as const) : i === f.steps.length - 1 ? ("win" as const) : ("mkt" as const) }))} /> : <p className="text-sm text-text-2">No data for this brand yet.</p>}
             <p className="mt-2 text-[12px] text-text-3">Instagram views and LinkedIn impressions are shown separately; the % compares each step with the first one.</p>
           </Panel>
         ))}
@@ -66,11 +66,11 @@ function Body({ d }: { d: Overview }) {
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <Panel>
           <PanelTitle>Where visits come from</PanelTitle>
-          {d.sources.length ? <Bars data={d.sources.map((s) => ({ label: `${s.source}${s.medium ? ` / ${s.medium}` : ""}`, value: s.sessions, sub: `${pct(s.conversion, 1)} convert · ${s.leads + s.purchases}` }))} /> : <p className="text-sm text-text-2">No traffic imported yet (Traffic tab).</p>}
+          {d.sources.length ? <Bars tone="mkt" data={d.sources.map((s) => ({ label: `${s.source}${s.medium ? ` / ${s.medium}` : ""}`, value: s.sessions, sub: `${pct(s.conversion, 1)} convert · ${s.leads + s.purchases}` }))} /> : <p className="text-sm text-text-2">No traffic imported yet (Traffic tab).</p>}
         </Panel>
         <Panel>
           <PanelTitle>Visits by country</PanelTitle>
-          {d.countries.length ? <Bars data={d.countries.map((c) => ({ label: `${c.country}${c.target ? "" : " · outside target"}`, value: c.sessions, sub: `${c.conversions} conversions` }))} /> : <p className="text-sm text-text-2">No traffic imported yet.</p>}
+          {d.countries.length ? <Bars data={d.countries.map((c) => ({ label: `${c.country}${c.target ? "" : " · outside target"}`, value: c.sessions, tone: c.target ? ("mkt" as const) : ("muted" as const), sub: `${c.conversions} conversions` }))} /> : <p className="text-sm text-text-2">No traffic imported yet.</p>}
         </Panel>
       </div>
 
@@ -83,14 +83,14 @@ function Body({ d }: { d: Overview }) {
                 <p className="mb-1 flex flex-wrap justify-between gap-2 text-sm"><span className="font-medium">{f.account}</span><span><span className="num font-semibold">{pct(f.fit!.inTarget)}</span> <span className="text-text-2">in {f.targets.join(" + ")}</span></span></p>
                 <div className="flex h-7 overflow-hidden rounded-[6px]" role="img" aria-label={`${f.account} audience by country`}>
                   {f.fit!.countries.map((c) => (
-                    <div key={c.country} title={`${c.country} ${pct(c.share)}`} className={cn("flex items-center justify-center overflow-hidden border-r-2 border-panel text-[11px] font-medium", c.target ? "bg-ink text-panel" : "hatch-strong text-ink")} style={{ width: `${c.share * 100}%` }}>
+                    <div key={c.country} title={`${c.country} ${pct(c.share)}`} className={cn("flex items-center justify-center overflow-hidden border-r-2 border-panel text-[11px] font-medium", c.target ? "bg-mkt text-panel" : "hatch-strong text-ink")} style={{ width: `${c.share * 100}%` }}>
                       {c.share >= 0.07 ? `${c.country} ${pct(c.share)}` : ""}
                     </div>
                   ))}
                 </div>
               </li>
             ))}
-            <li className="flex gap-4 text-[12px] text-text-3"><span className="flex items-center gap-1"><span className="size-2.5 rounded-sm bg-ink" />Target market</span><span className="flex items-center gap-1"><span className="hatch-strong size-2.5 rounded-sm" />Outside target</span></li>
+            <li className="flex gap-4 text-[12px] text-text-3"><span className="flex items-center gap-1"><span className="size-2.5 rounded-sm bg-mkt" />Target market</span><span className="flex items-center gap-1"><span className="hatch-strong size-2.5 rounded-sm" />Outside target</span></li>
           </ul>
         )}
       </Panel>

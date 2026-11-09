@@ -4,6 +4,7 @@ import * as React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState, Panel, PanelTitle, Skeleton } from "@/components/ui/form";
+import { Bars, Columns, Kpi } from "./charts";
 import type { EmailBenchmarks, Rate } from "@/domain/email";
 import { EMAIL_TEMPLATE_LABELS } from "@/domain/playbook";
 import { api } from "@/lib/api";
@@ -40,10 +41,10 @@ function Benchmarks({ d }: { d: EmailBenchmarks }) {
   return (
     <>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Kpi label="Emails sent" value={String(d.overall.sent)} note={`${d.whatsapp.sent} WhatsApp too`} />
-        <Kpi label="Reply rate" value={pct(d.overall.rate)} note={`${d.overall.replied} replies ÷ sent`} ink />
-        <Kpi label="Interested replies" value={pct(d.overall.positiveRate)} note={`${d.overall.positive} prospects`} />
-        <Kpi label="Bounce rate" value={pct(d.bounceRate)} note="keep under 2%" />
+        <Kpi tone="sales" label="Messages sent" value={String(d.overall.sent + d.whatsapp.sent)} note={`${d.overall.sent} emails · ${d.whatsapp.sent} WhatsApp`} />
+        <Kpi label="Reply rate" value={pct(d.overall.rate)} note={`${d.overall.replied} replies ÷ emails sent`} dark />
+        <Kpi tone="win" label="Interested replies" value={pct(d.overall.positiveRate)} note={`${d.overall.positive} prospects`} />
+        <Kpi tone="sales" label="Bounce rate" value={pct(d.bounceRate)} note="keep under 2%" />
       </div>
       <Panel>
         <PanelTitle>Are our emails good?</PanelTitle>
@@ -59,11 +60,13 @@ function Benchmarks({ d }: { d: EmailBenchmarks }) {
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
         <Panel>
           <PanelTitle>By weekday</PanelTitle>
-          <SegTable rows={d.byWeekday} />
+          <Columns tone="sales" height={150} label="Reply rate by weekday" data={d.byWeekday.map((w) => ({ key: w.key, label: w.key, value: Math.round((w.rate ?? 0) * 100), display: `${Math.round((w.rate ?? 0) * 100)}%`, highlight: w.enough }))} />
+          <p className="mt-2 text-[12px] text-text-3">Reply rate per weekday · faded = fewer than {d.minSample} emails.</p>
         </Panel>
         <Panel>
           <PanelTitle>By niche</PanelTitle>
-          <SegTable rows={d.byNiche} />
+          <Bars tone="win" max={100} data={d.byNiche.map((n) => ({ label: n.key, value: Math.round((n.rate ?? 0) * 100), sub: `${n.replied}/${n.sent} replied${n.enough ? "" : " · not enough data"}` }))} />
+          <p className="mt-2 text-[12px] text-text-3">Reply rate in % per trade.</p>
         </Panel>
       </div>
       <Panel>
@@ -102,7 +105,7 @@ function RangeChart({ rows, typical, strong }: { rows: { label: string; r: Rate 
       <div className="mb-2 flex flex-wrap gap-4 text-[12px] text-text-2">
         <span><span className="hatch mr-1 inline-block h-2.5 w-4 rounded-sm align-middle" />typical cold 1–5%</span>
         <span><span className="hatch-strong mr-1 inline-block h-2.5 w-4 rounded-sm align-middle" />strong 5–10%</span>
-        <span><span className="mr-1 inline-block h-2.5 w-1 rounded-sm bg-ink align-middle" />our reply rate</span>
+        <span><span className="mr-1 inline-block h-2.5 w-1 rounded-sm bg-win align-middle" />our reply rate</span>
       </div>
       <ul className="flex flex-col gap-2.5">
         {shown.map(({ label, r }) => (
@@ -111,32 +114,12 @@ function RangeChart({ rows, typical, strong }: { rows: { label: string; r: Rate 
             <span className="relative h-6 rounded-[6px] bg-subtle/70">
               <span className="hatch absolute inset-y-0" style={{ left: pos(typical[0]), width: `calc(${pos(typical[1])} - ${pos(typical[0])})` }} />
               <span className="hatch-strong absolute inset-y-0" style={{ left: pos(strong[0]), width: `calc(${pos(strong[1])} - ${pos(strong[0])})` }} />
-              {r.rate !== null ? <span className={cn("absolute inset-y-[-3px] w-1.5 -translate-x-1/2 rounded-full ring-2 ring-panel", r.enough ? "bg-ink" : "bg-control")} style={{ left: pos(r.rate) }} /> : null}
+              {r.rate !== null ? <span className={cn("absolute inset-y-[-3px] w-1.5 -translate-x-1/2 rounded-full ring-2 ring-panel", r.enough ? "bg-win" : "bg-control")} style={{ left: pos(r.rate) }} /> : null}
             </span>
             <span className="num w-36 text-right font-medium">{pct(r.rate)}<span className="block text-[11px] font-normal text-text-3">{r.enough ? `${r.sent} sent` : `${r.sent} sent · not enough data`}</span></span>
           </li>
         ))}
       </ul>
-    </div>
-  );
-}
-
-function SegTable({ rows }: { rows: ({ key: string } & Rate)[] }) {
-  if (!rows.length) return <p className="text-sm text-text-2">No data yet.</p>;
-  return (
-    <table className="w-full text-sm">
-      <thead><tr className="text-left text-[12px] text-text-3"><th className="py-1 font-medium" /><th className="text-right font-medium">Sent</th><th className="text-right font-medium">Replies</th><th className="text-right font-medium">Rate</th></tr></thead>
-      <tbody>{rows.map((r) => <tr key={r.key} className="border-t border-hairline"><td className="py-1.5">{r.key}</td><td className="num text-right">{r.sent}</td><td className="num text-right">{r.replied}</td><td className={cn("num text-right", !r.enough && "text-text-3")}>{pct(r.rate)}</td></tr>)}</tbody>
-    </table>
-  );
-}
-
-function Kpi({ label, value, note, ink }: { label: string; value: string; note: string; ink?: boolean }) {
-  return (
-    <div className={cn("rounded-[20px] p-4", ink ? "bg-ink text-panel" : "bg-panel")}>
-      <p className={cn("text-[13px]", ink ? "text-panel/80" : "text-text-2")}>{label}</p>
-      <p className="num text-[32px] font-semibold leading-tight">{value}</p>
-      <p className={cn("text-[12px]", ink ? "text-panel/75" : "text-text-3")}>{note}</p>
     </div>
   );
 }

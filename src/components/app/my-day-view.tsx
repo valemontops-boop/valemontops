@@ -12,6 +12,7 @@ import { METRIC_OF_TYPE } from "@/domain/activity";
 import { api } from "@/lib/api";
 import { cn, timeOfDay } from "@/lib/utils";
 import { ActionMeter } from "./action-meter";
+import { ToneTitle } from "./charts";
 import { useQuickAction, type QuickKind } from "./quick-action";
 import { TargetsEditor } from "./targets-editor";
 import { useMyDay, type MyDayData } from "./use-crm";
@@ -69,12 +70,12 @@ export function MyDayView() {
         {d.mode ? (
           <Panel aria-labelledby="sales-title">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <h2 id="sales-title" className="text-lg font-semibold">Sales</h2>
+              <ToneTitle tone="sales" id="sales-title">Sales</ToneTitle>
               <Button asChild variant="primary" size="lg"><Link href="/call"><PhoneCall /> Start calling</Link></Button>
             </div>
-            <div className="mb-4 grid grid-cols-4 gap-2 rounded-[12px] bg-subtle/70 p-3 text-center" aria-label="Calls today">
-              {[["Dials", c.dials], ["Picked up", c.pickedUp], ["Yes", c.interested + c.callBacks + c.meetings], ["Meetings", c.meetings]].map(([l, v]) => (
-                <div key={String(l)}><p className="num text-[24px] font-semibold leading-none">{v}</p><p className="mt-1 text-[11px] text-text-2">{l}</p></div>
+            <div className="mb-4 grid grid-cols-4 gap-2 text-center" aria-label="Calls today">
+              {([["Dials", c.dials, "bg-sales-soft"], ["Picked up", c.pickedUp, "bg-sales-soft"], ["Yes", c.interested + c.callBacks + c.meetings, "bg-win-soft"], ["Meetings", c.meetings, "bg-win text-panel"]] as const).map(([l, v, cls]) => (
+                <div key={l} className={cn("rounded-[12px] p-3", cls)}><p className="num text-[24px] font-semibold leading-none">{v}</p><p className={cn("mt-1 text-[11px]", l === "Meetings" ? "text-panel/85" : "text-text-2")}>{l}</p></div>
               ))}
             </div>
             {!d.isWorkday ? (
@@ -100,12 +101,12 @@ export function MyDayView() {
           <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
             <NextBestActions />
             <Panel aria-labelledby="mk-title" className="flex flex-col gap-5">
-              <h2 id="mk-title" className="text-lg font-semibold">Marketing</h2>
+              <ToneTitle tone="mkt" id="mk-title">Marketing</ToneTitle>
               <MarketingWeek />
               <TasksFor area="marketing" />
             </Panel>
             <Panel aria-labelledby="ops-title">
-              <h2 id="ops-title" className="mb-3 text-lg font-semibold">Ops</h2>
+              <ToneTitle tone="ops" id="ops-title" className="mb-3">Ops</ToneTitle>
               <TasksFor area="ops" />
             </Panel>
             <Panel aria-labelledby="log-title">

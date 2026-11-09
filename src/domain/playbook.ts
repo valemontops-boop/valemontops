@@ -1,4 +1,5 @@
-import { LIVE_OBJECTIONS, OBJECTION_LABELS, type Objection } from "./constants";
+import { OBJECTION_LABELS, type Objection } from "./constants";
+import { objectionDefaults } from "./objections";
 
 /**
  * Call playbook: opener, objection replies and follow-up templates, in French and Spanish.
@@ -17,32 +18,24 @@ export const FOLLOW_UPS = [
   { key: "whatsapp", label: "WhatsApp", hotkey: "w", channel: "whatsapp" },
 ] as const;
 export type FollowUpKey = (typeof FOLLOW_UPS)[number]["key"];
-export const EMAIL_TEMPLATES = ["calendly", "deck", "confirm"] as const;
-export const EMAIL_TEMPLATE_LABELS: Record<(typeof EMAIL_TEMPLATES)[number], string> = { calendly: "Book a call (Calendly)", deck: "Commercial deck", confirm: "Meeting confirmation" };
-export const WHATSAPP_TEMPLATES = ["calendly", "deck"] as const;
+/** Message templates, email and WhatsApp alike. "missed" goes to people who did not pick up (cold: never to Spain without consent). */
+export const TEMPLATES = ["thanks", "calendly", "deck", "confirm", "thanks_soft", "missed", "nudge"] as const;
+export type TemplateKey = (typeof TEMPLATES)[number];
+export const EMAIL_TEMPLATES = TEMPLATES;
+export const WHATSAPP_TEMPLATES = TEMPLATES;
+export const EMAIL_TEMPLATE_LABELS: Record<TemplateKey, string> = {
+  thanks: "Thank you for the call", calendly: "Book a call (Calendly)", deck: "Commercial deck", confirm: "Meeting confirmation",
+  thanks_soft: "Thank you, door open (after a no)", missed: "Tried to reach you (no answer)", nudge: "Nudge (no reply yet)",
+};
+export const TEMPLATE_SHORT: Record<TemplateKey, string> = { thanks: "Thanks", calendly: "Calendly", deck: "Deck", confirm: "Confirm", thanks_soft: "Thanks (no)", missed: "Missed you", nudge: "Nudge" };
+/** Cold = no conversation happened: stricter rules apply (Spain needs prior consent). */
+export const COLD_TEMPLATES: readonly TemplateKey[] = ["missed"];
 
 const D: PlaybookItem[] = [
   { kind: "opener", key: "default", language: "FR", subject: "", body: "Bonjour {contact}, {founder} de Valemont. Je serai bref : quand un client vous appelle pendant que vous êtes sur un chantier, qui lui répond ? On met en place un système qui capte chaque demande, la qualifie et vous prévient tout de suite. Ça vous parle ?" },
   { kind: "opener", key: "default", language: "ES", subject: "", body: "Hola {contact}, soy {founder} de Valemont. Seré breve: cuando un cliente le llama mientras está trabajando, ¿quién le contesta? Montamos un sistema que recoge cada solicitud, la cualifica y le avisa al momento. ¿Le suena el problema?" },
 
-  { kind: "objection", key: "no_need", language: "FR", subject: "", body: "Je comprends. Juste une question : combien d'appels manqués par semaine, à votre avis ? Si c'est zéro, je vous laisse tranquille." },
-  { kind: "objection", key: "no_need", language: "ES", subject: "", body: "Lo entiendo. Una sola pregunta: ¿cuántas llamadas pierde a la semana? Si son cero, no le molesto más." },
-  { kind: "objection", key: "no_time", language: "FR", subject: "", body: "Justement, c'est fait pour ça. 15 minutes cette semaine, je vous montre et vous jugez. Plutôt mardi ou jeudi ?" },
-  { kind: "objection", key: "no_time", language: "ES", subject: "", body: "Precisamente para eso está pensado. 15 minutos esta semana, se lo enseño y usted decide. ¿Mejor martes o jueves?" },
-  { kind: "objection", key: "too_expensive", language: "FR", subject: "", body: "C'est 99 € par mois. Un seul client récupéré par mois le rembourse. Combien vous rapporte un chantier moyen ?" },
-  { kind: "objection", key: "too_expensive", language: "ES", subject: "", body: "Son 99 € al mes. Un solo cliente recuperado al mes lo paga. ¿Cuánto le deja un trabajo medio?" },
-  { kind: "objection", key: "already_has_solution", language: "FR", subject: "", body: "Très bien. Il fait aussi la relance et la demande d'avis après l'intervention ? Si oui, gardez-le. Sinon, ça vaut 15 minutes." },
-  { kind: "objection", key: "already_has_solution", language: "ES", subject: "", body: "Muy bien. ¿También hace el seguimiento y pide la reseña después del trabajo? Si es así, quédeselo. Si no, valen la pena 15 minutos." },
-  { kind: "objection", key: "send_info", language: "FR", subject: "", body: "Avec plaisir. Je vous l'envoie maintenant par mail ou WhatsApp. Je vous mets aussi mon lien pour caler 15 minutes, vous choisissez le créneau." },
-  { kind: "objection", key: "send_info", language: "ES", subject: "", body: "Con mucho gusto. Se lo mando ahora por email o WhatsApp, con mi enlace para reservar 15 minutos cuando le venga bien." },
-  { kind: "objection", key: "not_decision_maker", language: "FR", subject: "", body: "Merci. Qui s'occupe de ça chez vous, et quel est le meilleur moment pour l'appeler ?" },
-  { kind: "objection", key: "not_decision_maker", language: "ES", subject: "", body: "Gracias. ¿Quién se encarga de esto y cuándo es mejor llamarle?" },
-  { kind: "objection", key: "bad_timing", language: "FR", subject: "", body: "Pas de souci. Je vous rappelle quand ? Je note la date tout de suite." },
-  { kind: "objection", key: "bad_timing", language: "ES", subject: "", body: "Sin problema. ¿Cuándo le vuelvo a llamar? Lo apunto ahora mismo." },
-  { kind: "objection", key: "bad_experience", language: "FR", subject: "", body: "Je comprends, ça arrive trop souvent. Qu'est-ce qui n'avait pas marché ? Chez nous : pas d'engagement caché, et vous voyez les demandes reçues chaque semaine." },
-  { kind: "objection", key: "bad_experience", language: "ES", subject: "", body: "Le entiendo, pasa demasiado. ¿Qué no funcionó? Con nosotros: sin permanencia escondida y ve cada semana las solicitudes recibidas." },
-  { kind: "objection", key: "other", language: "FR", subject: "", body: "Je comprends. Qu'est-ce qui vous ferait dire oui ?" },
-  { kind: "objection", key: "other", language: "ES", subject: "", body: "Le entiendo. ¿Qué le haría decir que sí?" },
+  ...objectionDefaults(),
 
   { kind: "email", key: "calendly", language: "FR", subject: "Suite à notre appel, {business}", body: "Bonjour {contact},\n\nMerci pour votre temps au téléphone. Comme convenu, voici mon lien pour choisir un créneau de 15 minutes :\n{calendly}\n\nJe vous montrerai concrètement comment chaque demande est captée, qualifiée et relancée.\n\nBonne journée,\n{founder}\nValemont" },
   { kind: "email", key: "calendly", language: "ES", subject: "Tras nuestra llamada, {business}", body: "Hola {contact}:\n\nGracias por su tiempo al teléfono. Como hablamos, aquí tiene mi enlace para elegir 15 minutos:\n{calendly}\n\nLe enseñaré cómo se recoge, se cualifica y se sigue cada solicitud.\n\nUn saludo,\n{founder}\nValemont" },
@@ -51,6 +44,25 @@ const D: PlaybookItem[] = [
   { kind: "email", key: "confirm", language: "FR", subject: "Notre rendez-vous, {business}", body: "Bonjour {contact},\n\nMerci, c'est noté pour notre rendez-vous. Si le créneau ne vous convient plus, vous pouvez le déplacer ici :\n{calendly}\n\nÀ bientôt,\n{founder}\nValemont" },
   { kind: "email", key: "confirm", language: "ES", subject: "Nuestra reunión, {business}", body: "Hola {contact}:\n\nGracias, queda anotada nuestra reunión. Si el horario ya no le va bien, puede cambiarlo aquí:\n{calendly}\n\nHasta pronto,\n{founder}\nValemont" },
 
+  { kind: "email", key: "thanks", language: "FR", subject: "Merci pour votre temps, {business}", body: "Bonjour {contact},\n\nMerci d'avoir pris le temps de me répondre tout à l'heure.\n\nComme convenu, je reviens vers vous à la date prévue. Si vous voulez avancer plus vite, voici mon lien pour réserver 15 minutes :\n{calendly}\n\nBonne journée,\n{founder}\nValemont" },
+  { kind: "email", key: "thanks", language: "ES", subject: "Gracias por su tiempo, {business}", body: "Hola {contact}:\n\nGracias por atenderme hace un rato.\n\nComo hablamos, le vuelvo a llamar en la fecha prevista. Si quiere avanzar antes, aquí tiene mi enlace para reservar 15 minutos:\n{calendly}\n\nUn saludo,\n{founder}\nValemont" },
+  { kind: "email", key: "thanks_soft", language: "FR", subject: "Merci pour votre accueil", body: "Bonjour {contact},\n\nMerci d'avoir pris mon appel tout à l'heure, même si ce n'est pas le moment.\n\nSi un jour les appels manqués ou les devis sans réponse deviennent un sujet, il vous suffit de répondre à ce mail.\n\nBonne continuation,\n{founder}\nValemont" },
+  { kind: "email", key: "thanks_soft", language: "ES", subject: "Gracias por atenderme", body: "Hola {contact}:\n\nGracias por atender mi llamada, aunque no sea el momento.\n\nSi algún día las llamadas perdidas o los presupuestos sin respuesta se convierten en un problema, solo tiene que responder a este email.\n\nUn saludo,\n{founder}\nValemont" },
+  { kind: "email", key: "missed", language: "FR", subject: "J'ai essayé de vous joindre, {business}", body: "Bonjour {contact},\n\nJ'ai essayé de vous appeler aujourd'hui : vous étiez sûrement sur un chantier.\n\nC'est justement pour ça que je vous écris : un appel manqué pendant que vous travaillez, c'est souvent un client qui part ailleurs. Nous mettons en place un système qui répond, qualifie la demande et vous prévient tout de suite.\n\nSi ça vous parle, choisissez 15 minutes ici :\n{calendly}\n\nBonne journée,\n{founder}\nValemont" },
+  { kind: "email", key: "missed", language: "ES", subject: "He intentado llamarle, {business}", body: "Hola {contact}:\n\nHe intentado llamarle hoy: seguramente estaba trabajando.\n\nPor eso le escribo: una llamada perdida mientras trabaja suele ser un cliente que se va a otro. Montamos un sistema que contesta, cualifica la solicitud y le avisa al momento.\n\nSi le interesa, reserve 15 minutos aquí:\n{calendly}\n\nUn saludo,\n{founder}\nValemont" },
+  { kind: "email", key: "nudge", language: "FR", subject: "Re : {business}", body: "Bonjour {contact},\n\nJe me permets de revenir vers vous après mon dernier message. Est-ce toujours d'actualité, ou je classe le dossier ?\n\nMon lien si vous voulez en parler 15 minutes :\n{calendly}\n\n{founder}\nValemont" },
+  { kind: "email", key: "nudge", language: "ES", subject: "Re: {business}", body: "Hola {contact}:\n\nLe escribo de nuevo tras mi último mensaje. ¿Sigue siendo de interés, o cierro el tema?\n\nMi enlace si quiere hablarlo 15 minutos:\n{calendly}\n\n{founder}\nValemont" },
+
+  { kind: "whatsapp", key: "thanks", language: "FR", subject: "", body: "Bonjour {contact}, {founder} de Valemont. Merci pour votre temps au téléphone tout à l'heure ! Mon lien si vous voulez caler 15 min : {calendly}" },
+  { kind: "whatsapp", key: "thanks", language: "ES", subject: "", body: "Hola {contact}, soy {founder} de Valemont. ¡Gracias por su tiempo al teléfono! Mi enlace por si quiere reservar 15 min: {calendly}" },
+  { kind: "whatsapp", key: "confirm", language: "FR", subject: "", body: "Bonjour {contact}, {founder} de Valemont. C'est noté pour notre rendez-vous, merci ! Pour le déplacer : {calendly}" },
+  { kind: "whatsapp", key: "confirm", language: "ES", subject: "", body: "Hola {contact}, soy {founder} de Valemont. Queda anotada nuestra reunión, ¡gracias! Para cambiarla: {calendly}" },
+  { kind: "whatsapp", key: "thanks_soft", language: "FR", subject: "", body: "Bonjour {contact}, merci d'avoir pris mon appel tout à l'heure. Si le sujet revient un jour, vous avez mon numéro. Bonne journée ! {founder}, Valemont" },
+  { kind: "whatsapp", key: "thanks_soft", language: "ES", subject: "", body: "Hola {contact}, gracias por atender mi llamada. Si algún día le interesa, ya tiene mi número. ¡Buen día! {founder}, Valemont" },
+  { kind: "whatsapp", key: "missed", language: "FR", subject: "", body: "Bonjour {contact}, {founder} de Valemont. J'ai essayé de vous appeler, vous étiez sûrement sur un chantier. Je vous rappelle, ou vous préférez choisir un créneau ici : {calendly} ?" },
+  { kind: "whatsapp", key: "missed", language: "ES", subject: "", body: "Hola {contact}, soy {founder} de Valemont. He intentado llamarle, seguramente estaba trabajando. ¿Le vuelvo a llamar, o prefiere elegir un horario aquí: {calendly}?" },
+  { kind: "whatsapp", key: "nudge", language: "FR", subject: "", body: "Bonjour {contact}, petit message pour savoir si vous avez eu le temps de regarder ? {founder}, Valemont" },
+  { kind: "whatsapp", key: "nudge", language: "ES", subject: "", body: "Hola {contact}, ¿ha tenido tiempo de echarle un vistazo? {founder}, Valemont" },
   { kind: "whatsapp", key: "calendly", language: "FR", subject: "", body: "Bonjour {contact}, {founder} de Valemont, merci pour l'appel. Voici mon lien pour caler 15 min : {calendly}" },
   { kind: "whatsapp", key: "calendly", language: "ES", subject: "", body: "Hola {contact}, soy {founder} de Valemont, gracias por la llamada. Aquí tiene mi enlace para reservar 15 min: {calendly}" },
   { kind: "whatsapp", key: "deck", language: "FR", subject: "", body: "Bonjour {contact}, {founder} de Valemont. Comme promis, notre présentation : {deck}" },
@@ -90,8 +102,7 @@ export function fill(text: string, v: FillVars): string {
 /** True when a filled text still has a link placeholder that must be completed first. */
 export const hasMissingLink = (text: string) => /\[add (your Calendly|the deck) link/.test(text);
 
-export const objectionLabel = (k: string) => OBJECTION_LABELS[k as Objection] ?? k;
-export const LIVE_OBJECTION_LIST: readonly Objection[] = LIVE_OBJECTIONS;
+export const objectionLabel = (k: string) => { const [o, v] = k.split("#"); return `${OBJECTION_LABELS[o as Objection] ?? o}${v ? ` · reply ${v}` : ""}`; };
 
 /** WhatsApp click-to-chat link (opens the app; sending is confirmed by the founder, spec 4.15). */
 export function whatsappLink(phoneE164: string, text: string): string {
@@ -103,11 +114,13 @@ export function mailtoLink(to: string, subject: string, body: string): string {
   return `mailto:${encodeURIComponent(to).replace(/%40/g, "@")}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
-export type ComposerKind = "calendly" | "deck" | "confirm" | "whatsapp";
-/** What to send after an outcome: a meeting gets a confirmation, "send me info" gets the deck, a yes gets the booking link. */
-export function suggestedFollowUp(outcome: string, objections: readonly string[]): ComposerKind | null {
+/** What to send after each outcome, so every call can produce a message. Gatekeepers get nothing. */
+export function suggestedFollowUp(outcome: string, objections: readonly string[]): TemplateKey | null {
   if (outcome === "meeting") return "confirm";
   if (objections.includes("send_info")) return "deck";
-  if (outcome === "interested" || outcome === "call_back") return "calendly";
+  if (outcome === "interested") return "calendly";
+  if (outcome === "call_back") return "thanks";
+  if (outcome === "not_interested") return "thanks_soft";
+  if (outcome === "no_answer" || outcome === "voicemail") return "missed";
   return null;
 }

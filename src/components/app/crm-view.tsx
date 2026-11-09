@@ -89,16 +89,19 @@ export function CrmView() {
 /** This month, team: the conversion path from a dial to a won deal, with the rate between each step. */
 function FunnelStrip({ m }: { m: Crm["month"] }) {
   const steps = [["Dials", m.dials], ["Picked up", m.pickedUp], ["Said yes", m.yes], ["Meetings", m.meetings], ["Won", m.won]] as const;
+  const max = Math.max(1, m.dials);
   return (
-    <section aria-label="This month's funnel" className="grid grid-cols-5 overflow-hidden rounded-[20px] bg-panel">
+    <section aria-label="This month's funnel" className="grid grid-cols-5 gap-1.5">
       {steps.map(([label, v], i) => {
         const prev = i > 0 ? steps[i - 1][1] : null;
         const rate = prev ? Math.round((v / prev) * 100) : null;
+        const won = i === 4;
         return (
-          <div key={label} className={cn("flex flex-col gap-0.5 px-3 py-3 sm:px-5", i > 0 && "border-l border-hairline", i === 4 && "bg-ink text-panel")}>
-            <span className={cn("text-[12px]", i === 4 ? "text-panel/80" : "text-text-2")}>{label}</span>
+          <div key={label} className={cn("flex flex-col gap-0.5 rounded-[16px] px-3 py-3 sm:px-4", won ? "bg-win text-panel" : i >= 2 ? "bg-win-soft" : "bg-sales-soft")}>
+            <span className={cn("text-[12px] font-medium", won ? "text-panel/85" : "text-text-2")}>{label}</span>
             <span className="num text-[26px] font-semibold leading-none sm:text-[32px]">{v}</span>
-            <span className={cn("num text-[11px]", i === 4 ? "text-panel/75" : "text-text-3")}>{i === 0 ? "this month" : rate === null ? "—" : `${rate}% of previous`}</span>
+            <span className={cn("mt-1 h-1.5 overflow-hidden rounded-full", won ? "bg-panel/25" : "bg-panel")} aria-hidden><span className={cn("block h-full rounded-full", won ? "bg-panel" : i >= 2 ? "bg-win" : "bg-sales")} style={{ width: `${(v / max) * 100}%`, minWidth: v ? 3 : 0 }} /></span>
+            <span className={cn("num text-[11px]", won ? "text-panel/80" : "text-text-3")}>{i === 0 ? "this month" : rate === null ? "—" : `${rate}% of previous`}</span>
           </div>
         );
       })}

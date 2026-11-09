@@ -157,6 +157,8 @@ export const TABLES = {
       duration_sec: optInt(),
       /** Every objection heard during the call, whatever the outcome (objection keeps the first one). */
       objections: json(z.array(z.enum(OBJECTIONS)), []),
+      /** Reply variants used during the call ("too_expensive#2"), to learn which reply works best. */
+      replies: json(z.array(z.string().max(60)), []),
     },
   },
   Accounts: {
@@ -573,8 +575,8 @@ export interface BaseRow {
 export type Row<T extends TableName> = RowMap[T] & BaseRow;
 export type BaseFields = keyof typeof base;
 /** Columns added after a table was first created: optional on create, filled by CREATE_DEFAULTS. */
-export const CREATE_DEFAULTS: Record<string, unknown> = { list_id: "", call_session_id: "", target_key: "", duration_sec: null, area: "sales", objections: [] };
-type LateKeys = "list_id" | "call_session_id" | "target_key" | "duration_sec" | "area" | "objections";
+export const CREATE_DEFAULTS: Record<string, unknown> = { list_id: "", call_session_id: "", target_key: "", duration_sec: null, area: "sales", objections: [], replies: [] };
+type LateKeys = "list_id" | "call_session_id" | "target_key" | "duration_sec" | "area" | "objections" | "replies";
 export type NewRow<T extends TableName> = Omit<Row<T>, Exclude<BaseFields, "id"> | LateKeys> &
   Partial<Pick<Row<T>, Extract<keyof Row<T>, LateKeys>>> & { id: string };
 

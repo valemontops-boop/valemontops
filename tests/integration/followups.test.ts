@@ -9,7 +9,7 @@ import type { AppContext } from "@/server/context";
 import { seedBaseline } from "@/server/services/baseline";
 import { commit } from "@/server/services/imports";
 import { callQueue, logCall, objectionReport, sessionSummary, startSession, callSchema } from "@/server/services/calls";
-import { benchmarks, listSends, markReply, sendFollowUp, sendSchema } from "@/server/services/email";
+import { benchmarks, followUpQueue, listSends, markReply, sendBatch, sendFollowUp, sendSchema } from "@/server/services/email";
 import { getPlaybook, savePlaybookItem } from "@/server/services/playbook";
 import { addSuppression } from "@/server/services/crm";
 import { BlockedError, RuleError } from "@/server/errors";
@@ -144,12 +144,51 @@ describe("Follow-ups: Gmail send, WhatsApp, benchmarks", () => {
 describe("Playbook", () => {
   it("serves FR/ES defaults, lets a founder override one, and resets it with an empty body", async () => {
     let p = await getPlaybook(ctx, "theo");
-    expect(p.items.find((i) => i.kind === "objection" && i.key === "too_expensive" && i.language === "ES")?.body).toMatch(/99 €/);
-    await savePlaybookItem(ctx, "pablo", { kind: "objection", key: "too_expensive", language: "ES", subject: "", body: "Nuestra respuesta" });
+    expect(p.items.find((i) => i.kind === "objection" && i.key === "too_expensive#1" && i.language === "ES")?.body).toMatch(/99 €/);
+    await savePlaybookItem(ctx, "pablo", { kind: "objection", key: "too_expensive#1", language: "ES", subject: "", body: "Nuestra respuesta" });
     p = await getPlaybook(ctx, "theo");
-    expect(p.items.find((i) => i.kind === "objection" && i.key === "too_expensive" && i.language === "ES")?.body).toBe("Nuestra respuesta");
-    await savePlaybookItem(ctx, "pablo", { kind: "objection", key: "too_expensive", language: "ES", subject: "", body: "" });
+    expect(p.items.find((i) => i.kind === "objection" && i.key === "too_expensive#1" && i.language === "ES")?.body).toBe("Nuestra respuesta");
+    await savePlaybookItem(ctx, "pablo", { kind: "objection", key: "too_expensive#1", language: "ES", subject: "", body: "" });
     p = await getPlaybook(ctx, "theo");
-    expect(p.items.find((i) => i.kind === "objection" && i.key === "too_expensive" && i.language === "ES")?.body).toMatch(/99 €/);
+    expect(p.items.find((i) => i.kind === "objection" && i.key === "too_expensive#1" && i.language === "ES")?.body).toMatch(/99 €/);
+  });
+});
+
+describe("Round 4: reply variants and the message queue", () => {
+  it("records which reply variant was used and reports the best one per objection", async () => {
+    const { sid, fr, es } = await setup();
+    await logCall(ctx, "theo", callSchema.parse({ idempotency_key: randomUUID(), session_id: sid, outcome: "meeting", account_id: fr.accountId, objections: ["too_expensive"], replies: ["too_expensive#2"] }));
+    await logCall(ctx, "theo", callSchema.parse({ idempotency_key: randomUUID(), session_id: sid, outcome: "not_interested", account_id: es.accountId, objections: ["too_expensive"], replies: ["too_expensive#1"] }));
+    const ev = dedupeEvents((await makeRepo(url).list("ActivityEvents")).rows).find((e) => e.outcome === "meeting_booked")!;
+    expect(ev.replies).toEqual(["too_expensive#2"]);
+    const r = await objectionReport(ctx, "theo");
+    expect(r.variants).toEqual([{ reply: "too_expensive#1", uses: 1, won: 0 }, { reply: "too_expensive#2", uses: 1, won: 1 }]);
+    expect(r.picks.too_expensive).toBe(1); // both under 5 uses: the least used, ties go to the first
+    expect(r.brushOffShare).toBe(0);
+  });
+
+  it("queues a message for everyone reached, sends the batch by Gmail once, and skips Spain for cold messages", async () => {
+    const { sid, fr, es } = await setup();
+    await logCall(ctx, "theo", callSchema.parse({ idempotency_key: randomUUID(), session_id: sid, outcome: "not_interested", account_id: fr.accountId, objections: ["enough_work"] }));
+    await logCall(ctx, "theo", callSchema.parse({ idempotency_key: randomUUID(), session_id: sid, outcome: "no_answer", account_id: es.accountId }));
+    const q = await followUpQueue(ctx, "theo");
+    expect(q.items.map((i) => [i.name, i.template, i.reason])).toEqual([["Garage Un (test)", "thanks_soft", "talked"]]); // ES no-answer: cold, no consent → not queued
+    const it = q.items[0];
+    const items = q.items.map((x) => ({ idempotency_key: randomUUID(), channel: "email" as const, via: "gmail" as const, context: x.context, account_id: x.accountId, call_session_id: "", to: x.email, subject: "Merci pour votre accueil", body: "Merci d'avoir pris mon appel.", template_key: x.template, language: x.market, market: x.market, business_name: "", contact_name: "", check_only: false }));
+    const r1 = await sendBatch(ctx, "theo", "founder-token-theo", { items });
+    expect(r1).toMatchObject({ sent: 1, failed: 0 });
+    await sendBatch(ctx, "theo", "founder-token-theo", { items }); // retry: same keys, nothing re-sent
+    expect(google.store.sentMail).toHaveLength(1);
+    expect(google.store.sentMail[0].to).toBe(it.email);
+    const after = await followUpQueue(ctx, "theo");
+    expect(after.items).toHaveLength(0);
+    expect(after.sentToday).toBe(1);
+    const s = await sessionSummary(ctx, "theo", sid);
+    expect(s.messages).toBe(0); // the batch was not sent from the session itself
+  });
+
+  it("blocks a cold WhatsApp to Spain without consent, like email", async () => {
+    const { es } = await setup();
+    await expect(sendFollowUp(ctx, "theo", null, sendSchema.parse({ idempotency_key: randomUUID(), channel: "whatsapp", via: "whatsapp", account_id: es.accountId, to: "+34900000102", body: "Hola", template_key: "missed" }))).rejects.toBeInstanceOf(RuleError);
   });
 });

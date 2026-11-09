@@ -3,7 +3,8 @@ import type { Row } from "@/data/repository";
 import { childId } from "@/lib/ids";
 import { CONTACT_TYPES, MARKETS, OBJECTIONS, STAGES, type FounderKey, type Stage } from "@/domain/constants";
 import { dedupeEvents } from "@/domain/activity";
-import { CALL_OUTCOMES, callStats, eventFor, isPositive } from "@/domain/calls";
+import { CALL_OUTCOMES, callStats, eventFor, isPositive, objectionsOf } from "@/domain/calls";
+import { OBJECTION_GUIDE, guideOf, pickVariant, replyStats } from "@/domain/objections";
 import { isOpen } from "@/domain/pipeline";
 import { outreachBlock } from "@/domain/suppression";
 import { addDays, localDate } from "@/domain/time";
@@ -68,6 +69,8 @@ export const callSchema = z.object({
   objection: z.enum(OBJECTIONS).nullable().default(null),
   /** Objections ticked live during the call, whatever the outcome. */
   objections: z.array(z.enum(OBJECTIONS)).max(12).default([]),
+  /** Reply variant shown for each objection when the outcome was tapped ("too_expensive#2"). */
+  replies: z.array(z.string().regex(/^[a-z_]+#\d{1,2}$/)).max(12).default([]),
   /** Seconds from "Dial" to the outcome tap, when the timer ran. */
   duration_sec: z.number().int().min(0).max(4 * 3600).nullable().default(null),
   follow_up_date: z.union([z.literal(""), z.string().regex(/^\d{4}-\d{2}-\d{2}$/)]).default(""),
@@ -101,6 +104,7 @@ export async function logCall(ctx: AppContext, founder: FounderKey, input: z.inf
     account_id: input.account_id,
     objection: input.objection,
     objections: input.objections,
+    replies: input.replies,
     duration_sec: input.duration_sec,
     notes: input.note,
     next_action: nextAction,
@@ -134,7 +138,7 @@ export async function logCall(ctx: AppContext, founder: FounderKey, input: z.inf
 }
 
 export async function sessionSummary(ctx: AppContext, founder: FounderKey, id: string) {
-  const t = await ctx.repo.listMany(["CallSessions", "ActivityEvents"]);
+  const t = await ctx.repo.listMany(["CallSessions", "ActivityEvents", "EmailSends"]);
   const s = t.CallSessions.rows.find((x) => x.id === id);
   if (!s) throw new RuleError("Session not found");
   const u = await userRow(ctx.repo, founder);
@@ -146,7 +150,8 @@ export async function sessionSummary(ctx: AppContext, founder: FounderKey, id: s
     const v = previous.map(f).filter((x): x is number => x !== null);
     return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
   };
-  return { session: s, stats, previous: { sessions: previous.length, pickupRate: avg((x) => x.pickupRate), positiveRate: avg((x) => x.positiveRate), dials: avg((x) => x.dials) } };
+  const messages = t.EmailSends.rows.filter((r) => r.call_session_id === id && r.status === "sent" && !r.is_archived).length;
+  return { session: s, stats, messages, previous: { sessions: previous.length, pickupRate: avg((x) => x.pickupRate), positiveRate: avg((x) => x.positiveRate), dials: avg((x) => x.dials) } };
 }
 
 export async function listSessions(ctx: AppContext, founder: FounderKey) {
@@ -174,13 +179,42 @@ export async function callLists(ctx: AppContext) {
   });
 }
 
-/** Objections heard in the last N days (team-wide) and how often each one was turned into a yes. */
+/**
+ * Objections heard in the last N days (team-wide), how often each was turned into a yes, which reply
+ * variant works best (90 days of data), and where objections come from (country, trade).
+ */
 export async function objectionReport(ctx: AppContext, founder: FounderKey, days = 30) {
-  const t = await ctx.repo.listMany(["ActivityEvents"]);
+  const t = await ctx.repo.listMany(["ActivityEvents", "Accounts"]);
   const u = await userRow(ctx.repo, founder);
-  const from = addDays(localDate(new Date(), u.timezone), -days + 1);
-  const events = dedupeEvents(t.ActivityEvents.rows).filter((e) => e.local_date >= from);
+  const today = localDate(new Date(), u.timezone);
+  const from = addDays(today, -days + 1);
+  const all90 = dedupeEvents(t.ActivityEvents.rows).filter((e) => e.local_date >= addDays(today, -89));
+  const events = all90.filter((e) => e.local_date >= from);
   const all = callStats(events, u.timezone);
   const mine = callStats(events.filter((e) => e.founder_key === founder), u.timezone);
-  return { days, team: all.objections, mine: mine.objections, pickedUp: all.pickedUp, avgTalkSec: all.avgTalkSec };
+  const variants = replyStats(all90);
+  const picks = Object.fromEntries(OBJECTION_GUIDE.map((g) => [g.key, pickVariant(g.key, variants)]));
+  const niche = new Map(t.Accounts.rows.map((a) => [a.id, a.niche]));
+  const split = (keyOf: (e: (typeof events)[number]) => string) => {
+    const m = new Map<string, Map<string, number>>();
+    for (const e of events.filter((x) => x.activity_type === "connected_call")) {
+      const k = keyOf(e);
+      if (!k) continue;
+      for (const o of objectionsOf(e)) {
+        const inner = m.get(k) ?? new Map<string, number>();
+        inner.set(o, (inner.get(o) ?? 0) + 1);
+        m.set(k, inner);
+      }
+    }
+    return [...m.entries()].map(([key, inner]) => ({ key, total: [...inner.values()].reduce((a, b) => a + b, 0), top: [...inner.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([o, n]) => ({ key: o, count: n })) })).sort((a, b) => b.total - a.total);
+  };
+  const heard = all.objections.reduce((a, o) => a + o.count, 0);
+  const brushOffs = all.objections.filter((o) => guideOf(o.key)?.type === "brush_off").reduce((a, o) => a + o.count, 0);
+  return {
+    days, team: all.objections, mine: mine.objections, pickedUp: all.pickedUp, avgTalkSec: all.avgTalkSec,
+    heard, brushOffShare: heard ? brushOffs / heard : null,
+    variants, picks,
+    byMarket: split((e) => e.market ?? ""),
+    byNiche: split((e) => niche.get(e.account_id) ?? "").slice(0, 6),
+  };
 }

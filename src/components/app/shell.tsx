@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/form";
 import { Modal } from "@/components/ui/overlay";
 import { WORK_MODE_LABELS } from "@/domain/constants";
+import { TONE_SOFT, TONE_TEXT, type Tone } from "@/lib/tones";
 import { cn, relTime } from "@/lib/utils";
 import { Providers, useMe, useSyncStatus, type Me } from "./providers";
 import { QUICK_KINDS, QuickActionProvider, useQuickAction } from "./quick-action";
@@ -72,12 +73,16 @@ function Notifications() {
   );
 }
 
+/** Each section keeps its color in the menu: sales blue, marketing violet, ops teal, results green. */
+const NAV_TONE: Record<string, Tone> = { "/my-day": "sales", "/call": "sales", "/crm": "sales", "/marketing": "mkt", "/tasks": "ops", "/agenda": "ops", "/ideas": "mkt", "/files": "ops", "/reports": "win", "/command-center": "win" };
+
 function NavLink({ href, label, icon: Icon, path, badge }: { href: string; label: string; icon: React.ComponentType<{ className?: string }>; path: string; badge?: number }) {
   const active = path.startsWith(href);
+  const tone = NAV_TONE[href];
   return (
     <Link href={href} aria-current={active ? "page" : undefined}
-      className={cn("flex h-10 items-center gap-3 rounded-[12px] px-3 text-sm font-medium", active ? "bg-subtle text-ink" : "text-text-2 hover:bg-subtle hover:text-ink")}>
-      <Icon className="size-4" />
+      className={cn("flex h-10 items-center gap-3 rounded-[12px] px-3 text-sm font-medium", active ? cn(tone ? TONE_SOFT[tone] : "bg-subtle", "text-ink") : "text-text-2 hover:bg-subtle hover:text-ink")}>
+      <Icon className={cn("size-4", tone ? TONE_TEXT[tone] : "")} />
       <span className="flex-1">{label}</span>
       {badge ? <span className="num rounded-full bg-ink px-2 text-[12px] text-panel">{badge}</span> : null}
     </Link>

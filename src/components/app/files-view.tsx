@@ -19,7 +19,7 @@ const isFolder = (f: DriveFile) => f.mimeType === FOLDER;
 function kindOf(mime: string): { icon: React.ComponentType<{ className?: string }>; label: string; tint: string } {
   if (mime === FOLDER) return { icon: Folder, label: "Folder", tint: "text-text-2" };
   if (mime.includes("spreadsheet") || mime.includes("excel") || mime.includes("csv")) return { icon: FileSpreadsheet, label: "Sheet", tint: "text-good" };
-  if (mime.includes("presentation") || mime.includes("powerpoint")) return { icon: Presentation, label: "Slides", tint: "text-brand-local" };
+  if (mime.includes("presentation") || mime.includes("powerpoint")) return { icon: Presentation, label: "Slides", tint: "text-ops" };
   if (mime.includes("document") || mime.includes("word") || mime.startsWith("text/")) return { icon: FileText, label: "Doc", tint: "text-brand-consulting" };
   if (mime === "application/pdf") return { icon: FileText, label: "PDF", tint: "text-bad" };
   if (mime.startsWith("image/")) return { icon: FileImage, label: "Image", tint: "text-brand-thirty" };

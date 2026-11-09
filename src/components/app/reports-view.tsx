@@ -10,9 +10,9 @@ import { api } from "@/lib/api";
 import type { weeklyReview } from "@/server/services/insights";
 import type { streakSummary } from "@/server/services/results";
 import { DayDots } from "./bits";
-import { Bars, Kpi } from "./charts";
+import { Bars, Funnel, Kpi } from "./charts";
+import { ObjectionRows } from "./call-mode";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { OBJECTION_LABELS } from "@/domain/constants";
 import type { reportsDashboard as dashboard } from "@/server/services/dashboard";
 
 type Weekly = Awaited<ReturnType<typeof weeklyReview>>;
@@ -60,11 +60,11 @@ function DashboardBody({ d }: { d: Dash }) {
   return (
     <>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <Kpi tone="volume" label="Dials" value={String(k.dials.value ?? 0)} delta={k.dials.delta} note={`${k.newBusinesses.value ?? 0} new businesses`} />
-        <Kpi tone="volume" label="Pick-up rate" value={pctTxt(k.pickupRate.value)} delta={k.pickupRate.delta} note="picked up / dials" />
-        <Kpi tone="yes" label="Yes rate" value={pctTxt(k.yesRate.value)} delta={k.yesRate.delta} note={`${k.yes.value ?? 0} yes / picked up`} />
+        <Kpi tone="sales" label="Dials" spark={d.daily.map((x) => x.dials)} value={String(k.dials.value ?? 0)} delta={k.dials.delta} note={`${k.newBusinesses.value ?? 0} new businesses`} />
+        <Kpi tone="sales" label="Pick-up rate" value={pctTxt(k.pickupRate.value)} delta={k.pickupRate.delta} note="picked up / dials" />
+        <Kpi tone="win" spark={d.daily.map((x) => x.yes)} label="Yes rate" value={pctTxt(k.yesRate.value)} delta={k.yesRate.delta} note={`${k.yes.value ?? 0} yes / picked up`} />
         <Kpi label="Meetings booked" value={String(k.meetings.value ?? 0)} delta={k.meetings.delta} dark />
-        <Kpi tone="yes" label="Deals won" value={String(k.won.value ?? 0)} delta={k.won.delta} note={`${k.content.value ?? 0} content published`} />
+        <Kpi tone="win" label="Deals won" value={String(k.won.value ?? 0)} delta={k.won.delta} note={`${k.content.value ?? 0} content published`} />
       </div>
       <Panel>
         <PanelTitle>Dials and yes per day</PanelTitle>
@@ -75,29 +75,29 @@ function DashboardBody({ d }: { d: Dash }) {
               <XAxis dataKey="date" tickFormatter={(x: string) => x.slice(8)} stroke="var(--text-3)" fontSize={11} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={10} />
               <YAxis stroke="var(--text-3)" fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
               <Tooltip cursor={{ fill: "var(--subtle)" }} contentStyle={{ borderRadius: 12, border: "none", background: "var(--ink)", color: "var(--panel)", fontSize: 12 }} labelFormatter={(x) => String(x)} />
-              <Bar dataKey="dials" name="Dials" fill="var(--viz-volume)" radius={[4, 4, 0, 0]} barSize={14} isAnimationActive={false} />
-              <Bar dataKey="yes" name="Yes" fill="var(--viz-yes)" radius={[4, 4, 0, 0]} barSize={14} isAnimationActive={false} />
+              <Bar dataKey="dials" name="Dials" fill="var(--sales)" radius={[4, 4, 0, 0]} barSize={14} isAnimationActive={false} />
+              <Bar dataKey="yes" name="Yes" fill="var(--win)" radius={[4, 4, 0, 0]} barSize={14} isAnimationActive={false} />
             </BarChart>
           </ResponsiveContainer>
         </div>
-        <p className="mt-1 flex gap-4 text-[12px] text-text-3"><span className="flex items-center gap-1"><span className="size-2.5 rounded-sm bg-viz-volume" />Dials <b className="num font-medium text-text-2">{d.daily.reduce((a, x) => a + x.dials, 0)}</b></span><span className="flex items-center gap-1"><span className="size-2.5 rounded-sm bg-viz-yes" />Yes <b className="num font-medium text-text-2">{d.daily.reduce((a, x) => a + x.yes, 0)}</b></span></p>
+        <p className="mt-1 flex gap-4 text-[12px] text-text-3"><span className="flex items-center gap-1"><span className="size-2.5 rounded-sm bg-sales" />Dials <b className="num font-medium text-text-2">{d.daily.reduce((a, x) => a + x.dials, 0)}</b></span><span className="flex items-center gap-1"><span className="size-2.5 rounded-sm bg-win" />Yes <b className="num font-medium text-text-2">{d.daily.reduce((a, x) => a + x.yes, 0)}</b></span></p>
       </Panel>
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <Panel><PanelTitle>Funnel</PanelTitle><Bars data={d.funnel.map((f, i) => ({ ...f, tone: i < 2 ? ("volume" as const) : ("yes" as const) }))} showShare /></Panel>
-        <Panel><PanelTitle>Objections heard</PanelTitle>{d.objections.length ? <><Bars tone="muted" data={d.objections.map((o) => ({ label: OBJECTION_LABELS[o.key as keyof typeof OBJECTION_LABELS] ?? o.key, value: o.count, sub: o.won ? `${o.won} still said yes` : undefined }))} /><p className="mt-2 text-[12px] text-text-3">Heard on any call, not only refusals. Live replies: Settings › Playbook.</p></> : <p className="text-sm text-text-2">No objection recorded in this period.</p>}</Panel>
+        <Panel><PanelTitle>Funnel</PanelTitle><Funnel steps={d.funnel.map((f, i) => ({ ...f, tone: i < 2 ? ("sales" as const) : ("win" as const) }))} /></Panel>
+        <Panel><PanelTitle>Objections heard</PanelTitle>{d.objections.length ? <><ObjectionRows rows={d.objections} /><p className="mt-2 text-[12px] text-text-3">Green = the call still ended in a yes. Heard on any call, not only refusals. Practise the weak ones in Call mode › Objection drill.</p></> : <p className="text-sm text-text-2">No objection recorded in this period.</p>}</Panel>
         <Panel>
           <PanelTitle>Best hours to call</PanelTitle>
-          {d.byHour.length ? <Bars tone="volume" data={d.byHour.map((h) => ({ label: `${h.hour}:00`, value: Math.round((h.pickupRate ?? 0) * 100), sub: `${h.pickedUp}/${h.dials} picked up` }))} max={100} /> : <p className="text-sm text-text-2">No calls yet.</p>}
+          {d.byHour.length ? <Bars tone="sales" data={d.byHour.map((h) => ({ label: `${h.hour}:00`, value: Math.round((h.pickupRate ?? 0) * 100), sub: `${h.pickedUp}/${h.dials} picked up` }))} max={100} /> : <p className="text-sm text-text-2">No calls yet.</p>}
           {best ? <p className="mt-3 text-[13px] text-text-2">Most pick-ups around <span className="font-semibold text-ink">{best.hour}:00</span> ({pctTxt(best.pickupRate)}). Bars show the pick-up rate in %.</p> : null}
         </Panel>
-        <Panel><PanelTitle>Outreach by channel</PanelTitle><Bars tone="volume" data={d.channels.filter((c) => c.count > 0).map((c) => ({ label: METRIC_LABELS[c.metric], value: c.count }))} /></Panel>
+        <Panel><PanelTitle>Outreach by channel</PanelTitle><Bars tone="sales" data={d.channels.filter((c) => c.count > 0).map((c) => ({ label: METRIC_LABELS[c.metric], value: c.count }))} /></Panel>
         <Panel>
           <PanelTitle>By country</PanelTitle>
           {d.byMarket.length ? <Bars data={d.byMarket.map((m) => ({ label: m.key, value: m.dials, tone: m.key === "ES" ? ("muted" as const) : ("ink" as const), sub: `${pctTxt(m.picked && m.dials ? m.picked / m.dials : null)} pick-up · ${pctTxt(m.yesRate)} yes` }))} /> : <p className="text-sm text-text-2">No calls yet.</p>}
         </Panel>
         <Panel>
           <PanelTitle>By trade</PanelTitle>
-          {d.byNiche.length ? <Bars tone="volume" data={d.byNiche.map((m) => ({ label: m.key, value: m.dials, sub: `${pctTxt(m.yesRate)} yes when reached` }))} /> : <p className="text-sm text-text-2">No calls yet.</p>}
+          {d.byNiche.length ? <Bars tone="sales" data={d.byNiche.map((m) => ({ label: m.key, value: m.dials, sub: `${pctTxt(m.yesRate)} yes when reached` }))} /> : <p className="text-sm text-text-2">No calls yet.</p>}
         </Panel>
       </div>
     </>
