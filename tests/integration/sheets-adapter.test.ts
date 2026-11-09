@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { StorageError } from "@/data/repository";
 import { setupSpreadsheet } from "@/data/sheets/setup";
+import { GoogleSheetsRepository } from "@/data/sheets/repository";
 import type { FakeSheetsServer } from "@/fake-sheets/server";
 import { TEST_SHEET_ID, freshSheetsRepo, makeClient, makeRepo, uuid } from "../helpers";
 
@@ -14,6 +15,21 @@ const acc = (p: Record<string, unknown> = {}) => ({
 });
 
 describe("Sheets adapter against the fake server", () => {
+  it("a page's parallel requests on a cold server cost one data read in total (Google allows 60 reads/min)", async () => {
+    const env = await freshSheetsRepo();
+    fake = env.fake;
+    const repo = new GoogleSheetsRepository(makeClient(env.url)); // production settings (revision check cached)
+    const before = repo.stats().requests;
+    await Promise.all([
+      repo.list("Accounts"), repo.listMany(["Tasks", "Ideas"]), repo.list("ActivityEvents"),
+      repo.listMany(["Opportunities", "Contacts"]), repo.list("SystemSettings"), repo.list("Users"),
+    ]);
+    // one revisions read + one bulk read of every shared tab
+    expect(repo.stats().requests - before).toBe(2);
+    await repo.listMany(["EmailSends", "Playbook"]); // already in the bulk read
+    expect(repo.stats().requests - before).toBe(2);
+  });
+
   it("stores user strings as text with RAW (scenario 15) — USER_ENTERED would corrupt them", async () => {
     const env = await freshSheetsRepo();
     fake = env.fake;

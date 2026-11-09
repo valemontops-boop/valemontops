@@ -8,6 +8,7 @@ import {
   type NewRow,
   type Row,
   type TableName,
+  TABLE_NAMES,
 } from "../schema/tables";
 import {
   ConflictError,
@@ -53,6 +54,7 @@ export class GoogleSheetsRepository implements DataRepository {
   private revCache: { value: Record<Domain, string>; at: number } | null = null;
   private revInflight: Promise<Record<Domain, string>> | null = null;
   private readInflight = new Map<string, Promise<void>>();
+  private bulkInflight: Promise<void> | null = null;
   private readonly tableTtl: number;
   private readonly revTtl: number;
   private readonly extra: number;
@@ -124,13 +126,22 @@ export class GoogleSheetsRepository implements DataRepository {
 
   async listMany<T extends TableName>(tables: T[], opts: ReadOptions = {}): Promise<{ [K in T]: ReadResult<K> }> {
     const revs = await this.revisions(opts);
+    // A bulk read already running (another request on this server) may bring what we need: wait for it first.
+    if (this.bulkInflight) await this.bulkInflight.catch(() => undefined);
     const now = Date.now();
-    const stale = tables.filter((t) => {
+    const isStale = (t: TableName, fresh: boolean) => {
       const c = this.cache.get(t);
       if (!c) return true;
-      if (opts.fresh) return now - c.fetchedAt > FRESH_WINDOW_MS;
+      if (fresh) return now - c.fetchedAt > FRESH_WINDOW_MS;
       return c.token !== revs[domainOf(t)] || now - c.fetchedAt > this.tableTtl;
-    });
+    };
+    let stale: TableName[] = tables.filter((t) => isStale(t, Boolean(opts.fresh)));
+    // One page fires many requests at once, each needing a few tabs. Reading every out-of-date shared tab in ONE
+    // request (instead of one per request) keeps the app under Google's 60 reads per minute.
+    if (stale.length > 0 && stale.every((t) => SHARED_TABLES.has(t))) {
+      const extra = TABLE_NAMES.filter((t) => !stale.includes(t) && isStale(t, false));
+      stale = [...stale, ...extra];
+    }
     if (stale.length > 0) {
       const key = [...stale].sort().join("|");
       let p = this.readInflight.get(key);
@@ -156,7 +167,9 @@ export class GoogleSheetsRepository implements DataRepository {
           });
         })();
         this.readInflight.set(key, p);
-        p.finally(() => this.readInflight.delete(key)).catch(() => undefined);
+        const bulk = p;
+        this.bulkInflight = bulk;
+        p.finally(() => { this.readInflight.delete(key); if (this.bulkInflight === bulk) this.bulkInflight = null; }).catch(() => undefined);
       }
       await p;
     }
@@ -269,6 +282,8 @@ export class GoogleSheetsRepository implements DataRepository {
 
 /** A fresh read accepts data read this recently (one action often reads the same tabs several times). */
 const FRESH_WINDOW_MS = 3_000;
+/** Tabs of the shared spreadsheet (a private founder spreadsheet only holds its own tabs). */
+const SHARED_TABLES: ReadonlySet<TableName> = new Set(TABLE_NAMES);
 /** When Google refuses reads (per-minute quota), data read this recently is served instead of an error. */
 const QUOTA_FALLBACK_MS = 5 * 60_000;
 
