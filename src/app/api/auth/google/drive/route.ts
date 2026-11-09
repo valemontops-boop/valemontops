@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { safeBackPath } from "@/server/guard";
 import { randomBytes } from "node:crypto";
 import { OAuth2Client } from "google-auth-library";
 import { getConfig } from "@/server/config";
@@ -14,7 +15,7 @@ export async function GET(req: NextRequest) {
   const session = await readSessionToken(req.cookies.get(SESSION_COOKIE)?.value, cfg.sessionSecret, cfg.mode);
   if (!cfg.ok || !session) return NextResponse.redirect(new URL("/login", req.url));
   const back = req.nextUrl.searchParams.get("back") ?? "/files";
-  const safeBack = back.startsWith("/") && !back.startsWith("//") ? back : "/files";
+  const safeBack = safeBackPath(back, "/files"); // "/\\evil.example" was an open redirect (D084)
   if (cfg.mode === "demo") {
     const res = NextResponse.redirect(new URL(safeBack, req.url));
     res.cookies.set(DRIVE_COOKIE, await seal({ t: `demo-grant-${session.founder}`, f: session.founder }, cfg.sessionSecret, 3_600), sessionCookieOptions(cfg.production, 3_600));

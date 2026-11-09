@@ -182,3 +182,53 @@ export function ladderStats(events: readonly { offers_pitched?: readonly string[
   const n = (k: string) => events.filter((e) => e.offers_pitched?.includes(k)).length;
   return { localOffered: n("local") + n("local_yes"), localYes: n("local_yes"), thirtyOffered: n("thirty") + n("thirty_yes"), thirtyYes: n("thirty_yes") };
 }
+
+/* ---------------- Round 11 (D080): after a missed call — mail, call back, next ---------------- */
+
+/**
+ * Quick call-back times, in the founder's own clock (the device's time zone): in 2 hours (rounded to 5 minutes),
+ * tonight 18:00, tomorrow 9:00 and 14:00, Monday 9:00. Times already past (or under 15 minutes away) are dropped,
+ * and Monday 9:00 is dropped when it is tomorrow 9:00.
+ */
+export const CALLBACK_CHOICES = ["in_2h", "tonight", "tomorrow_9", "tomorrow_14", "monday_9"] as const;
+export type CallbackChoice = (typeof CALLBACK_CHOICES)[number];
+export const CALLBACK_LABELS: Record<CallbackChoice, string> = { in_2h: "In 2 h", tonight: "Tonight 6 pm", tomorrow_9: "Tomorrow 9 am", tomorrow_14: "Tomorrow 2 pm", monday_9: "Monday 9 am" };
+const at = (base: Date, addDays: number, h: number, m = 0) => { const d = new Date(base); d.setDate(d.getDate() + addDays); d.setHours(h, m, 0, 0); return d; };
+export function callbackTime(choice: CallbackChoice, now: Date): Date {
+  switch (choice) {
+    case "in_2h": { const d = new Date(now.getTime() + 2 * 3_600_000); d.setSeconds(0, 0); d.setMinutes(Math.ceil(d.getMinutes() / 5) * 5); return d; }
+    case "tonight": return at(now, 0, 18);
+    case "tomorrow_9": return at(now, 1, 9);
+    case "tomorrow_14": return at(now, 1, 14);
+    case "monday_9": { const toMonday = ((8 - now.getDay()) % 7) || 7; return at(now, toMonday, 9); }
+  }
+}
+export function callbackChoices(now: Date): { choice: CallbackChoice; at: Date }[] {
+  const all = CALLBACK_CHOICES.map((choice) => ({ choice, at: callbackTime(choice, now) }));
+  return all.filter((c, i) => c.at.getTime() - now.getTime() >= 15 * 60_000 && !all.slice(0, i).some((p) => p.at.getTime() === c.at.getTime()));
+}
+
+/** A call-back is due once its time has come (or, with only a date, from that day on). */
+export function isCallbackDue(e: { next_action_at?: string | null; next_action_due: string | null }, now: Date, today: string): boolean {
+  if (e.next_action_at) return Date.parse(e.next_action_at) <= now.getTime();
+  return Boolean(e.next_action_due && e.next_action_due <= today);
+}
+
+interface CallbackEv { account_id: string; founder_key: string; activity_type: string; outcome: string | null; occurred_at: string; next_action_at?: string | null; next_action_due: string | null }
+/**
+ * Call-backs still to make: for each business, its latest call (whoever made it); it counts when that call is this
+ * founder's and carries a call-back (a time set after the call, or "call back" as the outcome). A later call to the
+ * same business closes it. Soonest first.
+ */
+export function openCallbacks<T extends CallbackEv>(events: readonly T[], founder: string): T[] {
+  const latest = new Map<string, T>();
+  for (const e of events) {
+    if (!e.account_id || !CALL_TYPES.includes(e.activity_type)) continue;
+    const cur = latest.get(e.account_id);
+    if (!cur || e.occurred_at > cur.occurred_at) latest.set(e.account_id, e);
+  }
+  const when = (e: T) => e.next_action_at ?? `${e.next_action_due ?? "9999-12-31"}T09:00:00.000Z`;
+  return [...latest.values()]
+    .filter((e) => e.founder_key === founder && (Boolean(e.next_action_at) || (e.outcome === "callback_requested" && Boolean(e.next_action_due))))
+    .sort((a, b) => when(a).localeCompare(when(b)));
+}

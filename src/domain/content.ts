@@ -3,7 +3,7 @@
  * week, produced in batches — 30/30: 2 concepts → 4 Reels (2 FR + 2 ES); Valemont: 1 concept → 2 Reels (1 FR + 1 ES) —
  * and a fixed weekday publishing calendar. ContentLog rows keep their columns (deliverable, brand, language).
  */
-export const DELIVERABLES = ["concept", "reel", "brand_post", "personal_post", "story", "vsl"] as const;
+export const DELIVERABLES = ["concept", "reel", "brand_post", "personal_post", "story", "vsl", "ig_post"] as const;
 export type Deliverable = (typeof DELIVERABLES)[number];
 export const DELIVERABLE_LABELS: Record<Deliverable, string> = {
   concept: "Video concepts",
@@ -12,6 +12,7 @@ export const DELIVERABLE_LABELS: Record<Deliverable, string> = {
   personal_post: "Personal LinkedIn posts",
   story: "Instagram stories",
   vsl: "VSL (every 2 weeks)",
+  ig_post: "Instagram posts and carousels",
 };
 
 export type ContentBrand = "thirty" | "consulting";

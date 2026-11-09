@@ -23,7 +23,8 @@ export const neutralizeFormula = (s: string) => (looksLikeFormula(s) ? "'" + s :
 
 export function escapeCsvCell(value: string | number | null | undefined, kind: ColumnKind): string {
   let s = value === null || value === undefined ? "" : String(value);
-  if (kind === "text") s = neutralizeFormula(s);
+  // A phone column keeps "+33 6 …" intact, but anything that is not phone-like is treated as free text (Stage 4A).
+  if (kind === "text" || (kind === "phone" && !/^[+\d\s().\-/]*$/.test(s))) s = neutralizeFormula(s);
   return `"${s.replace(/"/g, '""')}"`;
 }
 

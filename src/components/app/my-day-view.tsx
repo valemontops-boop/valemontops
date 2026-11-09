@@ -18,6 +18,7 @@ import { TargetsEditor } from "./targets-editor";
 import { useMyDay, type MyDayData } from "./use-crm";
 import { useT } from "@/i18n/react";
 import { InboxPanel } from "./inbox-panel";
+import { CallbacksList } from "./callbacks";
 import { CloseDayButton, LateCorrections, MarketingWeek, NextBestActions, NextMeetings, StreakStrip, TasksFor } from "./my-day-extras";
 
 const METRIC_KIND: Partial<Record<Metric, QuickKind>> = {
@@ -70,6 +71,7 @@ export function MyDayView() {
         <InboxPanel />
         {!focus ? <StreakStrip /> : null}
         {!focus ? <NextMeetings /> : null}
+        <CallbacksList />
         <NextActionCard d={d} onOnboard={() => setEditor(true)} />
         {!focus ? <LateCorrections /> : null}
 

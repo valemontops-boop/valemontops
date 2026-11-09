@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AFTER_OUTCOMES, LADDER_START, afterOutcomes, callStats, eventFor, isPositive, ladder, ladderRecord, ladderStats, nextStep, resolveAfter, suggestedAfter } from "./calls";
+import { AFTER_OUTCOMES, LADDER_START, afterOutcomes, callbackChoices, callbackTime, isCallbackDue, openCallbacks, callStats, eventFor, isPositive, ladder, ladderRecord, ladderStats, nextStep, resolveAfter, suggestedAfter } from "./calls";
 import { afterCallSuggestion, inCallChips } from "./messages";
 
 const ev = (activity_type: string, outcome: string | null, at: string, objection: string | null = null) => ({ activity_type, outcome, objection, occurred_at: at });
@@ -97,5 +97,44 @@ describe("instant mail during the call", () => {
     expect(afterCallSuggestion("meeting", [], "FR", null, [])?.suggested).toBe("confirm");
     expect(afterCallSuggestion("interested", [], "FR", "thirty", [])?.suggested).toBe("thirty");
     expect(afterCallSuggestion("gatekeeper", [], "FR", null, [])).toBeNull();
+  });
+});
+
+describe("call-backs after a missed call (D080)", () => {
+  // Local clock: built with the same local-time methods the screen uses, whatever the machine's time zone.
+  const local = (y: number, m: number, d: number, h: number, min = 0) => new Date(y, m - 1, d, h, min, 0, 0);
+  it("offers in 2 h, tonight 18:00, tomorrow 9:00 / 14:00 and Monday 9:00, dropping times already past", () => {
+    const tue = local(2026, 11, 10, 10, 3); // a Tuesday morning
+    expect(callbackTime("in_2h", tue)).toEqual(local(2026, 11, 10, 12, 5)); // rounded up to 5 minutes
+    expect(callbackTime("tonight", tue)).toEqual(local(2026, 11, 10, 18));
+    expect(callbackTime("tomorrow_9", tue)).toEqual(local(2026, 11, 11, 9));
+    expect(callbackTime("tomorrow_14", tue)).toEqual(local(2026, 11, 11, 14));
+    expect(callbackTime("monday_9", tue)).toEqual(local(2026, 11, 16, 9));
+    expect(callbackChoices(tue).map((c) => c.choice)).toEqual(["in_2h", "tonight", "tomorrow_9", "tomorrow_14", "monday_9"]);
+    // 19:00: "tonight 18:00" is gone.
+    expect(callbackChoices(local(2026, 11, 10, 19)).map((c) => c.choice)).toEqual(["in_2h", "tomorrow_9", "tomorrow_14", "monday_9"]);
+    // Sunday: Monday 9:00 is tomorrow 9:00, shown once. Monday: next Monday.
+    expect(callbackChoices(local(2026, 11, 15, 10)).map((c) => c.choice)).toEqual(["in_2h", "tonight", "tomorrow_9", "tomorrow_14"]);
+    expect(callbackTime("monday_9", local(2026, 11, 16, 8))).toEqual(local(2026, 11, 23, 9));
+  });
+  it("is due once its time has come, or from its day when only a date was kept", () => {
+    const now = new Date("2026-11-10T14:00:00.000Z");
+    expect(isCallbackDue({ next_action_at: "2026-11-10T13:59:00.000Z", next_action_due: "2026-11-10" }, now, "2026-11-10")).toBe(true);
+    expect(isCallbackDue({ next_action_at: "2026-11-10T16:00:00.000Z", next_action_due: "2026-11-10" }, now, "2026-11-10")).toBe(false);
+    expect(isCallbackDue({ next_action_at: null, next_action_due: "2026-11-10" }, now, "2026-11-10")).toBe(true);
+    expect(isCallbackDue({ next_action_at: null, next_action_due: null }, now, "2026-11-10")).toBe(false);
+  });
+  it("keeps the latest call per business: a later call closes the call-back; soonest first; only the founder's own", () => {
+    const c = (account_id: string, occurred_at: string, p: Record<string, unknown> = {}) => ({ account_id, founder_key: "theo", activity_type: "cold_call", outcome: "no_answer", occurred_at, next_action_at: null as string | null, next_action_due: null as string | null, ...p });
+    const events = [
+      c("a", "2026-11-10T09:00:00Z", { next_action_at: "2026-11-11T08:00:00.000Z" }),
+      c("b", "2026-11-10T09:01:00Z", { next_action_at: "2026-11-10T16:00:00.000Z" }),
+      c("c", "2026-11-10T09:02:00Z", { next_action_at: "2026-11-10T12:00:00.000Z" }),
+      c("c", "2026-11-10T12:05:00Z"), // called again: closed
+      c("d", "2026-11-10T09:03:00Z", { activity_type: "connected_call", outcome: "callback_requested", next_action_due: "2026-11-12" }),
+      c("e", "2026-11-10T09:04:00Z", { founder_key: "pablo", next_action_at: "2026-11-10T10:00:00.000Z" }),
+      c("f", "2026-11-10T09:05:00Z"), // no call-back
+    ];
+    expect(openCallbacks(events, "theo").map((e) => e.account_id)).toEqual(["b", "a", "d"]);
   });
 });

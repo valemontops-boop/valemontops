@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { FOUNDERS, type FounderKey } from "@/domain/constants";
 import { getConfig } from "@/server/config";
+import { isCrossOrigin } from "@/server/guard";
 import { SESSION_COOKIE, createSessionToken, sessionCookieOptions } from "@/server/session";
 
 /** DEMO sign-in only (D010). Refused in LIVE mode. */
@@ -10,8 +11,7 @@ export async function POST(req: NextRequest) {
   const back = (q: string) => NextResponse.redirect(new URL(`/login?${q}`, req.url), 303);
   if (!cfg.ok) return NextResponse.redirect(new URL("/setup", req.url), 303);
   if (cfg.mode !== "demo") return back("error=demo_disabled");
-  const origin = req.headers.get("origin");
-  if (origin && new URL(origin).host !== req.headers.get("host")) return back("error=bad_origin");
+  if (isCrossOrigin(req)) return back("error=bad_origin"); // "null" / malformed Origin no longer throws (D084)
   const form = await req.formData();
   const founder = String(form.get("founder") ?? "") as FounderKey;
   if (!FOUNDERS.includes(founder)) return back("error=unknown_founder");

@@ -18,6 +18,7 @@ import { LocalSubscriptions } from "./clients-local";
 import { PartnersRegistry } from "./clients-partners";
 import { WonDialog } from "./won-project";
 import { useMe } from "./providers";
+import { CsvExportButton } from "./csv-tools";
 
 type Cost = { founder: number; contractors: number; api: number; infra: number; other: number; total: number };
 type Milestone = { id: string; version: number; title: string; due_date: string | null; done_at: string | null };
@@ -68,6 +69,7 @@ export function ClientsView() {
           <p className="text-sm text-text-2">{t("Projects from won deals, delivery, costs and margin; Local subscriptions; contractors and tools.")}</p>
         </div>
         <div className="max-w-full overflow-x-auto [&_button]:whitespace-nowrap"><SegmentedSwitch label={t("Section")} value={tab} onChange={setTab} options={[{ value: "projects", label: t("Projects") }, { value: "local", label: t("Local subscriptions") }, { value: "partners", label: t("Partners & tools") }]} /></div>
+        {tab === "projects" ? <CsvExportButton list="projects" /> : null}
       </div>
       {tab === "projects" ? <ProjectsTab /> : tab === "local" ? <LocalSubscriptions /> : <PartnersRegistry />}
     </div>

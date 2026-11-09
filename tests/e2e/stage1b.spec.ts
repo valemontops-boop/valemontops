@@ -91,7 +91,8 @@ test("call mode: new call → picked up / not picked up, objections, instant mai
   const outcome = (o: string) => page.getByRole("button", { name: new RegExp(`^${fr(o)}`) });
   const newCall = page.getByRole("button", { name: new RegExp(`^${fr("New call")}`) });
   const back = page.getByRole("button", { name: new RegExp(`^${fr("Back")}`) });
-  // Not picked up: Enter = new call, 2 = not picked up, logged at once; back on [New call], focused. Undo for 10 seconds.
+  // Not picked up: Enter = new call, 2 = not picked up, logged at once; the missed-call panel stays (D080):
+  // M = the "tried to call you" mail preview, R = call-back times, Enter = next call ([New call] focused). Undo for 10 s.
   await expect(newCall).toBeVisible();
   await page.keyboard.press("Enter");
   await expect(outcome("They picked up")).toBeVisible();
@@ -99,6 +100,22 @@ test("call mode: new call → picked up / not picked up, objections, instant mai
   await expect(newCall).toBeFocused();
   await page.keyboard.press("Enter");
   await page.keyboard.press("Digit2");
+  const after = page.getByRole("region", { name: fr("After the call") });
+  await expect(after.getByRole("heading", { name: re(fr("Missed call — {name}", { name: "" })) })).toBeVisible();
+  const nextCall = page.getByRole("button", { name: new RegExp(`^${fr("Next call")}`) });
+  await expect(nextCall).toBeFocused();
+  await page.keyboard.press("m");
+  const missedMail = page.getByRole("form", { name: fr("Mail preview") });
+  await expect(missedMail.getByLabel(fr("Subject"))).toHaveValue(/J'ai essayé de vous joindre/);
+  await expect(missedMail.getByLabel(fr("Message"))).toHaveValue(/Théo/);
+  await page.keyboard.press("Escape");
+  await expect(missedMail).toHaveCount(0);
+  await page.keyboard.press("r");
+  await after.getByLabel(fr("Business name")).fill("Plomberie Rappel (e2e)"); // free dialling: who to call back
+  await after.getByRole("button", { name: new RegExp(`^${fr("Tomorrow 9 am")}`) }).click();
+  await expect(after.getByRole("status").filter({ hasText: re(fr("Call-back set: {when}", { when: "" })) })).toBeVisible();
+  await expect(nextCall).toBeFocused();
+  await page.keyboard.press("Enter");
   await expect(newCall).toBeFocused();
   await page.getByRole("button", { name: new RegExp(`^${fr("Undo the last call")}`) }).click();
   await expect(page.getByText(fr("Undone: the call no longer counts."))).toBeVisible();
@@ -109,7 +126,16 @@ test("call mode: new call → picked up / not picked up, objections, instant mai
   await expect(page.getByRole("button", { name: new RegExp(`^${fr("Hung up")}`) })).toBeVisible();
   await page.keyboard.press("g");
   await expect(page.getByRole("button", { name: new RegExp(`^${fr("Too expensive")}`) })).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByText(/rembourser l'investissement/)).toBeVisible(); // live three-step reply from the playbook
+  // The reply, one step at a time in large type (D080): Space / → next step, ← back.
+  await expect(page.getByText(/Le prix vous freine/)).toBeVisible();
+  await expect(page.getByRole("button", { name: `1/3 ${fr("Rephrase")}` })).toHaveAttribute("aria-current", "step");
+  await page.keyboard.press("Space");
+  await expect(page.getByText(/Combien vous rapporte un chantier moyen/)).toBeVisible();
+  await expect(page.getByText(/Le prix vous freine/)).toHaveCount(0); // only the step to say
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByText(/paient l'investissement/)).toBeVisible();
+  await page.keyboard.press("ArrowLeft");
+  await expect(page.getByRole("button", { name: `2/3 ${fr("Ask")}` })).toHaveAttribute("aria-current", "step");
   // Every objection is on screen at once and the page does not scroll on a laptop.
   await expect(page.getByRole("group", { name: fr("Objections") }).getByRole("button")).toHaveCount(12);
   // (#main's bottom, padding included: the DEMO banner above the shell already takes its own 32px.)
@@ -174,6 +200,19 @@ test("call mode: new call → picked up / not picked up, objections, instant mai
   const card = page.getByRole("region", { name: fr("Message card") });
   await expect(card.getByRole("radio", { name: new RegExp(fr("Local offer")) })).toHaveAttribute("aria-checked", "true");
   await page.keyboard.press("Escape");
+
+  // Picked up, "call back" (2): free dialling asks who it was, then the call-back times come up at once.
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Digit1");
+  await page.keyboard.press("x");
+  await page.keyboard.press("Digit2");
+  await page.getByLabel(fr("Business name")).fill("Couverture Rappel (e2e)");
+  await page.getByRole("button", { name: fr("Save · {outcome}", { outcome: fr("Call back") }) }).click();
+  await expect(after.getByRole("heading", { name: re(fr("Call back — {name}", { name: "Couverture Rappel (e2e)" })) })).toBeVisible();
+  await page.keyboard.press("Digit2"); // tonight 18:00 or, late in the day, tomorrow 9:00
+  await expect(after.getByRole("status").filter({ hasText: re(fr("Call-back set: {when}", { when: "" })) })).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(newCall).toBeFocused();
 
   await page.getByRole("button", { name: fr("End session") }).click();
   await expect(page.getByRole("heading", { name: fr("Session summary") })).toBeVisible();

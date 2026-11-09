@@ -15,6 +15,7 @@
     "check": "npm run lint && npm run typecheck && npm run test",
     "setup:sheets": "tsx --env-file-if-exists=.env.local scripts/setup-sheets.ts",
     "doctor:sheets": "tsx --env-file-if-exists=.env.local scripts/doctor-sheets.ts",
+    "restore:sheets": "tsx --env-file-if-exists=.env.local scripts/restore-sheets.ts",
     "fake:sheets": "tsx scripts/fake-sheets.ts"
   },
   "dependencies": {

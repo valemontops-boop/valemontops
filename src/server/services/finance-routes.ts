@@ -2,8 +2,8 @@ import { z } from "zod";
 import type { FounderKey } from "@/domain/constants";
 import type { AppContext } from "../context";
 import {
-  addEntry, addManualRate, allocationSchema, contractSchema, contractsFromProjects, contractUpdateSchema, createContract, entrySchema, financeOverview, generateSchedule,
-  generateSchema, manualRateSchema, overviewSchema, refreshRates, reverseEntry, reverseSchema, saveAllocation, scheduleUpdateSchema, updateContract, updateScheduleLine,
+  addEntry, allocationSchema, contractSchema, contractsFromProjects, contractUpdateSchema, createContract, entrySchema, financeOverview, generateSchedule,
+  generateSchema, overviewSchema, reverseEntry, reverseSchema, saveAllocation, scheduleUpdateSchema, updateContract, updateScheduleLine,
 } from "./finance";
 
 type Handler = (ctx: AppContext, founder: FounderKey, input: never) => Promise<unknown>;
@@ -21,6 +21,4 @@ export const FINANCE_ROUTES: Record<string, [z.ZodTypeAny | null, Handler]> = {
   "POST /api/finance/contracts/from-projects": [z.object({}).passthrough(), (c, f) => contractsFromProjects(c, f)],
   "POST /api/finance/schedules/generate": [generateSchema, (c, f, i) => generateSchedule(c, f, i)],
   "PATCH /api/finance/schedules": [scheduleUpdateSchema, (c, f, i) => updateScheduleLine(c, f, i)],
-  "POST /api/finance/fx": [manualRateSchema, (c, f, i) => addManualRate(c, f, i)],
-  "POST /api/finance/fx/refresh": [z.object({}).passthrough(), (c, f) => refreshRates(c, f)],
 };

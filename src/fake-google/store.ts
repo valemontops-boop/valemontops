@@ -6,7 +6,9 @@ import type { CalEvent, CalendarPort, DriveFile, DrivePort, DriveUploader, MailS
  */
 export class FakeGoogleStore {
   calendars = new Map<string, CalEvent[]>();
-  files: (DriveFile & { owner: string })[] = [];
+  files: (DriveFile & { owner: string; trashed?: boolean })[] = [];
+  /** Folders that live in a Shared Drive: there the service account can create files (D084 backups). */
+  sharedDriveFolders = new Set<string>();
   /** who performed writes: "service-account" or a founder token label */
   writes: { kind: string; by: string }[] = [];
   /** Emails "sent" through the fake Gmail: they never leave the process. */
@@ -64,7 +66,7 @@ export class FakeGoogleStore {
     return file;
   }
   listFiles(folderId: string, search?: string) {
-    return this.files.filter((f) => f.parents.includes(folderId) && (!search || f.name.toLowerCase().includes(search.toLowerCase())));
+    return this.files.filter((f) => !f.trashed && f.parents.includes(folderId) && (!search || f.name.toLowerCase().includes(search.toLowerCase())));
   }
   searchFiles(q: string) {
     return this.files.filter((f) => f.name.toLowerCase().includes(q.toLowerCase())).sort((a, b) => b.modifiedTime.localeCompare(a.modifiedTime));

@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState, Panel, PanelTitle, SegmentedSwitch, Select, Skeleton } from "@/components/ui/form";
 import { BANK_CATEGORIES, CATEGORY_LABELS, NEUTRAL, isIncome, type BankCategory } from "@/domain/bank";
 import { COST_CENTER_LABELS } from "@/domain/finance-constants";
-import { fromEur } from "@/domain/fx";
 import type { FinanceOverview } from "@/server/services/finance";
 import { useDateTag, useT } from "@/i18n/react";
 import { api } from "@/lib/api";
@@ -16,6 +15,7 @@ import { VerdictPanel } from "./verdicts";
 import { moneyVerdicts } from "@/domain/verdicts";
 import { ExportButton } from "./export-dialog";
 import { AllocationPanel, ContractsTab, EntriesPanel, FmtContext, PnlTab, useFmt, type Fmt } from "./money-finance";
+import { CsvExportButton } from "./csv-tools";
 
 type Tx = { bank: "wise" | "stripe"; id: string; version: number; occurred_at: string; date: string; amount_minor: number; currency: string; description: string; counterparty: string; category: BankCategory; category_source: "auto" | "manual"; direction: "credit" | "debit"; origin: string };
 type Money = {
@@ -37,7 +37,6 @@ export function MoneyView() {
   const dt = useDateTag();
   const qc = useQueryClient();
   const [tab, setTab] = React.useState<Tab>("overview");
-  const [cur, setCur] = React.useState<"EUR" | "USD">("EUR");
   const q = useQuery({ queryKey: ["money"], queryFn: () => api<Money>("/api/money") });
   // Finance reads after the bank sync of /api/money so the P&L sees the latest movements.
   const f = useQuery({ queryKey: ["finance"], queryFn: () => api<Fin>("/api/finance?months=12"), enabled: q.isSuccess });
@@ -51,8 +50,8 @@ export function MoneyView() {
     onSuccess: (r) => { toast(t("{n} new movements", { n: r.added })); qc.invalidateQueries({ queryKey: ["money"] }); qc.invalidateQueries({ queryKey: ["finance"] }); },
     onError: (e) => toast((e as Error).message),
   });
-  const usd = f.data?.fx.usd ?? null;
-  const fmt = React.useCallback<Fmt>((m) => (m === null || m === undefined ? "—" : cur === "USD" && usd ? formatMoney(fromEur(m, usd), "USD") : formatMoney(m)), [cur, usd]);
+  // Everything is EUR (D082): no display currency, no conversion.
+  const fmt = React.useCallback<Fmt>((m) => (m === null || m === undefined ? "—" : formatMoney(m)), []);
   if (q.isPending) return <Skeleton className="h-96" />;
   if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
   const d = q.data;
@@ -66,13 +65,11 @@ export function MoneyView() {
             <p className="text-sm text-text-2">{[d.connected ? t("Wise · updated {when}", { when: when(d.lastSync) }) : t("Wise is not connected yet"), d.stripe.connected ? t("Stripe · updated {when}", { when: when(d.stripe.lastSync) }) : t("Stripe is not connected yet")].join(" · ")}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <SegmentedSwitch size="sm" label={t("Display currency")} value={cur} onChange={(v) => (v === "USD" && !usd ? toast(t("No EUR/USD rate yet.")) : setCur(v))} options={[{ value: "EUR", label: "EUR" }, { value: "USD", label: "USD" }]} />
             {d.connected || d.stripe.connected ? <Button variant="outline" disabled={sync.isPending} onClick={() => sync.mutate()}><RefreshCw /> {t("Update")}</Button> : null}
             <ExportButton />
             <CsvImport />
           </div>
         </div>
-        {cur === "USD" && usd ? <p className="text-[13px] text-text-2">{t("Amounts in USD at {rate} USD for 1 EUR ({source}, {date}): a reporting conversion; stored amounts stay in their currency.", { rate: usd.rate, date: new Date(`${usd.rate_date}T12:00:00Z`).toLocaleDateString(dt, { day: "2-digit", month: "short", year: "numeric" }), source: t(usd.source === "ecb" ? "ECB reference rate" : usd.source === "demo" ? "demo rate, not ECB" : "rate entered by hand") })}</p> : null}
         <SegmentedSwitch label={t("View")} value={tab} onChange={setTab} options={[{ value: "overview", label: t("Overview") }, { value: "pnl", label: t("P&L") }, { value: "ledger", label: t("Movements") }, { value: "contracts", label: t("Contracts") }]} />
         {!d.connected && !d.stripe.connected && !d.transactions.length && tab === "overview" ? (
           <EmptyState title={t("Connect Wise and Stripe")}>{t("Add the Wise and Stripe read-only keys on the server (see the setup guide), or import a CSV statement exported from Wise.")}</EmptyState>
@@ -80,7 +77,7 @@ export function MoneyView() {
         {d.status === "sca_required" ? <p className="rounded-[12px] bg-subtle px-4 py-3 text-sm">{t("Wise asks for strong authentication to read the statement history. Live movements and balances still work. For the history: add the signing key (setup guide) or import a CSV statement.")}</p> : null}
         {d.syncError ? <p className="text-sm text-bad">{d.syncError}</p> : null}
         {f.isError ? <ErrorState error={f.error} onRetry={() => f.refetch()} /> : null}
-        {f.data?.fx.missing ? <p className="rounded-[12px] bg-subtle px-4 py-3 text-sm">{t("{n} movements have no exchange rate for their date yet: they are left out of the totals until a rate is known.", { n: f.data.fx.missing })}{f.data.fx.error ? ` ${t("ECB rates could not be downloaded; the last cached rates are used.")}` : ""}</p> : null}
+        {f.data?.non_eur ? <p className="rounded-[12px] bg-subtle px-4 py-3 text-sm">{t("{n} movements are not in EUR: shown in their own currency, not converted and left out of the EUR totals.", { n: f.data.non_eur })}</p> : null}
         {tab === "overview" ? <Overview money={d} fin={f.data} onTab={setTab} /> : null}
         {tab === "pnl" ? (f.data ? <PnlTab fin={f.data} /> : <Skeleton className="h-96" />) : null}
         {tab === "ledger" ? (
@@ -172,7 +169,6 @@ function Transactions({ rows, toReview, fin }: { rows: Tx[]; toReview: number; f
   const t = useT();
   const dt = useDateTag();
   const qc = useQueryClient();
-  const fmt = useFmt();
   const [filter, setFilter] = React.useState<"all" | "in" | "out" | "review">("all");
   const [source, setSource] = React.useState<"all" | "wise" | "stripe">("all");
   const [open, setOpen] = React.useState<string | null>(null);
@@ -187,7 +183,7 @@ function Transactions({ rows, toReview, fin }: { rows: Tx[]; toReview: number; f
   return (
     <div className="flex flex-col gap-5 lg:flex-row lg:items-start">
       <Panel className="min-w-0 flex-1">
-        <PanelTitle action={<div className="flex flex-wrap gap-2"><SegmentedSwitch size="sm" label={t("Source")} value={source} onChange={setSource} options={[{ value: "all", label: t("All") }, { value: "wise", label: "Wise" }, { value: "stripe", label: "Stripe" }]} /><SegmentedSwitch size="sm" label={t("Filter")} value={filter} onChange={setFilter} options={[{ value: "all", label: t("All") }, { value: "in", label: t("Money in") }, { value: "out", label: t("Money out") }, { value: "review", label: toReview ? `${t("To check")} · ${toReview}` : t("To check") }]} /></div>}>{t("Bank movements")}</PanelTitle>
+        <PanelTitle action={<div className="flex flex-wrap gap-2"><SegmentedSwitch size="sm" label={t("Source")} value={source} onChange={setSource} options={[{ value: "all", label: t("All") }, { value: "wise", label: "Wise" }, { value: "stripe", label: "Stripe" }]} /><SegmentedSwitch size="sm" label={t("Filter")} value={filter} onChange={setFilter} options={[{ value: "all", label: t("All") }, { value: "in", label: t("Money in") }, { value: "out", label: t("Money out") }, { value: "review", label: toReview ? `${t("To check")} · ${toReview}` : t("To check") }]} /><CsvExportButton list="bank" /></div>}>{t("Bank movements")}</PanelTitle>
         {shown.length === 0 ? <p className="text-sm text-text-2">{t("Nothing here.")}</p> : (
           <ul className="flex flex-col divide-y divide-hairline">
             {shown.slice(0, 80).map((r) => {
@@ -205,7 +201,7 @@ function Transactions({ rows, toReview, fin }: { rows: Tx[]; toReview: number; f
                   </Select>
                   <span className={cn("num text-right text-sm font-medium", r.direction === "credit" ? (NEUTRAL.includes(r.category) ? "text-text-2" : "text-win") : "")}>
                     {r.direction === "credit" ? "+" : "−"}{formatMoney(Math.abs(r.amount_minor), r.currency)}
-                    {r.currency !== "EUR" && it ? <span className="block text-[11px] font-normal text-text-3">{it.eur_gross === null ? t("no rate yet") : `≈ ${fmt(Math.abs(it.eur_gross))}`}</span> : null}
+                    {r.currency !== "EUR" && it ? <span className="block text-[11px] font-normal text-text-3">{t("not in EUR, not converted")}</span> : null}
                   </span>
                 </li>
               );

@@ -5,7 +5,6 @@ import {
   COST_CENTERS, COST_CLASSES, buildPnl, defaultClass, lastMonths, monthEnd, mrrMovements, mrrOn, runwayMonths, suggestCostCenter, sumMonths,
   type ContractLite, type CostCenter, type FinItem, type PnlMonth, type ScheduleLine,
 } from "@/domain/finance";
-import { ECB_DAILY_URL, ECB_HIST_90_URL, ECB_HIST_URL, NoRateError, fromEur, isRate, latestRate, parseEcbXml, rateOn, toEur, type FxRate } from "@/domain/fx";
 import { addDays, localDate } from "@/domain/time";
 import type { FounderKey } from "@/domain/constants";
 import { childId } from "@/lib/ids";
@@ -15,61 +14,11 @@ import { offerDefaults, settingValue, userRow } from "./common";
 
 /**
  * Stage 3 finance (spec 5.10, D078): ledger (bank movements + manual entries), contracts, revenue schedule, managerial
- * P&L, MRR/ARR and ECB rates. Reads only through the repository; every derived number is recomputed on read.
+ * P&L and MRR/ARR. Reads only through the repository; every derived number is recomputed on read.
+ * Everything is EUR (D082: the founders dropped EUR/USD and ECB rates): a movement in another currency is shown in its
+ * own currency and left out of the EUR totals, never converted with an invented rate.
  */
-type Actor = { founder: string };
-const ECB_STATUS_ID = childId("integration", "ecb");
-const FINANCE_TABLES = ["BankTransactions", "BankBalances", "RevenueSnapshots", "FinanceAllocations", "LedgerEntries", "Contracts", "RevenueSchedules", "FxRates", "Clients", "Projects", "Milestones", "Quotes"] as const;
-
-/* ---------------- ECB rates (LIVE only; DEMO and the preview use stored demo rates) ---------------- */
-type Fetcher = (url: string) => Promise<string>;
-let fetchText: Fetcher = async (url) => {
-  const r = await fetch(url, { signal: AbortSignal.timeout(8_000), cache: "no-store" });
-  if (!r.ok) throw new Error(`ECB returned ${r.status}`);
-  return r.text();
-};
-/** Tests and the fake environment inject the ECB download here. */
-export function setEcbFetcher(f: Fetcher) { fetchText = f; }
-
-const fxOf = (rows: Row<"FxRates">[]): FxRate[] => rows.filter((r) => !r.is_archived && r.base === "EUR").map((r) => ({ quote: r.quote, rate: r.rate, rate_date: r.rate_date, source: r.source, created_at: r.created_at }));
-const hasRate = (rates: FxRate[], cur: string, date: string) => { try { rateOn(rates, cur, date); return true; } catch { return false; } };
-
-/**
- * Lazy refresh on the first finance read of the day (spec 4.6): today's ECB file once, and the 90-day or full history
- * only when an entry needs an older date. A failure keeps the cache and is reported; no rate is ever made up.
- */
-export async function ensureRates(ctx: AppContext, rows: Row<"FxRates">[], needed: { currency: string; date: string }[], today: string, actor: Actor = { founder: "system" }, force = false) {
-  if (ctx.mode !== "live") return { added: 0, error: null as string | null };
-  const rates = fxOf(rows);
-  const currencies = [...new Set(["USD", ...needed.map((n) => n.currency.toUpperCase())])].filter((c) => c !== "EUR" && /^[A-Z]{3}$/.test(c));
-  const status = await ctx.repo.get("IntegrationStatuses", ECB_STATUS_ID, { fresh: true });
-  const triedToday = !force && status && status.updated_at.slice(0, 10) === new Date().toISOString().slice(0, 10) && (status.status === "ok" || Date.now() - Date.parse(status.updated_at) < 3_600_000);
-  const missing = needed.filter((n) => n.currency.toUpperCase() !== "EUR" && !hasRate(rates, n.currency, n.date));
-  if (triedToday && !missing.length) return { added: 0, error: status?.status === "ok" ? null : status?.last_error || null };
-  const found: Omit<FxRate, "source">[] = [];
-  let error: string | null = null;
-  try {
-    if (!triedToday) found.push(...parseEcbXml(await fetchText(ECB_DAILY_URL), currencies));
-    if (missing.length) {
-      const oldest = missing.map((m) => m.date).sort()[0];
-      const recent = Date.parse(`${today}T00:00:00Z`) - Date.parse(`${oldest}T00:00:00Z`) <= 85 * 86_400_000;
-      const lo = addDays(oldest, -7);
-      found.push(...parseEcbXml(await fetchText(recent ? ECB_HIST_90_URL : ECB_HIST_URL), currencies).filter((r) => r.rate_date >= lo));
-    }
-  } catch (e) {
-    error = `ECB rates unavailable: ${(e as Error).message}`.slice(0, 300);
-  }
-  const known = new Set(rows.map((r) => r.id));
-  const now = new Date().toISOString();
-  const fresh = found
-    .map((r) => ({ id: childId("fx", "ecb", r.quote, r.rate_date), base: "EUR", quote: r.quote, rate: r.rate, rate_date: r.rate_date, source: "ecb" as const, fetched_at: now }))
-    .filter((r, i, all) => !known.has(r.id) && all.findIndex((x) => x.id === r.id) === i);
-  if (fresh.length) await ctx.repo.insert("FxRates", fresh, actor);
-  const patch = { status: error ? "error" : "ok", last_error: error ?? "", ...(error ? {} : { last_success_at: now }) };
-  if (status) await ctx.repo.update("IntegrationStatuses", ECB_STATUS_ID, status.version, patch, actor);
-  else await ctx.repo.insert("IntegrationStatuses", [{ id: ECB_STATUS_ID, integration: "ecb", last_success_at: null, ...patch }], actor);
-  return { added: fresh.length, error };
-}
+const FINANCE_TABLES = ["BankTransactions", "BankBalances", "RevenueSnapshots", "FinanceAllocations", "LedgerEntries", "Contracts", "RevenueSchedules", "Clients", "Projects", "Milestones", "Quotes"] as const;
 
 /* ---------------- read model ---------------- */
 type Db = { [K in (typeof FINANCE_TABLES)[number]]: { rows: Row<K>[] } };
@@ -80,17 +29,11 @@ const live = <R extends { is_archived: boolean; id: string; created_at: string }
 };
 const contractLite = (c: Row<"Contracts">): ContractLite => ({ id: c.id, client_id: c.client_id, name: c.name, cost_center: c.cost_center, kind: c.kind, currency: c.currency, setup_minor: c.setup_minor, one_off_minor: c.one_off_minor, recurring_minor: c.recurring_minor, billing_months: c.billing_months, start_date: c.start_date, end_date: c.end_date, status: c.status });
 
-function convert(rates: FxRate[], minor: number, currency: string, date: string) {
-  if (currency.toUpperCase() === "EUR") return { eur: minor, fx: null };
-  try { const r = rateOn(rates, currency, date); return { eur: toEur(minor, currency, r), fx: { rate: r.rate, rate_date: r.rate_date, source: r.source } }; } catch (e) {
-    if (e instanceof NoRateError) return { eur: null, fx: null };
-    throw e;
-  }
-}
+/** EUR only: a non-EUR amount is "hors EUR, non converti" (null), shown in its own currency and left out of EUR totals. */
+const eurOnly = (minor: number, currency: string): number | null => (currency.toUpperCase() === "EUR" ? minor : null);
 
-/** Every movement as one ledger line (bank rows read through their allocation, manual entries with their locked rate). */
+/** Every movement as one ledger line (bank rows read through their allocation, manual entries). */
 export function ledgerItems(db: Db, localMonthly: number) {
-  const rates = fxOf(db.FxRates.rows);
   const clients = live(db.Clients.rows);
   const contracts = live(db.Contracts.rows);
   const allocs = new Map(live(db.FinanceAllocations.rows).map((a) => [a.bank_tx_id, a]));
@@ -103,11 +46,11 @@ export function ledgerItems(db: Db, localMonthly: number) {
     const cc: CostCenter = a?.cost_center ?? suggestCostCenter(t, clients.map((c) => ({ name: c.name, brand: c.brand })), localMonthly);
     const autoContract = !a && client ? (contracts.filter((c) => c.client_id === client.id && c.status !== "ended").sort((x, y) => Number(y.kind === "subscription" && y.recurring_minor === Math.abs(t.amount_minor)) - Number(x.kind === "subscription" && x.recurring_minor === Math.abs(t.amount_minor)))[0]?.id ?? "") : "";
     const vat = Math.sign(t.amount_minor) * Math.abs(a?.vat_minor ?? 0);
-    const g = convert(rates, t.amount_minor, t.currency, t.date);
-    const v = convert(rates, vat, t.currency, t.date);
+    const g = eurOnly(t.amount_minor, t.currency);
+    const v = eurOnly(vat, t.currency);
     items.push({
       id: t.id, source: "bank", bank: t.bank, date: t.date, label: t.description, counterparty: t.counterparty, category: t.category, cost_center: cc, cls,
-      currency: t.currency, gross_minor: t.amount_minor, vat_minor: vat, eur_gross: g.eur, eur_vat: v.eur, eur_net: g.eur === null || v.eur === null ? null : g.eur - v.eur, fx: g.fx,
+      currency: t.currency, gross_minor: t.amount_minor, vat_minor: vat, eur_gross: g, eur_vat: v, eur_net: g === null || v === null ? null : g - v,
       service_from: a?.service_from ?? null, service_to: a?.service_to ?? null, contract_id: a ? a.contract_id : autoContract, project_id: a?.project_id ?? "",
       receipt_url: a?.receipt_url ?? "", reference: a?.reference ?? "", reconciled: a?.reconciled ?? false, alloc_version: a?.version ?? 0, auto: !a, kind: t.direction, corrects_id: "", reversed: false,
     });
@@ -115,10 +58,11 @@ export function ledgerItems(db: Db, localMonthly: number) {
   const entries = live(db.LedgerEntries.rows);
   const reversed = new Set(entries.map((e) => e.corrects_id).filter(Boolean));
   for (const e of entries) {
+    const eur = e.currency.toUpperCase() === "EUR"; // legacy non-EUR entries (before D082) are not converted either
     items.push({
       id: e.id, source: "manual", bank: "", date: e.date, label: e.note, counterparty: e.counterparty, category: e.category, cost_center: e.cost_center, cls: (e.cost_class || defaultClass(e.category)) as FinItem["cls"],
-      currency: e.currency, gross_minor: e.amount_minor + e.vat_minor, vat_minor: e.vat_minor, eur_gross: e.eur_minor + e.eur_vat_minor, eur_vat: e.eur_vat_minor, eur_net: e.eur_minor,
-      fx: e.currency === "EUR" ? null : { rate: e.fx_rate, rate_date: e.fx_date ?? e.date, source: e.fx_source }, service_from: e.service_from, service_to: e.service_to,
+      currency: e.currency, gross_minor: e.amount_minor + e.vat_minor, vat_minor: e.vat_minor, eur_gross: eur ? e.amount_minor + e.vat_minor : null, eur_vat: eur ? e.vat_minor : null, eur_net: eur ? e.amount_minor : null,
+      service_from: e.service_from, service_to: e.service_to,
       contract_id: e.contract_id, project_id: e.project_id, receipt_url: e.receipt_url, reference: e.reference, reconciled: true, alloc_version: e.version, auto: false, kind: e.kind, corrects_id: e.corrects_id, reversed: reversed.has(e.id),
     });
   }
@@ -127,7 +71,6 @@ export function ledgerItems(db: Db, localMonthly: number) {
 
 /** Revenue schedule lines; a line tied to a project milestone is earned the day the milestone is done. */
 export function scheduleLines(db: Db): (ScheduleLine & { version: number; milestone_id: string; derived_earned: boolean })[] {
-  const rates = fxOf(db.FxRates.rows);
   const contracts = new Map(live(db.Contracts.rows).map((c) => [c.id, c]));
   const milestones = new Map(live(db.Milestones.rows).map((m) => [m.id, m]));
   return live(db.RevenueSchedules.rows).filter((s) => contracts.has(s.contract_id)).map((s) => {
@@ -138,7 +81,7 @@ export function scheduleLines(db: Db): (ScheduleLine & { version: number; milest
     const [ps, pe] = s.kind === "milestone" && earned && status === "earned" ? [earned, earned] : [s.period_start, s.period_end];
     return {
       id: s.id, contract_id: s.contract_id, label: s.label, kind: s.kind, period_start: ps, period_end: pe, amount_minor: s.amount_minor, currency: s.currency,
-      amount_eur: convert(rates, s.amount_minor, s.currency, ps).eur, status, earned_on: earned, cost_center: contracts.get(s.contract_id)!.cost_center,
+      amount_eur: eurOnly(s.amount_minor, s.currency), status, earned_on: earned, cost_center: contracts.get(s.contract_id)!.cost_center,
       version: s.version, milestone_id: s.milestone_id, derived_earned: derived,
     };
   }).sort((a, b) => a.period_start.localeCompare(b.period_start));
@@ -150,15 +93,12 @@ async function readDb(ctx: AppContext, fresh = false): Promise<Db> {
 
 export const overviewSchema = z.object({ months: z.coerce.number().int().min(3).max(24).default(12) });
 
-/** The finance read model behind Money: dashboard numbers, P&L by month with drill-down, contracts, schedule, rates. */
+/** The finance read model behind Money: dashboard numbers, P&L by month with drill-down, contracts, schedule. */
 export async function financeOverview(ctx: AppContext, founder: FounderKey, input: { months?: number } = {}) {
   const months = input.months ?? 12;
   const u = await userRow(ctx.repo, founder);
   const today = localDate(new Date(), u.timezone);
-  let db = await readDb(ctx);
-  const needed = [...db.BankTransactions.rows, ...db.LedgerEntries.rows].filter((r) => !r.is_archived && r.currency !== "EUR").map((r) => ({ currency: r.currency, date: r.date }));
-  const fx = await ensureRates(ctx, db.FxRates.rows, needed, today, { founder }).catch((e) => ({ added: 0, error: (e as Error).message }));
-  if (fx.added) db = await readDb(ctx, true);
+  const db = await readDb(ctx);
   const { local } = await offerDefaults(ctx.repo);
   const items = ledgerItems(db, local);
   const schedule = scheduleLines(db);
@@ -166,22 +106,19 @@ export async function financeOverview(ctx: AppContext, founder: FounderKey, inpu
   const lites = contracts.map(contractLite);
   const window = lastMonths(today, months);
   const pnl = buildPnl({ items, schedule, contracts: lites, months: window });
-  const rates = fxOf(db.FxRates.rows);
-  const usd = latestRate(rates, "USD");
-  const eurAtLatest = (minor: number, currency: string) => { if (currency === "EUR") return minor; const r = latestRate(rates, currency); return r ? toEur(minor, currency, r) : null; };
 
-  // Cash: what the accounts hold now (Wise balances + Stripe balance not yet paid out), converted at the latest rate.
+  // Cash: what the accounts hold now in EUR (Wise balances + Stripe balance not yet paid out); other currencies are counted apart, never converted.
   const balances = live(db.BankBalances.rows);
   let cash = 0, cashMissing = 0;
-  for (const b of balances) { const e = eurAtLatest(b.amount_minor, b.currency); if (e === null) cashMissing++; else cash += e; }
+  for (const b of balances) { const e = eurOnly(b.amount_minor, b.currency); if (e === null) cashMissing++; else cash += e; }
   const current = pnl.months.at(-1)!;
   const complete = pnl.months.slice(0, -1);
-  const mrrC = mrrOn(lites, today, eurAtLatest);
+  const mrrC = mrrOn(lites, today, eurOnly);
   const snaps = live(db.RevenueSnapshots.rows).filter((r) => r.currency === "EUR").sort((a, b) => a.date.localeCompare(b.date));
   const stripe = snaps.at(-1) ?? null;
   const hasSubs = lites.some((c) => c.kind === "subscription");
   const mrr = hasSubs ? { value: mrrC.mrr, source: "contracts" as const, active: mrrC.active } : stripe ? { value: stripe.mrr_minor, source: "stripe" as const, active: stripe.active_subscriptions } : { value: null, source: null, active: 0 };
-  const movements = mrrMovements(lites, today.slice(0, 7), eurAtLatest);
+  const movements = mrrMovements(lites, today.slice(0, 7), eurOnly);
 
   const windowStart = `${window[0]}-01`;
   const contributing = new Set(pnl.contributions.map((c) => c.ref));
@@ -189,7 +126,7 @@ export async function financeOverview(ctx: AppContext, founder: FounderKey, inpu
   const projects = new Map(live(db.Projects.rows).map((p) => [p.id, p]));
   const clients = new Map(live(db.Clients.rows).map((c) => [c.id, c]));
   const projectsWithoutContract = live(db.Projects.rows).filter((p) => (p.mrr_minor > 0 || p.revenue_one_off_minor > 0) && !contracts.some((c) => c.project_id === p.id)).length;
-  const fxMissing = items.filter((i) => i.eur_gross === null).length;
+  const nonEur = items.filter((i) => i.eur_gross === null).length;
   const quarterStart = window.slice(-((Number(today.slice(5, 7)) - 1) % 3 + 1));
   const ytd = window.filter((m) => m.startsWith(today.slice(0, 4)));
   return {
@@ -206,7 +143,8 @@ export async function financeOverview(ctx: AppContext, founder: FounderKey, inpu
     contracts: contracts.sort((a, b) => b.start_date.localeCompare(a.start_date)).map((c) => ({ ...c, client_name: clients.get(c.client_id)?.name ?? "", mrr_now: mrrOn([contractLite(c)], today).mrr })),
     schedule,
     mrr_movements: movements,
-    fx: { usd: usd ? { rate: usd.rate, rate_date: usd.rate_date, source: usd.source } : null, error: fx.error, missing: fxMissing, rates: [...rates].sort((a, b) => b.rate_date.localeCompare(a.rate_date)).slice(0, 10) },
+    /** Movements in another currency: listed in their own currency, left out of every EUR total (no conversion, D082). */
+    non_eur: nonEur,
     projects_without_contract: projectsWithoutContract,
     projects: live(db.Projects.rows).map((p) => ({ id: p.id, name: p.name })),
     setup_fee_policy: (await settingValue(ctx.repo, "finance_setup_fee_recognition")) === "over_term" ? "over_term" : "at_payment",
@@ -259,7 +197,8 @@ export const entrySchema = z.object({
   category: z.enum(BANK_CATEGORIES),
   cost_center: z.enum(COST_CENTERS),
   cost_class: z.enum(["", ...COST_CLASSES]).default(""),
-  currency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/),
+  /** Everything is EUR (D082). */
+  currency: z.literal("EUR").default("EUR"),
   /** Ex VAT, positive; the sign comes from `kind`. */
   amount_minor: z.number().int().min(1).max(10_000_000_000),
   vat_minor: z.number().int().min(0).max(10_000_000_000).default(0),
@@ -271,49 +210,26 @@ export const entrySchema = z.object({
   service_from: optDay,
   service_to: optDay,
   note: z.string().trim().max(500).default(""),
-  /** Manual fallback (spec 3.12) when no ECB rate exists for the date: "1 EUR = x currency", as written on the bank statement. */
-  manual_rate: z.string().trim().max(20).default(""),
 }).refine(periodOk, { message: "Service period: both dates, start before end", path: ["service_to"] });
 
 /**
  * Manual entry for money that did not go through Wise or Stripe. Append-only, idempotent by the id generated when the
- * form opened. The EUR equivalent is locked with the ECB rate of the entry date (or the founder's manual rate).
+ * form opened. Always in EUR (D082); the legacy fx_* columns stay empty.
  */
 export async function addEntry(ctx: AppContext, founder: FounderKey, input: z.infer<typeof entrySchema>) {
   const existing = await ctx.repo.get("LedgerEntries", input.id, { fresh: true });
   if (existing) return existing;
   if (input.vat_minor > input.amount_minor * 2) throw new RuleError("VAT looks wrong: check the amount ex VAT and the VAT");
   const sign = input.kind === "income" ? 1 : -1;
-  let fx = { rate: "", date: null as string | null, source: "" };
-  let eur = input.amount_minor, eurVat = input.vat_minor;
-  if (input.currency !== "EUR") {
-    if (input.manual_rate) {
-      if (!isRate(input.manual_rate.replace(",", "."))) throw new RuleError("Invalid exchange rate");
-      fx = { rate: input.manual_rate.replace(",", "."), date: input.date, source: "manual" };
-    } else {
-      const t = await ctx.repo.list("FxRates", { fresh: true });
-      const today = localDate(new Date(), (await userRow(ctx.repo, founder)).timezone);
-      await ensureRates(ctx, t.rows, [{ currency: input.currency, date: input.date }], today, { founder }).catch(() => undefined);
-      const rows = (await ctx.repo.list("FxRates", { fresh: true })).rows;
-      try { const r = rateOn(fxOf(rows), input.currency, input.date); fx = { rate: r.rate, date: r.rate_date, source: r.source }; } catch (e) {
-        if (e instanceof NoRateError) throw new RuleError("No ECB rate for this currency and date. Retry later or enter the rate by hand.");
-        throw e;
-      }
-    }
-    eur = toEur(input.amount_minor, input.currency, { rate: fx.rate });
-    eurVat = toEur(input.vat_minor, input.currency, { rate: fx.rate });
-  }
-  const { amount_minor, vat_minor, ...withRate } = input;
-  const rest = { ...withRate, manual_rate: undefined };
-  delete rest.manual_rate;
+  const { amount_minor, vat_minor, ...rest } = input;
   return (await ctx.repo.insert("LedgerEntries", [{
     ...rest, service_from: rest.service_from ?? null, service_to: rest.service_to ?? null, amount_minor: sign * amount_minor, vat_minor: sign * vat_minor,
-    fx_rate: fx.rate, fx_date: fx.date, fx_source: fx.source, eur_minor: sign * eur, eur_vat_minor: sign * eurVat, corrects_id: "",
+    fx_rate: "", fx_date: null, fx_source: "", eur_minor: sign * amount_minor, eur_vat_minor: sign * vat_minor, corrects_id: "",
   }], { founder }))[0];
 }
 
 export const reverseSchema = z.object({ id: z.string().uuid(), note: z.string().trim().max(500).default("") });
-/** History is never erased: a reversing entry (same locked rate, opposite amounts) cancels an entry. Idempotent. */
+/** History is never erased: a reversing entry (opposite amounts) cancels an entry. Idempotent. */
 export async function reverseEntry(ctx: AppContext, founder: FounderKey, input: z.infer<typeof reverseSchema>) {
   const rows = (await ctx.repo.list("LedgerEntries", { fresh: true })).rows;
   const e = rows.find((r) => r.id === input.id && !r.is_archived);
@@ -364,7 +280,8 @@ export const contractSchema = z.object({
   project_id: z.string().max(40).default(""),
   cost_center: z.enum(COST_CENTERS),
   kind: z.enum(["subscription", "one_off"]),
-  currency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/).default("EUR"),
+  /** Everything is EUR (D082). */
+  currency: z.literal("EUR").default("EUR"),
   setup_minor: z.number().int().min(0).default(0),
   one_off_minor: z.number().int().min(0).default(0),
   recurring_minor: z.number().int().min(0).default(0),
@@ -450,24 +367,6 @@ export async function updateScheduleLine(ctx: AppContext, founder: FounderKey, i
   }, { founder });
 }
 
-export const manualRateSchema = z.object({ quote: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/), rate_date: day, rate: z.string().trim().max(20) });
-/** Documented manual fallback (spec 3.12): a founder records the rate shown by the bank for a date. Never overrides an ECB rate of that date. */
-export async function addManualRate(ctx: AppContext, founder: FounderKey, input: z.infer<typeof manualRateSchema>) {
-  const rate = input.rate.replace(",", ".");
-  if (!isRate(rate) || input.quote === "EUR") throw new RuleError("Invalid exchange rate");
-  const id = childId("fx", "manual", input.quote, input.rate_date);
-  const cur = await ctx.repo.get("FxRates", id, { fresh: true });
-  if (cur) return cur;
-  return (await ctx.repo.insert("FxRates", [{ id, base: "EUR", quote: input.quote, rate, rate_date: input.rate_date, source: "manual", fetched_at: new Date().toISOString() }], { founder }))[0];
-}
-/** "Refresh rates" button (LIVE): forces today's ECB download. */
-export async function refreshRates(ctx: AppContext, founder: FounderKey) {
-  if (ctx.mode !== "live") return { added: 0, error: null, demo: true };
-  const rows = (await ctx.repo.list("FxRates", { fresh: true })).rows;
-  const today = localDate(new Date(), (await userRow(ctx.repo, founder)).timezone);
-  return { ...(await ensureRates(ctx, rows, [], today, { founder }, true)), demo: false };
-}
-
 /* ---------------- export (Markdown / Excel, team scope) ---------------- */
 /** Managerial P&L by month for the period of an export (calendar months touching it). */
 export async function pnlForExport(ctx: AppContext, from: string, to: string) {
@@ -476,15 +375,10 @@ export async function pnlForExport(ctx: AppContext, from: string, to: string) {
   const months = lastMonths(to, Math.min(24, Math.max(1, (Number(to.slice(0, 4)) - Number(from.slice(0, 4))) * 12 + Number(to.slice(5, 7)) - Number(from.slice(5, 7)) + 1)));
   const lites = live(db.Contracts.rows).map(contractLite);
   const pnl = buildPnl({ items: ledgerItems(db, local), schedule: scheduleLines(db), contracts: lites, months });
-  const rates = fxOf(db.FxRates.rows);
-  const mrr = mrrOn(lites, to, (m, c) => { if (c === "EUR") return m; const r = latestRate(rates, c); return r ? toEur(m, c, r) : null; });
+  const mrr = mrrOn(lites, to, eurOnly);
   return { months: pnl.months, mrr: lites.some((c) => c.kind === "subscription") ? mrr.mrr : null, monthEnd };
 }
 
-/** Reporting conversion EUR → USD at the latest rate (scenario 9): never changes what is stored. */
-export function usdView(eurMinor: number, rate: FxRate | null) {
-  return rate ? fromEur(eurMinor, rate) : null;
-}
 export type FinanceOverview = Awaited<ReturnType<typeof financeOverview>>;
 export type { PnlMonth };
 export const _test = { split, addMonthsDay };

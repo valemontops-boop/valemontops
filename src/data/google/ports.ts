@@ -38,6 +38,10 @@ export interface DriveFile {
   ownedByMe?: boolean;
   size?: string;
   iconLink?: string;
+  /** Short-lived thumbnail URL served by Drive (images, videos, PDFs), when Drive has one. */
+  thumbnailLink?: string;
+  imageMediaMetadata?: { width?: number; height?: number };
+  videoMediaMetadata?: { width?: number; height?: number; durationMillis?: string | number };
 }
 
 export interface DrivePort {

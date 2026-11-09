@@ -24,6 +24,8 @@ export interface ReadOptions {
 export interface Actor {
   founder: string; // founder key, "system" for scripts
   correlationId?: string;
+  /** Skip the domain revision bump (append-only operational rows nobody polls, e.g. AuditLog, D084). */
+  quiet?: boolean;
 }
 
 export type Patch<T extends TableName> = Partial<Omit<Row<T>, "id" | "created_at" | "version" | "write_id">>;

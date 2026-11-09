@@ -460,28 +460,22 @@ export function InCallMail({ s, target, chips, suggested, sent, keys, needsBusin
   });
   const peekText = peek && !open ? textOf(peek) : null;
   const chipsEl = (
-    <div className="relative flex flex-col gap-1" role="group" aria-label={t("Instant mail")}>
-      <p className="flex items-center gap-2 text-[12px] text-text-2">
-        <Mail className="size-4 shrink-0" />
-        <span className="font-medium text-ink">{t("Instant mail")}</span>
-        <span className="min-w-0 truncate">{isEmail(email) ? `→ ${email}` : t("No email yet: type it as they spell it")}</span>
-        <span className="ml-auto hidden shrink-0 text-[12px] text-text-3 lg:inline">{t("hover = preview")}</span>
-      </p>
-      <div className="flex flex-wrap gap-1.5">
-        {chips.map((k, i) => {
-          const done = sent.includes(k);
-          return (
-            <button key={k} type="button" disabled={done || busy !== null} onClick={() => choose(k)} aria-label={`${t(TEMPLATE_SHORT[k])}${done ? ` · ${t("sent")}` : ""}`} aria-expanded={open === k}
-              onMouseEnter={() => setPeek(k)} onMouseLeave={() => setPeek((p) => (p === k ? null : p))} onFocus={() => setPeek(k)} onBlur={() => setPeek((p) => (p === k ? null : p))}
-              className={cn("flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium transition-colors disabled:cursor-default",
-                done ? "border-win bg-win/10 text-ink" : open === k ? "border-sales bg-sales/10" : k === suggested ? "border-ink bg-ink text-panel hover:opacity-90" : "border-control bg-panel hover:bg-subtle")}>
-              {done ? <Check className="size-4" /> : busy === k ? <Send className="size-4 animate-pulse" /> : null}
-              {t(TEMPLATE_SHORT[k])}
-              {keys && !done ? <span className={cn("text-[11px]", k === suggested && open !== k ? "text-panel/70" : "text-text-3")}>{i + 1}</span> : null}
-            </button>
-          );
-        })}
-      </div>
+    <div className="relative flex flex-wrap items-center gap-1.5" role="group" aria-label={t("Instant mail")}>
+      <span className="flex max-w-[40%] items-center gap-1 text-[12px] text-text-2" title={isEmail(email) ? email : t("No email yet: type it as they spell it")}>
+        <Mail className="size-4 shrink-0" /><span className="truncate">{isEmail(email) ? email : t("no email")}</span>
+      </span>
+      {chips.map((k) => {
+        const done = sent.includes(k);
+        return (
+          <button key={k} type="button" disabled={done || busy !== null} onClick={() => choose(k)} aria-label={`${t(TEMPLATE_SHORT[k])}${done ? ` · ${t("sent")}` : ""}`} aria-expanded={open === k}
+            onMouseEnter={() => setPeek(k)} onMouseLeave={() => setPeek((p) => (p === k ? null : p))} onFocus={() => setPeek(k)} onBlur={() => setPeek((p) => (p === k ? null : p))}
+            className={cn("flex min-h-9 items-center gap-1 rounded-full border px-3 text-[13px] font-medium transition-colors disabled:cursor-default",
+              done ? "border-win bg-win/10 text-ink" : open === k ? "border-sales bg-sales/10" : k === suggested ? "border-ink bg-ink text-panel hover:opacity-90" : "border-control bg-panel hover:bg-subtle")}>
+            {done ? <Check className="size-4" /> : busy === k ? <Send className="size-4 animate-pulse" /> : null}
+            {t(TEMPLATE_SHORT[k])}
+          </button>
+        );
+      })}
       {peekText && peek ? (
         <div aria-hidden className="pointer-events-none absolute bottom-full left-0 z-30 mb-2 w-full max-w-xl rounded-[14px] border border-hairline bg-panel p-3 text-[13px] shadow-[0_8px_24px_rgba(0,0,0,0.12)]">
           <p className="text-text-2">{t(EMAIL_TEMPLATE_LABELS[peek])} · <span className="text-text-3">{t("To")}</span> {isEmail(email) ? email : t("address asked before sending")}</p>

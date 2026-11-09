@@ -24,6 +24,9 @@ import {
 } from "@/server/services/crm";
 import { commit, commitSchema, exportAccountsCsv, preview, previewSchema } from "@/server/services/imports";
 import { diagnostics } from "@/server/services/diagnostics";
+import { healthDetails } from "@/server/services/health";
+import { backupStatus, exportBundle, runBackup, verifyBackup, verifyBackupSchema } from "@/server/services/backups";
+import { auditQuerySchema, enqueueAudit, flushAudit, listAudit } from "@/server/services/audit-log";
 import { userRow } from "@/server/services/common";
 import type { AppContext } from "@/server/context";
 import { ConsentRequiredError } from "@/data/google/ports";
@@ -43,7 +46,7 @@ import { MemoryBank, demoWiseStore } from "@/fake-wise/store";
 import { categorySchema, csvSchema, importBankCsv, moneyOverview, setCategory, syncBank, syncStripe } from "@/server/services/bank";
 import { MemoryStripe, demoStripeStore } from "@/fake-stripe";
 import { LOCALE_OF, translate } from "@/i18n";
-import { callLog, callLogSchema, callQueue, callSchema, callLists, endSession, endSessionSchema, listSessions, logCall, objectionReport, sessionSummary, startSession, startSessionSchema, undoCall, undoSchema } from "@/server/services/calls";
+import { callLog, callLogSchema, callQueue, callSchema, callLists, callbackSchema, listCallbacks, scheduleCallback, endSession, endSessionSchema, listSessions, logCall, objectionReport, sessionSummary, startSession, startSessionSchema, undoCall, undoSchema } from "@/server/services/calls";
 import { linkedinLog, linkedinLogSchema, linkedinQueue, linkedinSchema, linkedinSessions, linkedinSummary, linkedinSummarySchema, logLinkedIn } from "@/server/services/linkedin";
 import { seedDemoLinkedIn } from "@/server/services/demo-linkedin";
 import { contentLogSchema, logContent, marketingWeek } from "@/server/services/marketing-week";
@@ -52,6 +55,9 @@ import { dashboardSchema, reportsDashboard } from "@/server/services/dashboard";
 import { addSearchConsoleRow, gscImportSchema, gscManualSchema, importSearchConsole, runSiteAudit, seoOverview, seoSchema } from "@/server/services/seo";
 import { demoSiteFetcher } from "@/server/services/demo-seo";
 import { exportFile, exportSchema } from "@/server/services/export";
+import { STAGE4A_ROUTES } from "@/server/services/stage4a-routes";
+import { integrationHub } from "@/server/services/integrations";
+import { csvExportSchema, exportList } from "@/server/services/csv-lists";
 import { trackerAction, trackerActionSchema, trackerStatus } from "@/server/services/tracker";
 import { createFolder, folderSchema } from "@/server/services/files";
 import { getPlaybook, playbookEditSchema, savePlaybookItem } from "@/server/services/playbook";
@@ -140,6 +146,8 @@ const routes: Record<string, [z.ZodTypeAny | null, Handler]> = {
   "POST /api/files/folder": [folderSchema, async (i, f) => createFolder(ctx, f, driveGrant ? `preview-grant-${f}` : null, i as never)],
   "POST /api/calls": [callSchema, async (i, f) => logCall(ctx, f, i as never)],
   "POST /api/calls/undo": [undoSchema, async (i, f) => undoCall(ctx, f, i as never)],
+  "GET /api/calls/callbacks": [null, async (_, f) => listCallbacks(ctx, f)],
+  "POST /api/calls/callbacks": [callbackSchema, async (i, f) => scheduleCallback(ctx, f, i as never)],
   "POST /api/linkedin": [linkedinSchema, async (i, f) => logLinkedIn(ctx, f, i as never)],
   "GET /api/linkedin/queue": [z.object({ list_id: z.string().max(40).default("") }), async (i, f) => linkedinQueue(ctx, f, (i as { list_id: string }).list_id)],
   "GET /api/linkedin/summary": [linkedinSummarySchema, async (i, f) => linkedinSummary(ctx, f, (i as { id: string }).id)],
@@ -238,6 +246,16 @@ const routes: Record<string, [z.ZodTypeAny | null, Handler]> = {
   "POST /api/crm/import/preview": [previewSchema, async (i) => preview(repo, (i as { csv: string }).csv)],
   "POST /api/crm/import/commit": [commitSchema, async (i, f) => commit(repo, f, i as never)],
   "GET /api/diagnostics": [null, async () => diagnostics(repo)],
+  // Stage 4B (D084): health, backups (DEMO: JSON copy only), audit log.
+  "GET /api/health/details": [null, async () => healthDetails(ctx, [])],
+  "GET /api/backups": [null, async () => backupStatus(ctx)],
+  "POST /api/backups": [null, async () => runBackup(ctx, { trigger: "founder" })],
+  "POST /api/backups/verify": [verifyBackupSchema, async (i) => verifyBackup(ctx, i as never)],
+  "GET /api/backups/bundle": [null, async () => {
+    const b = await exportBundle(ctx);
+    return new Response(b.body, { headers: { "content-type": "application/json", "content-disposition": `attachment; filename="${b.filename}"` } });
+  }],
+  "GET /api/audit": [auditQuerySchema, async (i, f) => listAudit(repo, f, i as never)],
   // Export for AI: Markdown downloads in the preview (Excel needs the installed app).
   "GET /api/export": [exportSchema, async (i, f) => {
     const x = await exportFile(ctx, f, i as never);
@@ -255,8 +273,12 @@ for (const [k, [s, h]] of Object.entries(CONTENT_ROUTES)) routes[k] = [s, (i, f)
 for (const [k, [s, h]] of Object.entries(FINANCE_ROUTES)) routes[k] = [s, (i, f) => h(ctx, f, i as never)];
 // Stage 2A (D074): audits, quotes, price book, commercial policy.
 Object.assign(routes, quoteRoutes(ctx, (f) => (driveGrant ? `preview-grant-${f}` : null)));
+// Stage 4A (D083): CSV export/import and the Integrations Hub (no env in the browser: every variable reads "missing").
+for (const [k, [s, h]] of Object.entries(STAGE4A_ROUTES)) routes[k] = [s, (i, f) => h(ctx, f, i as never)];
+routes["GET /api/integrations"] = [null, async (_, f) => integrationHub(ctx, f, { gmail: gmailGrant[f], drive: driveGrant }, {})];
 
-export function exportCsv(href = "/api/crm/export") {
+export async function exportCsv(href = "/api/crm/export") {
+  if (href.startsWith("/api/csv/export")) return (await exportList(ctx, founder, csvExportSchema.parse(Object.fromEntries(new URL(href, "https://preview.example.com").searchParams)))).csv;
   if (href.startsWith("/api/reports/scorecard")) return scorecardCsv(ctx, founder);
   return exportAccountsCsv(repo);
 }
@@ -275,6 +297,12 @@ function mapError(e: unknown): [number, Record<string, unknown>] {
   return [500, { error: "internal", message: "Unexpected error" }];
 }
 
+/** Same audit trail as route() on the server (D084): field names only, after the answer. */
+function audit(method: string, path: string, status: number, input: unknown, result: unknown) {
+  enqueueAudit(repo, { founder, method, path, status, correlationId: crypto.randomUUID(), input, result: result instanceof Response ? undefined : result, ipHash: "preview", secret: "preview" });
+  void flushAudit(repo);
+}
+
 /** Replaces window.fetch for /api/* with a small latency, so saving states are visible. */
 export function installMockFetch() {
   const realFetch = window.fetch.bind(window);
@@ -291,9 +319,11 @@ export function installMockFetch() {
       const raw = method === "GET" ? Object.fromEntries(url.searchParams.entries()) : init?.body ? JSON.parse(String(init.body)) : {};
       const input = schema ? schema.parse(raw) : undefined;
       const out = await handler(input, founder);
+      if (method !== "GET") audit(method, url.pathname, 200, input, out);
       return out instanceof Response ? out : json(200, out ?? { ok: true });
     } catch (e) {
       const [s, b] = mapError(e);
+      if (method !== "GET") audit(method, url.pathname, s, undefined, undefined);
       if (typeof b.message === "string") b.message = translate(LOCALE_OF[founder], b.message);
       return json(s, b);
     }

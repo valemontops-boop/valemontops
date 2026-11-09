@@ -24,5 +24,16 @@ export function demoGoogleStore(now = new Date()): FakeGoogleStore {
   s.addFile({ id: "demo-file-pitch-es", name: "Valemont Local pitch ES (demo).pdf", parents: [DEMO_IDS.folder] });
   s.addFile({ id: "demo-file-script", name: "Script appel à froid FR (demo)", mimeType: "application/vnd.google-apps.document", parents: ["demo-folder-templates"] });
   s.addFile({ id: "demo-file-duval", name: "Notes Plomberie Duval (demo)", mimeType: "application/vnd.google-apps.document", parents: ["demo-folder-clients"] });
+  // Content Studio (D081): media picked "en mode shell" from Drive. Thumbnails are inline SVGs (no network in DEMO).
+  const thumb = (w: number, h: number, fill: string, label: string) => `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="100%" height="100%" fill="${fill}"/><text x="50%" y="50%" fill="#fbfaf7" font-family="sans-serif" font-size="${Math.round(w / 8)}" text-anchor="middle" dominant-baseline="middle">${label}</text></svg>`)}`;
+  s.addFile({ id: "demo-folder-content", name: "Contenu", mimeType: "application/vnd.google-apps.folder", parents: [DEMO_IDS.folder] });
+  s.addFile({ id: "demo-folder-reels", name: "Reels", mimeType: "application/vnd.google-apps.folder", parents: ["demo-folder-content"] });
+  s.addFile({ id: "demo-folder-visuals", name: "Visuels", mimeType: "application/vnd.google-apps.folder", parents: ["demo-folder-content"] });
+  s.addFile({ id: "demo-media-reel-fr", name: "Reel rapport IA FR (demo).mp4", mimeType: "video/mp4", parents: ["demo-folder-reels"], thumbnailLink: thumb(90, 160, "#7A4FD6", "FR"), videoMediaMetadata: { width: 1080, height: 1920, durationMillis: "42000" } });
+  s.addFile({ id: "demo-media-reel-es", name: "Reel informe IA ES (demo).mp4", mimeType: "video/mp4", parents: ["demo-folder-reels"], thumbnailLink: thumb(90, 160, "#2F5FBF", "ES"), videoMediaMetadata: { width: 1080, height: 1920, durationMillis: "118000" } });
+  s.addFile({ id: "demo-media-audit", name: "Audit terrain brut (demo).mov", mimeType: "video/quicktime", parents: ["demo-folder-reels"] });
+  s.addFile({ id: "demo-media-slide-1", name: "Carrousel 3 erreurs 1 (demo).png", mimeType: "image/png", parents: ["demo-folder-visuals"], thumbnailLink: thumb(108, 135, "#17161A", "1"), imageMediaMetadata: { width: 1080, height: 1350 } });
+  s.addFile({ id: "demo-media-slide-2", name: "Carrousel 3 erreurs 2 (demo).png", mimeType: "image/png", parents: ["demo-folder-visuals"], thumbnailLink: thumb(108, 135, "#17161A", "2"), imageMediaMetadata: { width: 1080, height: 1350 } });
+  s.addFile({ id: "demo-media-banner", name: "Bannière LinkedIn Valemont (demo).jpg", mimeType: "image/jpeg", parents: ["demo-folder-visuals"], thumbnailLink: thumb(191, 100, "#2F5FBF", "Valemont"), imageMediaMetadata: { width: 1920, height: 1005 } });
   return s;
 }

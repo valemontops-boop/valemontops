@@ -79,6 +79,6 @@ export const POST = route(z.object({ key: z.enum(Object.keys(KEYS) as [keyof typ
 function isMinutesJson(v: string) {
   try {
     const o = JSON.parse(v) as Record<string, unknown>;
-    return Boolean(o) && typeof o === "object" && !Array.isArray(o) && Object.entries(o).every(([k, n]) => ["concept", "reel", "brand_post", "personal_post", "story", "vsl"].includes(k) && Number.isInteger(n) && (n as number) >= 0 && (n as number) <= 1000);
+    return Boolean(o) && typeof o === "object" && !Array.isArray(o) && Object.entries(o).every(([k, n]) => ["concept", "reel", "brand_post", "personal_post", "story", "vsl", "ig_post"].includes(k) && Number.isInteger(n) && (n as number) >= 0 && (n as number) <= 1000);
   } catch { return false; }
 }

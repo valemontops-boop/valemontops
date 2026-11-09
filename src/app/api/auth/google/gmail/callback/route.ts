@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { safeBackPath } from "@/server/guard";
 import { OAuth2Client } from "google-auth-library";
 import { getConfig } from "@/server/config";
 import { GMAIL_COOKIE, GMAIL_SCOPE } from "@/server/gmail-grant";
@@ -8,7 +9,7 @@ export async function GET(req: NextRequest) {
   const cfg = getConfig();
   const session = await readSessionToken(req.cookies.get(SESSION_COOKIE)?.value, cfg.sessionSecret, cfg.mode);
   const saved = await unseal<{ state?: string; v?: string; back?: string }>(req.cookies.get(OAUTH_COOKIE)?.value, cfg.sessionSecret);
-  const back = saved?.back ?? "/call";
+  const back = safeBackPath(saved?.back, "/call");
   const fail = (e: string) => NextResponse.redirect(new URL(`${back}?gmail_error=${e}`, req.url));
   if (!cfg.ok || cfg.mode !== "live" || !session) return fail("unavailable");
   const state = req.nextUrl.searchParams.get("state");

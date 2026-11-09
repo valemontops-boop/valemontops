@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { RATE, guardInbound } from "@/server/guard";
 import { metaToItems } from "@/domain/inbox";
 import { metaChallenge, verifyHmacSha256 } from "@/server/inbox-webhook";
 import { getContext } from "@/server/repo";
@@ -17,8 +18,9 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const secret = process.env.META_APP_SECRET;
   if (!secret) return NextResponse.json({ error: "not_configured" }, { status: 503 });
-  const raw = await req.text();
-  if (raw.length > 500_000) return NextResponse.json({ error: "too_large" }, { status: 413 });
+  const got = await guardInbound(req, "meta", { maxBytes: 500_000, rule: RATE.webhook }); // rate limit + streaming size cap (D084)
+  if ("refuse" in got) return got.refuse;
+  const raw = got.raw;
   if (!verifyHmacSha256(raw, req.headers.get("x-hub-signature-256"), secret)) return NextResponse.json({ error: "bad_signature" }, { status: 401 });
   let body: unknown;
   try { body = JSON.parse(raw); } catch { return NextResponse.json({ error: "malformed" }, { status: 400 }); }

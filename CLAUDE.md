@@ -15,7 +15,8 @@ Spec: `docs/VALEMONT_OS_CLAUDE_CODE_MASTER_PROMPT.md` (binding). Resume from `do
 - Call mode: one tap = one event; refusals from free dialling store only `target_key` (HMAC), never the number.
 - Private data (PrivateTasks) only in each founder's own spreadsheet (`ctx.privateRepo`). The other founder's
   calendar is read as free/busy only. Partial updates use `patchOf()` (zod v4 `.partial()` keeps defaults!).
-- Server-side auth + Zod on every route (`src/server/http.ts` `route()`), same-origin check on mutations.
+- Server-side auth + Zod on every route (`src/server/http.ts` `route()`), same-origin check on mutations; route() also audits
+  every mutation (AuditLog, names only) and logs JSON with `x-request-id` (`src/server/log.ts`). Unauthenticated endpoints use `guardInbound` (rate limit + size cap).
 - No real emails, IDs, handles or tokens in code/fixtures (`tests/integration/build-separation.test.ts`). Fixtures use example.com.
 - The building Claude account/connectors are NEVER used on Valemont's real resources (spec §3.15).
 - UI in French for Théo and Spanish for Pablo (no English UI, D048): wrap every visible string with t() from `src/i18n/react` and add [FR, ES] to `src/i18n/dict`. Design tokens and limits in `docs/DESIGN.md` (≤5 numbers, ≤1 chart, accent ≤2, one ink block).
@@ -26,7 +27,7 @@ Spec: `docs/VALEMONT_OS_CLAUDE_CODE_MASTER_PROMPT.md` (binding). Resume from `do
 - `npm run dev` (needs `.env.local`, see `.env.example`) · `npm run build` · `npm start`
 - `npm run check` = lint + typecheck + unit/integration (`vitest`)
 - `npm run test:e2e` (Playwright; builds must be fresh: `npm run build` first) · `npm run test:live` (gated, NOT RUN without creds)
-- `npm run fake:sheets` (local fake Sheets API on :4010) · `npm run setup:sheets` · `npm run doctor:sheets`
+- `npm run fake:sheets` (local fake Sheets API on :4010) · `npm run setup:sheets` · `npm run doctor:sheets` · `npm run restore:sheets` (backup → NEW Sheet only, docs/DEPLOYMENT.md)
 
 ## Where things live
 - `src/domain/` pure business rules + tests (tally, attainment, suppression, CSV, report, time zones)

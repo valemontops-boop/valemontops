@@ -1,13 +1,33 @@
 # Status
 
-Updated: 2026-11-09 · Stage: **Stages 1B, 2 and 3 complete + founder feedback round 10 (fake-verified)** · Next: Stage 4 (integrations, reliability, deployment).
+Updated: 2026-11-09 · Stage: **Stages 1–4 complete (fake-verified) + founder feedback round 11** · Next: live validation with real credentials (docs/DEPLOYMENT.md, docs/ACCEPTANCE.md).
+
+## Stage 4B · backups, audit log, observability, security, deployment (D084, 2026-11-09)
+| Feature | Status |
+|---|---|
+| Daily backup = Drive copy of the live Sheet into BACKUP_DRIVE_FOLDER_ID, verified by tab/row counts, once per day (lock + lease + done row), retention N days; scheduler endpoint `/api/jobs/backup` (HMAC / bearer / Vercel CRON_SECRET) or lazy first request of the day | VERIFIED_FAKE (backups.test.ts on fake Sheets + fake Drive incl. storageQuotaExceeded, 5xx, retention) — needs a Shared Drive folder or the Apps Script copy for VERIFIED_LIVE |
+| JSON copy download (shared tabs only, audited) and restore into a NEW spreadsheet (`npm run restore:sheets`, refuses live/non-empty targets, verifies) | VERIFIED_FAKE (round-trips from the Drive copy and from the JSON copy; +33…, -12.00, =SUM stay text) — restore drill on real Google NOT RUN |
+| AuditLog for every authenticated mutation via route() (names only, keyed hashes, private rows hidden), viewer in Settings › Diagnostics (entity / founder / dates) | VERIFIED_FAKE (stage4b-routes, audit-log tests, e2e, preview FR/ES) |
+| Structured JSON logs with levels + redaction, x-request-id from the proxy/route(), `/api/health` (liveness/readiness) and `/api/health/details` | VERIFIED_FAKE (log.test.ts, stage4b-routes, e2e) |
+| Security review: docs/SECURITY.md (STRIDE); fixed open redirect (consent `back`), malformed Origin 500 → 403, cross-site sign-out, streaming body caps, webhook/job/feed/health rate limits, SSRF via redirects in the site audit, CSP + HSTS + COOP | VERIFIED_FAKE (guard, seo-ssrf, stage4b-routes, e2e headers) |
+| docs/DEPLOYMENT.md (Vercel Pro + Fluid Compute, Google Cloud, env, webhooks, crons in vercel.json, first run, backups, restore, rollback), docs/ACCEPTANCE.md (all 24 scenarios mapped) | done; live gate (`npm run test:live`) NOT RUN — no credentials |
+
+
+## Stage 4 + feedback round 11 (2026-11-09)
+| Change | Status |
+|---|---|
+| Calls: missed-call panel (mail "j'ai essayé de vous appeler" with preview, callback scheduling with chips, next call); callbacks first in queue, in My Day/Agenda and bell; objection reply one step at a time in a framed card, shorter texts | VERIFIED_FAKE (calls tests, e2e) |
+| Content planner: Kanban, week/month calendar, composer per account × language, Drive media picker, deterministic optimizer score per platform (D081) | VERIFIED_FAKE (content tests, e2e) |
+| EUR/USD and ECB removed (D082) — spec scenario 9 dropped by founders | n/a |
+| Integration Hub, signed website webhook, CSV export/import per list (D083) | VERIFIED_FAKE |
+| Backups (Drive copy + verify + retention, restore to a new Sheet), audit log, JSON logs with request ids, health endpoints, security review + fixes, deployment guide, acceptance map (D084) | VERIFIED_FAKE — live drill needs credentials |
 
 ## Stage 3 + feedback round 10 (2026-11-09)
 | Change | Status |
 |---|---|
 | Call screen: mail preview before sending (and after a missed call), visible Back / Undo, back on "New call" after each call, objections all visible without scrolling (two columns, grouped) | VERIFIED_FAKE (e2e at 1280×720, preview) |
 | Growth: one dashboard (5 numbers, one channel chart with Volume / Results / Cost views), detail drawer per channel, ≤3 verdicts | VERIFIED_FAKE (preview FR/ES, phone) |
-| Finance (D078): managerial P&L by month with drill-down, revenue recognition vs cash, contracts and revenue schedule, MRR/ARR, EBITDA estimate, runway, EUR/USD with ECB rates cached per day, manual entries | VERIFIED_FAKE (finance tests, scenarios 8–9) — ECB download untested live |
+| Finance (D078): managerial P&L by month with drill-down, revenue recognition vs cash, contracts and revenue schedule, MRR/ARR, EBITDA estimate, runway, manual entries, everything in EUR (EUR/USD and ECB dropped, D082) | VERIFIED_FAKE (finance tests, scenario 8; scenario 9 dropped by D082) |
 | Content Studio (D079): pipeline FR/ES variants, week calendar, batch, publishing checklists, post checkpoints, views → leads path; Instagram Graph adapter; snapshot job without cron | VERIFIED_FAKE (scenarios 10, 22) — needs Meta app + token |
 
 ## Stage 2A · audits, price book, quotes (D074)

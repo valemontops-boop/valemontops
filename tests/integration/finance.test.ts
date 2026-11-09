@@ -1,15 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FakeSheetsServer } from "@/fake-sheets/server";
 import { InMemoryRepository } from "@/data/memory";
 import { ConflictError, type DataRepository } from "@/data/repository";
 import type { AppContext } from "@/server/context";
 import { seedBaseline } from "@/server/services/baseline";
 import { seedDemo } from "@/server/services/demo-seed";
-import { addEntry, contractsFromProjects, createContract, financeOverview, reverseEntry, saveAllocation, setEcbFetcher, usdView } from "@/server/services/finance";
+import { addEntry, contractsFromProjects, createContract, financeOverview, reverseEntry, saveAllocation, entrySchema } from "@/server/services/finance";
 import { moneyOverview } from "@/server/services/bank";
-import { childId } from "@/lib/ids";
 import { addDays, localDate } from "@/domain/time";
-import { RuleError } from "@/server/errors";
 import { freshSheetsRepo, uuid } from "../helpers";
 
 let fake: FakeSheetsServer | null = null;
@@ -21,7 +19,7 @@ const first = `${month}-01`;
 const prevMonth = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 2, 1)).toISOString().slice(0, 7);
 const lastOfMonth = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10);
 const mkCtx = (r: DataRepository, mode: "live" | "demo" = "demo"): AppContext => ({ repo: r, privateRepo: () => null, calendar: null, drive: null, uploaderFor: () => null, mailerFor: () => null, baseUrl: "", mode });
-const entry = (p: Record<string, unknown>) => ({ id: uuid(), date: first, kind: "income" as const, category: "revenue" as const, cost_center: "local" as const, cost_class: "" as const, currency: "EUR", amount_minor: 9900, vat_minor: 0, counterparty: "Client (test)", reference: "", receipt_url: "", project_id: "", contract_id: "", service_from: null, service_to: null, note: "", manual_rate: "", ...p });
+const entry = (p: Record<string, unknown>) => ({ id: uuid(), date: first, kind: "income" as const, category: "revenue" as const, cost_center: "local" as const, cost_class: "" as const, currency: "EUR" as const, amount_minor: 9900, vat_minor: 0, counterparty: "Client (test)", reference: "", receipt_url: "", project_id: "", contract_id: "", service_from: null, service_to: null, note: "", ...p });
 
 beforeEach(async () => {
   const env = await freshSheetsRepo();
@@ -89,53 +87,29 @@ describe("Scenario 8: cash vs recognized revenue, MRR, ARR, provisional EBITDA (
   });
 });
 
-describe("Scenario 9: EUR/USD with a labelled 1.1000 fixture", () => {
-  beforeEach(async () => {
-    await repo.insert("FxRates", [{ id: childId("fx", "demo", "USD", first), base: "EUR", quote: "USD", rate: "1.1000", rate_date: first, source: "demo", fetched_at: new Date().toISOString() }], { founder: "system" });
-  });
-  it("EUR 99.00 displays USD 108.90 with the rate date; stored 9900 EUR minor units unchanged", async () => {
-    const e = await addEntry(ctx, "theo", entry({ date: first, service_from: first, service_to: first }));
+describe("Everything is EUR (D082: the founders dropped spec scenario 9, EUR/USD with ECB rates)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it("a manual entry is always EUR: another currency is refused by the schema, nothing about rates is stored", async () => {
+    expect(entrySchema.safeParse(entry({ currency: "USD" })).success).toBe(false);
+    const parsed = entrySchema.parse(entry({ kind: "expense", category: "api_tokens", currency: undefined }));
+    expect(parsed.currency).toBe("EUR");
+    const e = await addEntry(ctx, "theo", parsed);
+    expect(e).toMatchObject({ currency: "EUR", amount_minor: -9900, eur_minor: -9900, fx_rate: "", fx_date: null, fx_source: "" });
     const f = await financeOverview(ctx, "theo");
-    expect(f.fx.usd).toMatchObject({ rate: "1.1000", rate_date: first, source: "demo" });
-    expect(usdView(9900, f.fx.usd as never)).toBe(10890);
-    expect((await repo.get("LedgerEntries", e.id, { fresh: true }))?.amount_minor).toBe(9900);
+    expect(f).not.toHaveProperty("fx");
+    expect(f.items.find((i) => i.id === e.id)?.eur_net).toBe(-9900);
   });
-  it("a USD entry locks its rate; a later rate for that date changes nothing", async () => {
-    const e = await addEntry(ctx, "theo", entry({ kind: "expense", category: "api_tokens", cost_center: "local", currency: "USD", amount_minor: 9900 }));
-    expect(e).toMatchObject({ currency: "USD", amount_minor: -9900, eur_minor: -9000, fx_rate: "1.1000", fx_date: first, fx_source: "demo" });
-    await repo.insert("FxRates", [{ id: childId("fx", "ecb", "USD", first), base: "EUR", quote: "USD", rate: "1.2000", rate_date: first, source: "ecb", fetched_at: new Date().toISOString() }], { founder: "system" });
-    const it = (await financeOverview(ctx, "theo")).items.find((i) => i.id === e.id)!;
-    expect(it.eur_net).toBe(-9000);
-    expect(it.fx).toMatchObject({ rate: "1.1000", rate_date: first });
-  });
-  it("refuses a foreign-currency entry with no known rate, unless a founder enters the rate by hand", async () => {
-    const old = addDays(first, -60);
-    await expect(addEntry(ctx, "theo", entry({ date: old, currency: "USD" }))).rejects.toBeInstanceOf(RuleError);
-    const e = await addEntry(ctx, "theo", entry({ date: old, currency: "USD", manual_rate: "1,0800" }));
-    expect(e).toMatchObject({ fx_rate: "1.0800", fx_source: "manual", eur_minor: 9167 });
-  });
-});
-
-describe("ECB rates in LIVE (fetched lazily once a day, cached in FxRates, never invented)", () => {
-  afterEach(() => setEcbFetcher(async () => { throw new Error("no network in tests"); }));
-  it("caches the daily file once; a failure keeps the cache and leaves unconverted rows out", async () => {
-    let calls = 0;
-    const d = addDays(today, -1);
-    setEcbFetcher(async () => { calls++; return `<Cube><Cube time='${d}'><Cube currency='USD' rate='1.0812'/><Cube currency='GBP' rate='0.8400'/></Cube></Cube>`; });
-    const live = mkCtx(repo, "live");
-    const f = await financeOverview(live, "theo");
-    expect(f.fx.usd).toMatchObject({ rate: "1.0812", rate_date: d, source: "ecb" });
-    await financeOverview(live, "theo");
-    expect(calls).toBe(1);
-    const rows = (await repo.list("FxRates", { fresh: true })).rows;
-    expect(rows.map((r) => r.quote)).toEqual(["USD"]); // only the currencies needed
-    // A bank movement in GBP with no rate: shown, counted as missing, excluded from totals.
-    setEcbFetcher(async () => { throw new Error("timeout"); });
+  it("a bank movement in another currency is shown in its currency, counted, left out of EUR totals; LIVE downloads nothing", async () => {
+    const real = globalThis.fetch;
+    const urls: string[] = [];
+    vi.stubGlobal("fetch", (u: RequestInfo | URL, init?: RequestInit) => { urls.push(String(u instanceof Request ? u.url : u)); return real(u, init); });
     await repo.insert("BankTransactions", [{ id: uuid(), bank: "wise", source_id: "T-GBP", origin: "csv", balance_id: "csv-GBP", currency: "GBP", amount_minor: -5000, fee_minor: null, direction: "debit", date: today, occurred_at: new Date().toISOString(), description: "Outil (test)", counterparty: "", bank_type: "CARD", merchant_category: "", category: "software", category_source: "auto", running_balance_minor: null, note: "" }], { founder: "system" });
-    const g = await financeOverview(live, "theo");
-    expect(g.fx.missing).toBe(1);
-    expect(g.fx.error).toMatch(/ECB/);
+    const g = await financeOverview(mkCtx(repo, "live"), "theo");
+    expect(g.non_eur).toBe(1);
+    const it = g.items.find((i) => i.currency === "GBP")!;
+    expect(it).toMatchObject({ gross_minor: -5000, eur_gross: null, eur_net: null });
     expect(g.pnl.at(-1)!.opex).toBe(0);
+    expect(urls.filter((u) => !u.includes("127.0.0.1") && !u.includes("localhost"))).toEqual([]); // no ECB (or any outside) download
   });
 });
 

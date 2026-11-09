@@ -5,7 +5,11 @@ import type { DataRepository } from "@/data/repository";
 import { ConflictError } from "@/data/repository";
 import type { AppContext } from "@/server/context";
 import { seedBaseline } from "@/server/services/baseline";
-import { advanceBatch, contentStudio, createPiece, createPieceSchema, metricsSchema, saveChecklist, saveMetrics, updatePiece, updateVariant, variantSchema } from "@/server/services/content-studio";
+import {
+  addVariants, advanceBatch, browseMedia, contentStudio, createPiece, createPieceSchema, metricsSchema, movePiece, saveChecklist, saveMetrics, updatePiece, updatePieceSchema,
+  updateVariant, variantSchema,
+} from "@/server/services/content-studio";
+import { FakeGoogleStore, MemoryDrive } from "@/fake-google/store";
 import { maybeSnapshot, runSnapshot, snapshotStatus } from "@/server/services/snapshot";
 import { marketingWeek } from "@/server/services/marketing-week";
 import { audienceSeries } from "@/server/services/audience";
@@ -62,9 +66,9 @@ describe("scenario 10: one 30/30 concept, a French and a Spanish version", () =>
     expect(piece.column).toBe("idea");
 
     // Production steps, then a stale version is a conflict, never a silent overwrite.
-    const p1 = await updatePiece(ctx, "theo", { id, expected_version: piece.version, patch: { stage: "script", script: "Plan : accroche, preuve, CTA" } });
-    await expect(updatePiece(ctx, "pablo", { id, expected_version: piece.version, patch: { stage: "shoot" } })).rejects.toBeInstanceOf(ConflictError);
-    expect(await advanceBatch(ctx, "pablo", { to: "edit", items: [{ id, expected_version: p1.version }] })).toEqual({ moved: 1, conflicts: [] });
+    const p1 = await updatePiece(ctx, "theo", updatePieceSchema.parse({ id, expected_version: piece.version, patch: { stage: "draft", script: "Plan : accroche, preuve, CTA" } }));
+    await expect(updatePiece(ctx, "pablo", updatePieceSchema.parse({ id, expected_version: piece.version, patch: { stage: "ready" } }))).rejects.toBeInstanceOf(ConflictError);
+    expect(await advanceBatch(ctx, "pablo", { to: "ready", items: [{ id, expected_version: p1.version }] })).toEqual({ moved: 1, conflicts: [] });
 
     const [es, fr] = piece.variants;
     const frSaved = await updateVariant(ctx, "theo", variantSchema.parse({ id: fr.id, expected_version: fr.version, action: "schedule", patch: { scheduled_date: "2026-11-10", destination_url: "https://example.com/fr", caption: "Votre rapport IA", checklist_done: ["hook", "subtitles"] } }));
@@ -107,8 +111,108 @@ describe("scenario 10: one 30/30 concept, a French and a Spanish version", () =>
     const p = s.pieces.find((x) => x.id === id)!;
     expect(p.brand).toBeNull();
     expect(p.variants[0]).toMatchObject({ platform: "linkedin_personal", owner_founder: "pablo", account_id: childId("social", "li-pablo") });
+    expect(p.format).toBe("post"); // legacy "personal_post" is read as a post on the personal profile
     expect(s.checklists.linkedin).toHaveLength(2);
     await expect(saveChecklist(ctx, "pablo", { platform: "linkedin", items: [{ key: "a", label: "x" }, { key: "a", label: "y" }] })).rejects.toThrow(/same key/);
+  });
+});
+
+describe("round 11 (D081): accounts × languages, planning, Kanban moves, Drive media, 409", () => {
+  const LI_THEO = childId("social", "li-theo");
+  const LI_VALEMONT = childId("social", "li-valemont");
+  const IG_THIRTY = childId("social", "ig-thirty");
+  function withDrive() {
+    const store = new FakeGoogleStore();
+    store.addFile({ id: "fld-content", name: "Contenu", mimeType: "application/vnd.google-apps.folder", parents: ["root-folder"] });
+    store.addFile({ id: "vid-1", name: "reel-fr.mp4", mimeType: "video/mp4", parents: ["fld-content"], thumbnailLink: "https://drive.example.com/thumb/vid-1", videoMediaMetadata: { width: 1080, height: 1920, durationMillis: "42000" } });
+    store.addFile({ id: "img-1", name: "slide.png", mimeType: "image/png", parents: ["fld-content"], imageMediaMetadata: { width: 1080, height: 1350 } });
+    store.addFile({ id: "doc-1", name: "notes.txt", mimeType: "text/plain", parents: ["fld-content"] });
+    return { ...ctx, drive: new MemoryDrive(store) } satisfies AppContext;
+  }
+
+  it("creates a one-line idea with no version, then a post on three accounts, schedules, flags a conflict and moves it on the board", async () => {
+    const idea = newId();
+    await createPiece(ctx, "theo", createPieceSchema.parse({ id: idea, title: "Idée : le devis en 24 h", brand: "consulting", format: "post", targets: [] }));
+    let s = await contentStudio(ctx, "theo");
+    expect(s.pieces.find((p) => p.id === idea)).toMatchObject({ column: "idea", variants: [], score: null });
+    expect(s.accounts.map((a) => a.label)).toEqual(["LinkedIn Théo", "LinkedIn Pablo", "LinkedIn Valemont", "LinkedIn 30/30 AI", "Instagram Valemont", "Instagram 30/30 AI"]);
+
+    const id = newId();
+    const targets = [{ account_id: LI_THEO, language: "FR" }, { account_id: LI_VALEMONT, language: "FR" }, { account_id: LI_VALEMONT, language: "ES" }, { account_id: LI_THEO, language: "FR" }];
+    await createPiece(ctx, "theo", createPieceSchema.parse({ id, title: "3 leçons de 40 appels", brand: "consulting", format: "post", stage: "draft", targets }));
+    expect((await addVariants(ctx, "theo", { piece_id: id, targets: [{ account_id: LI_VALEMONT, language: "ES" }, { account_id: IG_THIRTY, language: "ES" }] }))).toMatchObject({ added: 1, skipped: 1 });
+    s = await contentStudio(ctx, "theo");
+    let piece = s.pieces.find((p) => p.id === id)!;
+    expect(piece.variants.map((v) => [v.account, v.language, v.owner_founder, v.link_placement])).toEqual([
+      ["Instagram 30/30 AI", "ES", "pablo", "bio"], ["LinkedIn Théo", "FR", "theo", "first_comment"], ["LinkedIn Valemont", "ES", "pablo", "first_comment"], ["LinkedIn Valemont", "FR", "theo", "first_comment"],
+    ]);
+
+    // Kanban: no dated version yet → cannot enter Scheduled.
+    await expect(movePiece(ctx, "theo", { id, expected_version: piece.version, to: "scheduled" })).rejects.toThrow(/date/);
+    const liTheo = piece.variants.find((v) => v.account_id === LI_THEO)!;
+    const saved = await updateVariant(ctx, "theo", variantSchema.parse({ id: liTheo.id, expected_version: liTheo.version, action: "save", patch: { hook: "40 appels.", caption: "Leçon 1", scheduled_date: "2026-11-10", scheduled_time: "08:30" } }));
+    expect(saved.status).toBe("draft");
+    const moved = await movePiece(ctx, "theo", { id, expected_version: piece.version, to: "scheduled" });
+    expect(moved).toMatchObject({ scheduled: 1, unscheduled: 0 });
+    // A second post on the same account 20 minutes later is flagged, not blocked.
+    const other = newId();
+    await createPiece(ctx, "theo", createPieceSchema.parse({ id: other, title: "Autre post", brand: null, format: "post", targets: [{ account_id: LI_THEO, language: "FR" }] }));
+    const ov = (await contentStudio(ctx, "theo")).pieces.find((p) => p.id === other)!.variants[0];
+    await updateVariant(ctx, "theo", variantSchema.parse({ id: ov.id, expected_version: ov.version, action: "schedule", patch: { scheduled_date: "2026-11-10", scheduled_time: "08:50" } }));
+    s = await contentStudio(ctx, "theo");
+    piece = s.pieces.find((p) => p.id === id)!;
+    expect(piece.column).toBe("scheduled");
+    expect(piece.variants.find((v) => v.id === liTheo.id)!.conflicts).toEqual([ov.id]);
+    expect(s.schedule.filter((e) => e.conflict).map((e) => e.id).sort()).toEqual([liTheo.id, ov.id].sort());
+    expect(piece.variants.find((v) => v.id === liTheo.id)!.score.score).toBeGreaterThan(0);
+
+    // Drag to another day keeps it scheduled; moving the card back to Ready puts it back to draft with its date.
+    const cur = piece.variants.find((v) => v.id === liTheo.id)!;
+    expect((await updateVariant(ctx, "theo", variantSchema.parse({ id: cur.id, expected_version: cur.version, action: "schedule", patch: { scheduled_date: "2026-11-12" } })))).toMatchObject({ status: "scheduled", scheduled_date: "2026-11-12", scheduled_time: "08:30" });
+    await expect(movePiece(ctx, "pablo", { id, expected_version: piece.version - 1, to: "ready" })).rejects.toBeInstanceOf(ConflictError);
+    expect(await movePiece(ctx, "pablo", { id, expected_version: piece.version, to: "ready" })).toMatchObject({ unscheduled: 1 });
+    const back = (await contentStudio(ctx, "theo")).pieces.find((p) => p.id === id)!;
+    expect(back.column).toBe("ready");
+    expect(back.variants.find((v) => v.id === liTheo.id)).toMatchObject({ status: "draft", scheduled_date: "2026-11-12" });
+  });
+
+  it("schedules a new version straight onto a recommended slot", async () => {
+    const id = newId();
+    await createPiece(ctx, "pablo", createPieceSchema.parse({ id, title: "Informe IA", brand: "thirty", format: "reel", targets: [] }));
+    const r = await addVariants(ctx, "pablo", { piece_id: id, targets: [{ account_id: IG_THIRTY, language: "ES" }], schedule: { date: "2026-11-11", time: "12:00" } });
+    const v = (await repo.get("ContentVariants", r.ids[0], { fresh: true }))!;
+    expect(v).toMatchObject({ status: "scheduled", scheduled_date: "2026-11-11", scheduled_time: "12:00", slot_key: "3-ig-thirty-story-es" });
+  });
+
+  it("attaches Drive media by id (no copy), keeps their metadata, refuses unknown or non-media files, and a stale autosave is a 409", async () => {
+    const c = withDrive();
+    await repo.insert("SystemSettings", [{ id: childId("setting", "drive_folder_id"), key: "drive_folder_id", value: "root-folder", description: "" }], { founder: "system" });
+    const picker = await browseMedia(c, { folder: "fld-content", q: "" });
+    expect(picker.files.map((f) => [f.file_id, f.is_folder])).toEqual([["vid-1", false], ["img-1", false]]); // the text file is hidden
+    expect((await browseMedia(c, { q: "" })).files.map((f) => f.name)).toEqual(["Contenu"]);
+
+    const id = newId();
+    await createPiece(c, "theo", createPieceSchema.parse({ id, title: "Reel FR", brand: "thirty", format: "reel", targets: [{ account_id: IG_THIRTY, language: "FR" }] }));
+    const v = (await contentStudio(c, "theo")).pieces.find((p) => p.id === id)!.variants[0];
+    const row = await updateVariant(c, "theo", variantSchema.parse({ id: v.id, expected_version: v.version, patch: { drive_media: [{ file_id: "vid-1" }], caption: "Version 1" } }));
+    expect(row.drive_media).toEqual([{ file_id: "vid-1", name: "reel-fr.mp4", mime: "video/mp4", web_link: "https://drive.example.com/file/vid-1", thumbnail_link: "https://drive.example.com/thumb/vid-1", width: 1080, height: 1920, duration_ms: 42_000 }]);
+    await expect(updateVariant(c, "theo", variantSchema.parse({ id: v.id, expected_version: row.version, patch: { drive_media: [{ file_id: "nope" }] } }))).rejects.toThrow(/not visible/);
+    await expect(updateVariant(c, "theo", variantSchema.parse({ id: v.id, expected_version: row.version, patch: { drive_media: [{ file_id: "doc-1" }] } }))).rejects.toThrow(/image, a video/);
+    // Pablo's tab still holds version 1 of the row: his autosave is refused, Théo's text is kept.
+    await expect(updateVariant(c, "pablo", variantSchema.parse({ id: v.id, expected_version: v.version, patch: { caption: "Écrasé" } }))).rejects.toBeInstanceOf(ConflictError);
+    const studio = await contentStudio(c, "theo");
+    const fresh = studio.pieces.find((p) => p.id === id)!.variants[0];
+    expect(fresh.caption).toBe("Version 1");
+    expect(fresh.drive_media).toHaveLength(1);
+    // Drive is the only copy: the Sheets row holds the id and link, never the bytes.
+    expect(JSON.stringify(fresh.drive_media)).not.toMatch(/base64/);
+    // Publishing an Instagram carousel counts as an Instagram post in the weekly goals log.
+    const car = newId();
+    await createPiece(c, "theo", createPieceSchema.parse({ id: car, title: "Carrousel", brand: "consulting", format: "carousel", targets: [{ account_id: IG_VALEMONT, language: "FR" }] }));
+    const cv = (await contentStudio(c, "theo")).pieces.find((p) => p.id === car)!.variants[0];
+    await updateVariant(c, "theo", variantSchema.parse({ id: cv.id, expected_version: cv.version, action: "publish", patch: { platform_post_url: "https://www.instagram.com/p/demo-car/" } }));
+    const logs = (await repo.list("ContentLog", { fresh: true })).rows.filter((l) => l.title === "Carrousel");
+    expect(logs.map((l) => l.deliverable)).toEqual(["ig_post"]);
   });
 });
 

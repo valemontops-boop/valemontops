@@ -60,6 +60,18 @@ export class FakeSheetsServer {
     this.books.set(id, { title, sheets: [] });
   }
 
+  /** Drive files.copy of a spreadsheet (used by the fake Drive server, D084): a deep copy with new sheet ids. */
+  copyBook(sourceId: string, newId: string, title: string): boolean {
+    const src = this.books.get(sourceId);
+    if (!src) return false;
+    const copy = structuredClone(src) as FakeSpreadsheet;
+    copy.title = title;
+    for (const sh of copy.sheets) sh.sheetId = this.nextSheetId++;
+    this.books.set(newId, copy);
+    this.persist();
+    return true;
+  }
+
   reset() {
     for (const b of this.books.values()) b.sheets = [];
     this.faults = [];

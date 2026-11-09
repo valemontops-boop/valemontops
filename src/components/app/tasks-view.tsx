@@ -16,6 +16,7 @@ import type { TaskRow } from "@/server/services/tasks";
 import { Pill, fmtDay } from "./bits";
 import { ConflictNotice } from "./conflict";
 import { useMe } from "./providers";
+import { CsvExportButton, CsvImportButton } from "./csv-tools";
 
 type View = "mine" | "theo" | "pablo" | "unassigned" | "overdue" | "all";
 export type Area = "sales" | "marketing" | "ops";
@@ -132,7 +133,7 @@ export function TasksView() {
       <div className="flex min-w-0 flex-1 flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">{tr("Tasks")}</h1>
-          <Button variant="primary" onClick={() => setCreating(true)}><Plus /> {tr("New task")}</Button>
+          <div className="flex flex-wrap items-center gap-1"><CsvImportButton kind="tasks" /><CsvExportButton list="tasks" /><Button variant="primary" onClick={() => setCreating(true)}><Plus /> {tr("New task")}</Button></div>
         </div>
         <div className="flex flex-wrap gap-2">
           <div className="overflow-x-auto"><SegmentedSwitch size="sm" label={tr("View")} value={view} onChange={setView} options={[{ value: "mine", label: tr("My tasks") }, { value: me.founder === "theo" ? "pablo" : "theo", label: tr("Assigned to {name}", { name: FOUNDER_NAMES[me.founder === "theo" ? "pablo" : "theo"] }) }, { value: "unassigned", label: tr("Unassigned") }, { value: "overdue", label: tr("Overdue") }, { value: "all", label: tr("All") }]} /></div>

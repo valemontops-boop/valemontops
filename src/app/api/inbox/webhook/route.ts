@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { RATE, guardInbound } from "@/server/guard";
 import { webhookBodySchema } from "@/domain/inbox";
 import { verifyHmacSha256 } from "@/server/inbox-webhook";
 import { getContext } from "@/server/repo";
@@ -12,8 +13,9 @@ import { ingestInboxItems } from "@/server/services/inbox";
 export async function POST(req: NextRequest) {
   const secret = process.env.INBOX_WEBHOOK_SECRET;
   if (!secret) return NextResponse.json({ error: "not_configured" }, { status: 503 });
-  const raw = await req.text();
-  if (raw.length > 200_000) return NextResponse.json({ error: "too_large" }, { status: 413 });
+  const got = await guardInbound(req, "inbox", { maxBytes: 200_000, rule: RATE.webhook }); // rate limit + streaming size cap (D084)
+  if ("refuse" in got) return got.refuse;
+  const raw = got.raw;
   if (!verifyHmacSha256(raw, req.headers.get("x-valemont-signature"), secret)) return NextResponse.json({ error: "bad_signature" }, { status: 401 });
   let body: unknown;
   try { body = JSON.parse(raw); } catch { return NextResponse.json({ error: "malformed" }, { status: 400 }); }

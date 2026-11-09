@@ -30,3 +30,7 @@ export function createPrivateKey(): never { throw new Error("Not available in th
 export function createPublicKey(): never { throw new Error("Not available in the preview"); }
 export function sign(): never { throw new Error("Not available in the preview"); }
 export function verify(): never { throw new Error("Not available in the preview"); }
+/** Preview only: plain comparison (the server uses Node's constant-time version). */
+export function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
+  return a.length === b.length && a.every((x, i) => x === b[i]);
+}

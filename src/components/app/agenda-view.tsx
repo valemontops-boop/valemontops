@@ -13,6 +13,7 @@ import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { AgendaEvent } from "@/server/services/agenda";
 import { Pill, fmtDateTime } from "./bits";
+import { CallbacksList } from "./callbacks";
 
 type Agenda = { available: boolean; events: AgendaEvent[]; error: string | null };
 type Item = { id: string; version: number; kind: "agenda" | "decision" | "action"; text: string; done: boolean; owner: string | null; task_id: string };
@@ -53,6 +54,7 @@ export function AgendaView() {
           <EventList events={q.data.events} onPoint={setOpenPoint} />
         ) : <WeekView events={q.data.events} onPoint={setOpenPoint} />}
 
+        <CallbacksList max={12} />
         <Panel aria-labelledby="fp">
           <PanelTitle><span id="fp">{t("Founder points")}</span></PanelTitle>
           {points.isPending ? <Skeleton className="h-24" /> : points.isError ? <ErrorState error={points.error} onRetry={() => points.refetch()} /> : points.data.length === 0 ? <p className="text-sm text-text-2">{t("No founder point yet. Schedule one: three slots free for both of you are proposed.")}</p> : (

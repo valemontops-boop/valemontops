@@ -88,7 +88,7 @@ function Preview() {
     const onClick = (e: MouseEvent) => {
       const a = (e.target as HTMLElement).closest("a");
       const href = a?.getAttribute("href") ?? "";
-      if (href.startsWith("/api/crm/export") || href.startsWith("/api/reports/scorecard")) {
+      if (href.startsWith("/api/crm/export") || href.startsWith("/api/reports/scorecard") || href.startsWith("/api/csv/export")) {
         e.preventDefault();
         exportCsv(href).then(setCsv);
       }

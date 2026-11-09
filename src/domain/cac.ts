@@ -37,8 +37,8 @@ import type { Deliverable } from "./content";
 
 export const DEFAULT_HOUR_COST_EUR = 30;
 /** Minutes of work per content deliverable (setting `content_minutes_per_deliverable`, JSON). */
-export const DELIVERABLE_MINUTES_SEED: Record<Deliverable, number> = { concept: 60, reel: 90, brand_post: 30, personal_post: 20, story: 10, vsl: 180 };
-export const DELIVERABLE_PLATFORM: Record<Deliverable, "linkedin" | "instagram"> = { concept: "instagram", reel: "instagram", story: "instagram", vsl: "instagram", brand_post: "linkedin", personal_post: "linkedin" };
+export const DELIVERABLE_MINUTES_SEED: Record<Deliverable, number> = { concept: 60, reel: 90, brand_post: 30, personal_post: 20, story: 10, vsl: 180, ig_post: 30 };
+export const DELIVERABLE_PLATFORM: Record<Deliverable, "linkedin" | "instagram"> = { concept: "instagram", reel: "instagram", story: "instagram", vsl: "instagram", ig_post: "instagram", brand_post: "linkedin", personal_post: "linkedin" };
 
 /** `{"reel": 60}` merged over the seed; anything invalid keeps the seed. */
 export function parseDeliverableMinutes(raw: string | null | undefined): Record<Deliverable, number> {

@@ -3,12 +3,13 @@ import type { Row } from "@/data/repository";
 import { childId } from "@/lib/ids";
 import { CONTACT_TYPES, MARKETS, OBJECTIONS, STAGES, type FounderKey, type Stage } from "@/domain/constants";
 import { dedupeEvents } from "@/domain/activity";
-import { CALL_OUTCOMES, LADDER_STEPS, callStats, eventFor, isPositive, ladderRecord, ladderStats, objectionsOf, type LadderOffer } from "@/domain/calls";
+import { CALL_OUTCOMES, LADDER_STEPS, callStats, eventFor, isCallbackDue, isPositive, ladderRecord, ladderStats, objectionsOf, openCallbacks, type LadderOffer } from "@/domain/calls";
+import { normalizePhone } from "@/domain/normalize";
 import { OBJECTION_GUIDE, guideOf, pickVariant, replyStats } from "@/domain/objections";
 import { isOpen } from "@/domain/pipeline";
 import { outreachBlock } from "@/domain/suppression";
 import { addDays, localDate } from "@/domain/time";
-import { RuleError } from "../errors";
+import { BlockedError, RuleError } from "../errors";
 import type { AppContext } from "../context";
 import { logActivity, logActivitySchema } from "./activities";
 import { offerDefaults, userRow } from "./common";
@@ -29,36 +30,126 @@ export async function endSession(ctx: AppContext, founder: FounderKey, id: strin
   return ctx.repo.update("CallSessions", id, cur.version, { ended_at: new Date().toISOString() }, { founder });
 }
 
-/** Next numbers to call from a list: due call-backs first, then businesses never called. Blocked ones never appear. */
-export async function callQueue(ctx: AppContext, founder: FounderKey, listId: string, limit = 25) {
+/**
+ * Next numbers to call from a list: call-backs whose time has come first (soonest first, D080, from any list), then
+ * due call-backs of open deals, then businesses never called. Blocked ones never appear. A business with a call-back
+ * set for later waits for it.
+ */
+export async function callQueue(ctx: AppContext, founder: FounderKey, listId: string, limit = 25, now = new Date()) {
   const t = await ctx.repo.listMany(["Accounts", "Contacts", "SuppressionList", "ActivityEvents", "Opportunities"]);
   const u = await userRow(ctx.repo, founder);
-  const today = localDate(new Date(), u.timezone);
+  const today = localDate(now, u.timezone);
   const events = dedupeEvents(t.ActivityEvents.rows);
   const lastCall = new Map<string, (typeof events)[number]>();
   for (const e of events) if (e.account_id && ["cold_call", "connected_call", "voicemail", "field_visit"].includes(e.activity_type)) lastCall.set(e.account_id, e);
-  const accounts = t.Accounts.rows.filter((a) => !a.is_archived && a.phone && (listId ? a.list_id === listId || a.import_batch_id === listId : true) && (!a.owner_founder || a.owner_founder === founder));
+  const mine = (a: Row<"Accounts">) => !a.is_archived && a.phone && (!a.owner_founder || a.owner_founder === founder);
+  const accounts = t.Accounts.rows.filter((a) => mine(a) && (listId ? a.list_id === listId || a.import_batch_id === listId : true));
   const blocked = (a: Row<"Accounts">) => {
     const cs = t.Contacts.rows.filter((c) => c.account_id === a.id);
     return outreachBlock(null, a, t.SuppressionList.rows).blocked || (cs.length > 0 && cs.every((c) => outreachBlock(c, a, t.SuppressionList.rows).blocked));
   };
+  // Call-backs set with a time (D080): due ones lead the queue, later ones keep the business out of it until then.
+  const timed = openCallbacks(events, founder).filter((e) => e.next_action_at);
+  const callbackAt = new Map(timed.map((e) => [e.account_id, e.next_action_at!]));
+  const byId = new Map(t.Accounts.rows.map((a) => [a.id, a]));
+  const timedDue = timed.filter((e) => isCallbackDue(e, now, today)).map((e) => byId.get(e.account_id)).filter((a): a is Row<"Accounts"> => Boolean(a && mine(a)));
   const dueBack = accounts.filter((a) => {
+    if (callbackAt.has(a.id)) return false;
     const o = t.Opportunities.rows.find((x) => x.account_id === a.id && isOpen(x));
     // Not twice the same day: someone just called is not "due" again until tomorrow.
     return o && o.next_action_due && o.next_action_due <= today && ["contacted", "replied"].includes(o.stage) && (lastCall.get(a.id)?.local_date ?? "") < today;
   });
-  const fresh = accounts.filter((a) => !lastCall.has(a.id) || (lastCall.get(a.id)!.outcome === "no_answer" && lastCall.get(a.id)!.local_date < today));
+  const fresh = accounts.filter((a) => !callbackAt.has(a.id) && (!lastCall.has(a.id) || (lastCall.get(a.id)!.outcome === "no_answer" && lastCall.get(a.id)!.local_date < today)));
   const seen = new Set<string>();
   const out = [];
-  for (const [why, list] of [["Call back due", dueBack], ["New", fresh]] as const) {
+  for (const [why, list] of [["Call back due", timedDue], ["Call back due", dueBack], ["New", fresh]] as const) {
     for (const a of list) {
       if (seen.has(a.id) || blocked(a)) continue;
       seen.add(a.id);
       const last = lastCall.get(a.id);
-      out.push({ accountId: a.id, name: a.name, phone: a.phone, city: a.city, niche: a.niche, country: a.country, why: why === "New" && last ? `No answer on ${last.local_date}` : why, contactName: t.Contacts.rows.find((c) => c.account_id === a.id)?.full_name ?? "", email: t.Contacts.rows.find((c) => c.account_id === a.id && c.email)?.email || a.email, brand: a.brand });
+      const contacts = t.Contacts.rows.filter((c) => c.account_id === a.id);
+      out.push({
+        accountId: a.id, name: a.name, phone: a.phone, city: a.city, niche: a.niche, country: a.country, why: why === "New" && last ? `No answer on ${last.local_date}` : why,
+        contactName: contacts[0]?.full_name ?? "", email: contacts.find((c) => c.email)?.email || a.email, brand: a.brand,
+        callbackAt: callbackAt.get(a.id) ?? null, consent: contacts.some((c) => c.consent_status === "consented"),
+      });
     }
   }
   return { remaining: out.length, queue: out.slice(0, limit) };
+}
+
+/* ---------------- Round 11 (D080): call-backs set after a call ---------------- */
+
+export const callbackSchema = z.object({
+  /** The call's own idempotency key: the call-back is written on that event. */
+  idempotency_key: z.string().uuid(),
+  at: z.string().datetime({ offset: true }),
+  /** Free dialling, a number not in the CRM: the business to call back (created with the number, or matched by name). */
+  account_id: z.union([z.literal(""), z.string().uuid()]).default(""),
+  business_name: z.string().trim().max(200).default(""),
+  phone: z.string().trim().max(40).default(""),
+  market: z.enum(MARKETS).nullable().default(null),
+});
+const CALL_TYPES = ["cold_call", "connected_call", "voicemail"];
+
+/**
+ * Sets (or moves) the call-back of a logged call: written on the call's event (`next_action`, `next_action_due`, the
+ * new `next_action_at`), version-checked, and on the open deal's next step. The same time twice changes nothing.
+ * Suppression is checked again: an opted-out business is never scheduled.
+ */
+export async function scheduleCallback(ctx: AppContext, founder: FounderKey, input: z.infer<typeof callbackSchema>, now = new Date()) {
+  const { rows } = await ctx.repo.list("ActivityEvents", { fresh: true });
+  const ev = dedupeEvents(rows).find((e) => e.idempotency_key === input.idempotency_key);
+  if (!ev || ev.founder_key !== founder || !CALL_TYPES.includes(ev.activity_type)) throw new RuleError("Call not found: log it first.");
+  const at = new Date(input.at).toISOString();
+  if (Date.parse(at) < now.getTime() - 5 * 60_000) throw new RuleError("Pick a time in the future.");
+  const u = await userRow(ctx.repo, founder);
+  const due = localDate(new Date(at), u.timezone);
+  let accountId = ev.account_id;
+  if (!accountId) {
+    accountId = (input.account_id || (input.business_name ? await findByName(ctx, founder, input.business_name) : null)) ?? "";
+    if (!accountId) {
+      if (!input.business_name) throw new RuleError("Name the business to call back.");
+      const supp = (await ctx.repo.list("SuppressionList", { fresh: true })).rows;
+      const n = normalizePhone(input.phone, input.market ?? ev.market);
+      if (n && supp.some((x) => !x.is_archived && x.kind === "phone" && x.value_normalized === n)) throw new BlockedError("This phone number is on the suppression list.");
+      accountId = childId(input.idempotency_key, "callback-account");
+      if (!(await ctx.repo.get("Accounts", accountId, { fresh: true }))) {
+        const country = input.market ?? ev.market ?? "FR";
+        await ctx.repo.insert("Accounts", [{
+          id: accountId, name: input.business_name, sector: "", niche: "", country, city: "", website: "", domain_normalized: "", phone: input.phone, email: "", linkedin_url: "",
+          lead_source: "Call mode", lead_type: "outbound", brand: null, owner_founder: founder, lead_status: "working", observed_problem: "", problem_evidence: "",
+          language: country === "FR" ? "fr" : "es", notes: "", import_batch_id: "",
+        }], { founder });
+      }
+    }
+  }
+  const acc = await ctx.repo.get("Accounts", accountId, { fresh: true });
+  if (!acc || acc.is_archived) throw new RuleError("The selected business no longer exists.");
+  const supp = (await ctx.repo.list("SuppressionList", { fresh: true })).rows;
+  const contacts = (await ctx.repo.list("Contacts", { fresh: true })).rows.filter((c) => c.account_id === acc.id && !c.is_archived);
+  const block = outreachBlock(null, acc, supp);
+  if (block.blocked || (contacts.length > 0 && contacts.every((c) => outreachBlock(c, acc, supp).blocked))) throw new BlockedError(block.reason ?? "Outreach to this contact is blocked.");
+  const duplicate = ev.next_action_at === at && ev.account_id === accountId;
+  if (!duplicate) {
+    await ctx.repo.update("ActivityEvents", ev.id, ev.version, { account_id: accountId, next_action: "Call back", next_action_due: due, next_action_at: at }, { founder });
+    const opp = (await ctx.repo.list("Opportunities", { fresh: true })).rows.find((o) => o.account_id === accountId && isOpen(o));
+    if (opp && (opp.next_action_due !== due || opp.next_action !== "Call back")) await ctx.repo.update("Opportunities", opp.id, opp.version, { next_action: "Call back", next_action_due: due }, { founder });
+  }
+  return { duplicate, at, due, accountId, name: acc.name };
+}
+
+/** The founder's call-backs still to make (My Day, Agenda, reminders): soonest first, with whether each is due. */
+export async function listCallbacks(ctx: AppContext, founder: FounderKey, now = new Date()) {
+  const t = await ctx.repo.listMany(["ActivityEvents", "Accounts", "Contacts", "SuppressionList"]);
+  const u = await userRow(ctx.repo, founder);
+  const today = localDate(now, u.timezone);
+  const acc = new Map(t.Accounts.rows.map((a) => [a.id, a]));
+  return openCallbacks(dedupeEvents(t.ActivityEvents.rows), founder).flatMap((e) => {
+    const a = acc.get(e.account_id);
+    if (!a || a.is_archived || outreachBlock(null, a, t.SuppressionList.rows).blocked) return [];
+    return [{ key: e.idempotency_key, eventId: e.id, accountId: a.id, name: a.name, phone: a.phone, contact: t.Contacts.rows.find((c) => c.account_id === a.id)?.full_name ?? "", at: e.next_action_at, due: e.next_action_due, isDue: isCallbackDue(e, now, today) }];
+  });
 }
 
 export const callSchema = z.object({

@@ -28,10 +28,6 @@ export const entries: Record<string, readonly [string, string]> = {
   ],
   "Enter a percentage between 0 and 100": ["Saisis un pourcentage entre 0 et 100", "Introduce un porcentaje entre 0 y 100"],
   "Choose Consulting or Local": ["Choisis Consulting ou Local", "Elige Consulting o Local"],
-  "Managerial P&L, MRR/ARR, EBITDA estimate, EUR/USD with ECB rates, content planning FR/ES, Instagram adapter and snapshot job.": [
-    "Compte de résultat de gestion, MRR/ARR, estimation de l'EBITDA, EUR/USD aux taux BCE, planning de contenu FR/ES, adaptateur Instagram et tâche d'instantanés.",
-    "Cuenta de resultados de gestión, MRR/ARR, estimación del EBITDA, EUR/USD a tipos del BCE, planificación de contenido FR/ES, adaptador de Instagram y tarea de capturas.",
-  ],
   // SystemSettings descriptions (seeds.ts) and route hints
   "Valemont Local monthly price, the entry offer when the budget is too small.": ["Prix mensuel de Valemont Local, l'offre d'entrée quand le budget est trop petit.", "Precio mensual de Valemont Local, la oferta de entrada cuando el presupuesto es demasiado pequeño."],
   "Valemont Local monthly price (entry offer when the budget is too small), in euros.": ["Prix mensuel de Valemont Local (offre d'entrée quand le budget est trop petit), en euros.", "Precio mensual de Valemont Local (oferta de entrada cuando el presupuesto es demasiado pequeño), en euros."],

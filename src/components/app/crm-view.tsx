@@ -26,6 +26,7 @@ import { useDateTag, useT } from "@/i18n/react";
 import { ExportButton } from "./export-dialog";
 import { dealValue } from "@/domain/conversion";
 import { WonToProject } from "./won-project";
+import { CsvExportButton } from "./csv-tools";
 
 /** Default deal values per offer from Settings › Workspace (Consulting value, Local monthly price), in cents. */
 function useOfferDefaults() {
@@ -84,6 +85,7 @@ export function CrmView() {
           <div className="ml-auto flex gap-1">
             <Button asChild variant="ghost" size="sm"><Link href="/crm/import"><Upload /> {t("Import list")}</Link></Button>
             <Button asChild variant="ghost" size="sm"><a href="/api/crm/export"><Download /> {t("Export")}</a></Button>
+            {tab === "pipeline" ? <><CsvExportButton list="deals" /><CsvExportButton list="quotes" /></> : tab === "contacts" ? <CsvExportButton list="contacts" /> : null}
             <ExportButton />
           </div>
         </div>

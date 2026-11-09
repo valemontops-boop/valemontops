@@ -85,11 +85,10 @@ export interface FinItem {
   currency: string;
   gross_minor: number;
   vat_minor: number;
-  /** EUR equivalents (cash and ex VAT); null when no rate is known for the date (never invented). */
+  /** EUR amounts (cash and ex VAT); null for a movement in another currency: "hors EUR, non converti" (D082, never converted). */
   eur_gross: number | null;
   eur_net: number | null;
   eur_vat: number | null;
-  fx: { rate: string; rate_date: string; source: string } | null;
   service_from: string | null;
   service_to: string | null;
   contract_id: string;
@@ -115,7 +114,7 @@ export function contractMrr(c: ContractLite, date: string): number {
   if (c.start_date > date || (c.end_date && c.end_date < date)) return 0;
   return Math.round(c.recurring_minor / Math.max(1, c.billing_months));
 }
-/** MRR on a date (EUR) from contracts; `toEur` converts a non-EUR contract (null = no rate, left out and counted). */
+/** MRR on a date (EUR) from contracts; `toEur` returns null for a non-EUR contract (left out and counted, D082: no conversion). */
 export function mrrOn(contracts: ContractLite[], date: string, toEur: (minor: number, currency: string) => number | null = (m) => m) {
   let mrr = 0, active = 0, missing = 0;
   const byCenter: Record<CostCenter, number> = { consulting: 0, local: 0, thirty: 0, shared: 0 };
@@ -198,7 +197,7 @@ export function buildPnl(input: { items: FinItem[]; schedule: ScheduleLine[]; co
   // One-off contracts with schedule lines are recognized by their schedule; their payments are cash only.
   const scheduled = new Set(input.schedule.filter((s) => s.status !== "cancelled" && contractById.get(s.contract_id)?.kind !== "subscription").map((s) => s.contract_id));
   for (const it of input.items) {
-    if (it.eur_gross === null || it.eur_net === null) continue; // no rate known: left out and reported, never guessed
+    if (it.eur_gross === null || it.eur_net === null) continue; // not in EUR: left out and reported, never converted (D082)
     const m = monthOf(it.date);
     // Cash: recorded payments only, VAT included; contributions, transfers and loans are not operating cash.
     if (it.cls === "neutral") { add(it.id, m, "neutral", it.eur_gross); continue; }

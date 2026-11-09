@@ -44,7 +44,7 @@ export class GoogleCalendarAdapter implements CalendarPort {
   }
 }
 
-const FIELDS = "id,name,mimeType,modifiedTime,webViewLink,parents,ownedByMe,size,iconLink";
+const FIELDS = "id,name,mimeType,modifiedTime,webViewLink,parents,ownedByMe,size,iconLink,thumbnailLink,imageMediaMetadata(width,height),videoMediaMetadata(width,height,durationMillis)";
 
 /** Drive read path: the Valemont OS folder shared with the service account as Viewer. */
 export class GoogleDriveAdapter implements DrivePort {

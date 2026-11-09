@@ -22,6 +22,7 @@ import { planFor } from "./results";
 import { listTasks } from "./tasks";
 import { upcomingEvents } from "./agenda";
 import { deliveryAttention } from "./delivery";
+import { listCallbacks } from "./calls";
 
 const today = async (ctx: AppContext, f: FounderKey, now = new Date()) => localDate(now, (await userRow(ctx.repo, f)).timezone);
 
@@ -57,7 +58,12 @@ export async function notifications(ctx: AppContext, founder: FounderKey, now = 
   });
   // Delivery alerts (Stage 2B) for the projects this founder owns (or nobody owns).
   const delivery = (await deliveryAttention(ctx, founder, now)).filter((a) => (!a.owner || a.owner === founder) && !dismissed.has(a.key)).map((a) => ({ key: a.key, kind: "task" as const, title: a.title, detail: a.detail, href: a.href }));
-  return [...base, ...delivery];
+  // Call-backs whose time has come (D080): one reminder each, until called or dismissed.
+  const tz = (await userRow(ctx.repo, founder)).timezone;
+  const hm = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: tz });
+  const callbacks = (await listCallbacks(ctx, founder, now)).filter((c) => c.isDue && c.at && !dismissed.has(`callback:${c.key}:${c.at}`))
+    .map((c) => ({ key: `callback:${c.key}:${c.at}`, kind: "task" as const, title: "Call back now", detail: `${c.name} · ${hm.format(new Date(c.at!))}`, href: "/call" }));
+  return [...callbacks, ...base, ...delivery];
 }
 
 export const dismissSchema = z.object({ key: z.string().min(1).max(200) });

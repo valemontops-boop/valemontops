@@ -3,7 +3,7 @@ import { es, fr, re, signIn } from "./helpers";
 
 test.describe.configure({ mode: "serial" });
 
-test("Stage 3 finance: Théo reads the dashboard, the P&L with drill-down, toggles USD and records an entry that survives a reload", async ({ page }) => {
+test("Stage 3 finance: Théo reads the dashboard, the P&L with drill-down (all in EUR, no currency switch: D082) and records an entry that survives a reload", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await signIn(page, "theo");
@@ -21,12 +21,11 @@ test("Stage 3 finance: Théo reads the dashboard, the P&L with drill-down, toggl
   await expect(panel).toBeVisible();
   await panel.getByRole("button", { name: fr("Close details") }).click();
 
-  await page.getByRole("radio", { name: "USD" }).click();
-  await expect(page.getByText(re("1.1000"))).toBeVisible();
-  await page.getByRole("radio", { name: "EUR" }).click();
+  await expect(page.getByRole("radio", { name: "USD" })).toHaveCount(0);
 
   await page.getByRole("radio", { name: fr("Movements") }).click();
   await page.getByRole("button", { name: fr("Add an entry") }).click();
+  await expect(page.getByLabel(fr("Currency"))).toHaveCount(0);
   await page.getByLabel(fr("Amount ex VAT")).fill("12,00");
   await page.getByLabel(fr("Client or supplier")).fill("Papeterie (e2e)");
   await page.getByRole("button", { name: fr("Save") }).click();
@@ -50,6 +49,7 @@ test("Stage 3 finance: Pablo sees Money in Spanish", async ({ page }) => {
   await page.getByRole("radio", { name: es("P&L") }).click();
   await expect(page.getByText(es("Managerial P&L by month"))).toBeVisible();
   await page.getByRole("radio", { name: es("Contracts") }).click();
-  await expect(page.getByText(es("Exchange rates"))).toBeVisible();
+  await expect(page.getByText(es("Client contracts"))).toBeVisible();
+  await expect(page.getByText("Tipos de cambio")).toHaveCount(0);
   expect(errors).toEqual([]);
 });

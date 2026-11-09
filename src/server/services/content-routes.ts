@@ -2,8 +2,8 @@ import type { z } from "zod";
 import type { FounderKey } from "@/domain/constants";
 import type { AppContext } from "../context";
 import {
-  advanceBatch, batchSchema, checklistSchema, contentStudio, createPiece, createPieceSchema, metricsSchema, saveChecklist, saveMetrics, studioSchema,
-  updatePiece, updatePieceSchema, updateVariant, variantSchema,
+  addVariants, addVariantsSchema, advanceBatch, batchSchema, browseMedia, checklistSchema, contentStudio, createPiece, createPieceSchema, mediaBrowseSchema, metricsSchema,
+  movePiece, moveSchema, saveChecklist, saveMetrics, studioSchema, updatePiece, updatePieceSchema, updateVariant, variantSchema,
 } from "./content-studio";
 import { runSnapshot, snapshotStatus } from "./snapshot";
 
@@ -17,6 +17,10 @@ export const CONTENT_ROUTES: Record<string, [z.ZodTypeAny | null, Handler]> = {
   "POST /api/content": [createPieceSchema, (c, f, i) => createPiece(c, f, i)],
   "PATCH /api/content": [updatePieceSchema, (c, f, i) => updatePiece(c, f, i)],
   "POST /api/content/batch": [batchSchema, (c, f, i) => advanceBatch(c, f, i)],
+  "POST /api/content/move": [moveSchema, (c, f, i) => movePiece(c, f, i)],
+  "POST /api/content/variants": [addVariantsSchema, (c, f, i) => addVariants(c, f, i)],
+  // Drive picker (D081): read-only listing of the shared tree; uploads go through POST /api/files/upload (founder's drive.file grant).
+  "GET /api/content/media": [mediaBrowseSchema, (c, _f, i) => browseMedia(c, i)],
   "PATCH /api/content/variants": [variantSchema, (c, f, i) => updateVariant(c, f, i)],
   "PUT /api/content/metrics": [metricsSchema, (c, f, i) => saveMetrics(c, f, i)],
   "PUT /api/content/checklist": [checklistSchema, (c, f, i) => saveChecklist(c, f, i)],

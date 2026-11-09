@@ -16,6 +16,7 @@ import { Providers, useMe, useSyncStatus, type Me } from "./providers";
 import { QUICK_KINDS, QuickActionProvider, useQuickAction } from "./quick-action";
 import { useCrm, useMyDay } from "./use-crm";
 import { useT } from "@/i18n/react";
+import { CallbackReminder } from "./callbacks";
 
 const NAV = [
   { href: "/command-center", label: "Command Center", icon: Gauge },
@@ -228,6 +229,7 @@ function Frame({ children }: { children: React.ReactNode }) {
               <div className="hidden sm:block"><SyncBadge /></div>
               <InboxBell />
               <Notifications />
+              <CallbackReminder />
               <Button variant="ghost" size="icon" className="hidden sm:inline-flex" onClick={() => setIdea(true)} aria-label={t("New idea (I)")} title={t("New idea (I)")}><Lightbulb /></Button>
               <Button variant="primary" size="md" onClick={() => qa.open()} aria-keyshortcuts="c v d l n e f s m">
                 <Plus /> <span className="sr-only sm:not-sr-only">{t("Log activity")}</span>

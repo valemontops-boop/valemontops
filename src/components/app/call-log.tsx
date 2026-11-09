@@ -10,6 +10,7 @@ import { EMAIL_TEMPLATE_LABELS, type TemplateKey } from "@/domain/playbook";
 import { useDateTag, useT } from "@/i18n/react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { CsvExportButton } from "./csv-tools";
 
 type Row = { id: string; at: string; date: string; outcome: CallOutcome; objections: Objection[]; duration_sec: number | null; name: string; niche: string; phone: string; accountId: string; contact: string; message: { channel: "email" | "whatsapp"; template: string; at: string | null } | null; next_action: string; next_action_due: string | null; offer?: "local" | "thirty" | null; offered?: string[] };
 const YES: CallOutcome[] = ["meeting", "interested", "call_back"];
@@ -26,7 +27,7 @@ export function CallLog({ sessionId, days = 14, title }: { sessionId?: string; d
   const groups = sessionId ? [{ d: "", rows }] : [...new Set(rows.map((r) => r.date))].map((d) => ({ d, rows: rows.filter((r) => r.date === d) }));
   return (
     <Panel>
-      <PanelTitle action={rows.length ? <span className="num text-[13px] text-text-2">{rows.length === 1 ? t("1 call") : t("{n} calls", { n: rows.length })}</span> : null}>{t(title ?? "Call log")}</PanelTitle>
+      <PanelTitle action={rows.length ? <span className="flex items-center gap-2"><span className="num text-[13px] text-text-2">{rows.length === 1 ? t("1 call") : t("{n} calls", { n: rows.length })}</span>{sessionId ? null : <CsvExportButton list="calls" />}</span> : null}>{t(title ?? "Call log")}</PanelTitle>
       {q.isPending ? <Skeleton className="h-24" /> : rows.length === 0 ? <EmptyState title={t("No call yet")}>{t("Each call you log appears here with its outcome, objections and the message sent after.")}</EmptyState> : (
         <div className="flex flex-col gap-4">
           {groups.map((g) => (

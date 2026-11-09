@@ -121,9 +121,20 @@ export const httpFetcher: Fetcher = async (url) => {
   const start = safeUrl(url);
   if (!start) return null;
   try {
-    const res = await fetch(start.href, { redirect: "follow", signal: AbortSignal.timeout(10_000), headers: { "user-agent": "ValemontOS-SEO-Audit/1.0", accept: "text/html,application/xml,text/xml,text/plain;q=0.9,*/*;q=0.1" } });
-    const end = safeUrl(res.url || start.href);
-    if (!end || end.host !== start.host) return { status: 0, url: start.href, text: "" };
+    // Redirects are followed by hand (max 5 hops) and every hop is checked BEFORE it is requested, so a redirect can
+    // never make the server call an internal address (SSRF, D084). One 10 s budget for the whole chain.
+    const signal = AbortSignal.timeout(10_000);
+    let end: URL = start;
+    let res: Response | null = null;
+    for (let hop = 0; hop <= 5; hop++) {
+      res = await fetch(end.href, { redirect: "manual", signal, headers: { "user-agent": "ValemontOS-SEO-Audit/1.0", accept: "text/html,application/xml,text/xml,text/plain;q=0.9,*/*;q=0.1" } });
+      if (res.status < 300 || res.status >= 400) break;
+      const next = safeUrl(new URL(res.headers.get("location") ?? "", end).href);
+      await res.body?.cancel().catch(() => undefined);
+      if (!next || next.host !== start.host || hop === 5) return { status: 0, url: start.href, text: "" };
+      end = next;
+    }
+    if (!res) return { status: 0, url: start.href, text: "" };
     const reader = res.body?.getReader();
     const chunks: Uint8Array[] = [];
     let size = 0;

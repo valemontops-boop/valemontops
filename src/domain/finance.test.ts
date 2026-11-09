@@ -3,7 +3,7 @@ import { allocateByDays, arr, billingPeriod, buildPnl, contractMrr, defaultClass
 
 const item = (p: Partial<FinItem> & Pick<FinItem, "id" | "date" | "eur_gross">): FinItem => ({
   source: "manual", label: "", counterparty: "", category: "revenue", cost_center: "local", cls: "revenue", currency: "EUR", gross_minor: p.eur_gross ?? 0, vat_minor: 0,
-  eur_net: (p.eur_gross ?? 0) - (p.eur_vat ?? 0), eur_vat: 0, fx: null, service_from: null, service_to: null, contract_id: "", project_id: "", receipt_url: "", reference: "", reconciled: true, ...p,
+  eur_net: (p.eur_gross ?? 0) - (p.eur_vat ?? 0), eur_vat: 0, service_from: null, service_to: null, contract_id: "", project_id: "", receipt_url: "", reference: "", reconciled: true, ...p,
 });
 const sub = (p: Partial<ContractLite> = {}): ContractLite => ({ id: "c1", client_id: "cl1", name: "Client (test)", cost_center: "local", kind: "subscription", currency: "EUR", setup_minor: 0, one_off_minor: 0, recurring_minor: 9900, billing_months: 1, start_date: "2026-10-01", end_date: null, status: "active", ...p });
 
@@ -20,7 +20,7 @@ describe("MRR and ARR (spec 5.10)", () => {
     expect(m.arr).toBe(118800);
     expect(arr(9900)).toBe(118800);
   });
-  it("leaves out (and counts) a foreign-currency contract when no rate is known", () => {
+  it("leaves out (and counts) a non-EUR contract: never converted (D082)", () => {
     expect(mrrOn([sub({ currency: "USD" })], "2026-11-09", () => null)).toMatchObject({ mrr: 0, missing: 1 });
   });
   it("classifies MRR movements per client", () => {

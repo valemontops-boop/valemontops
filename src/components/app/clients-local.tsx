@@ -12,6 +12,7 @@ import { api } from "@/lib/api";
 import { cn, formatEur } from "@/lib/utils";
 import { BigNumber } from "./bits";
 import { useSave } from "./clients-view";
+import { CsvExportButton } from "./csv-tools";
 
 type Margin = { priceMinor: number; costMinor: number; costBasis: "provisions" | "actual"; provisionedMinor: number; supportCostMinor: number; extraSupportMinutes: number; extraSupportCostMinor: number; marginMinor: number; marginPct: number | null; levels: Record<LocalMetric, LimitLevel> };
 type Row = { client: { id: string; name: string; status: string; market: string | null }; usage: ({ id: string; version: number; source: string; note: string; actual_cost_minor: number | null } & Record<LocalMetric, number>) | null; values: Record<LocalMetric, number>; margin: Margin; history: { month: string; support_minutes: number; margin: number }[] };
@@ -39,6 +40,7 @@ export function LocalSubscriptions() {
         <Field label={t("Month")} htmlFor="lc-month"><Input id="lc-month" type="month" className="w-44" value={month || d.month} onChange={(e) => setMonth(e.target.value)} /></Field>
         <span className="flex-1" />
         <Button variant="outline" onClick={() => setCsv(true)}><Upload /> {t("Import CSV")}</Button>
+        <CsvExportButton list="local_usage" />
         <Button variant="ghost" onClick={() => setPlan(true)}>{t("Plan limits and provisions")}</Button>
       </div>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

@@ -20,8 +20,10 @@ import { FOUNDERS, FOUNDER_NAMES } from "@/domain/constants";
 import { addDays } from "@/domain/time";
 import { TrackerPanel } from "./tracker-panel";
 import { CommercialSettings } from "./commercial-settings";
+import { AuditPanel, BackupsPanel, HealthPanel } from "./ops-panel";
+import { IntegrationsHub } from "./integrations-hub";
 
-type Tab = "profile" | "targets" | "calendars" | "sprint" | "workspace" | "playbook" | "rules" | "suppression" | "diagnostics" | "tracker" | "commercial" | "roadmap";
+type Tab = "profile" | "targets" | "calendars" | "sprint" | "workspace" | "playbook" | "rules" | "suppression" | "diagnostics" | "integrations" | "tracker" | "commercial" | "roadmap";
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export function SettingsView() {
@@ -38,10 +40,10 @@ export function SettingsView() {
       <div className="overflow-x-auto">
         <SegmentedSwitch label={t("Settings section")} value={tab} onChange={setTab} options={[
           { value: "profile", label: t("Profile") }, { value: "targets", label: t("Mode & targets") }, { value: "calendars", label: t("Calendars") }, { value: "sprint", label: t("Sprint") }, { value: "workspace", label: t("Workspace") }, { value: "playbook", label: t("Playbook") }, { value: "rules", label: t("Channel rules") },
-          { value: "suppression", label: t("Suppression") }, { value: "diagnostics", label: t("Diagnostics") }, { value: "tracker", label: t("My tracker") }, { value: "commercial", label: t("Commercial") }, { value: "roadmap", label: t("Roadmap") },
+          { value: "suppression", label: t("Suppression") }, { value: "diagnostics", label: t("Diagnostics") }, { value: "integrations", label: t("Integrations") }, { value: "tracker", label: t("My tracker") }, { value: "commercial", label: t("Commercial") }, { value: "roadmap", label: t("Roadmap") },
         ]} />
       </div>
-      {tab === "profile" ? <Profile /> : tab === "targets" ? <TargetsTab /> : tab === "calendars" ? <Calendars /> : tab === "sprint" ? <SprintTab /> : tab === "workspace" ? <Workspace /> : tab === "playbook" ? <PlaybookTab /> : tab === "rules" ? <Rules /> : tab === "suppression" ? <Suppression /> : tab === "diagnostics" ? <Diagnostics /> : tab === "tracker" ? <TrackerPanel /> : tab === "commercial" ? <CommercialSettings /> : <Roadmap />}
+      {tab === "profile" ? <Profile /> : tab === "targets" ? <TargetsTab /> : tab === "calendars" ? <Calendars /> : tab === "sprint" ? <SprintTab /> : tab === "workspace" ? <Workspace /> : tab === "playbook" ? <PlaybookTab /> : tab === "rules" ? <Rules /> : tab === "suppression" ? <Suppression /> : tab === "diagnostics" ? <Diagnostics /> : tab === "integrations" ? <IntegrationsHub /> : tab === "tracker" ? <TrackerPanel /> : tab === "commercial" ? <CommercialSettings /> : <Roadmap />}
     </div>
   );
 }
@@ -216,6 +218,10 @@ function Diagnostics() {
           <dt className="text-text-3">{tr("Poll interval")}</dt><dd>{tr("{n} s (reads one small revision range)", { n: me.config.pollSeconds })}</dd>
         </dl>
       </Panel>
+      {/* Stage 4B (D084): health, backups with restore, audit log. */}
+      <HealthPanel />
+      <BackupsPanel />
+      <AuditPanel />
       <Panel className="overflow-x-auto">
         <PanelTitle>{tr("Tabs")}</PanelTitle>
         <table className="w-full text-sm"><thead><tr className="text-left text-[12px] text-text-3"><th className="py-1 font-medium">{tr("Tab")}</th><th className="text-right font-medium">{tr("Rows")}</th><th className="text-right font-medium">{tr("Integrity warnings")}</th></tr></thead>
@@ -231,7 +237,8 @@ function Diagnostics() {
 
 const ROADMAP: [string, string][] = [
   ["Stage 3", "Instagram numbers through the API as soon as the Meta app and its token are set (manual entry in the Content Studio until then)."],
-  ["Stage 4", "Integration Hub, website webhooks, optional Calendar/Gmail OAuth, backups with tested restore, security hardening, deployment."],
+  ["Stage 4", "LinkedIn API after LinkedIn approval; GA4 and Search Console APIs once accounts exist (CSV imports until then); validation with real credentials."],
+  ["After approval", "LinkedIn statistics through the API once LinkedIn approves the Community Management API (export files until then); personal Calendar OAuth for invitations and Meet links, off by default; GA4 and Search Console APIs if accounts and credentials exist (CSV imports until then)."],
 ];
 function Roadmap() {
   const tr = useT();

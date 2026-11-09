@@ -4,7 +4,8 @@ import type { FakeSheetsServer } from "@/fake-sheets/server";
 import type { AppContext } from "@/server/context";
 import { seedBaseline } from "@/server/services/baseline";
 import { commit } from "@/server/services/imports";
-import { callLists, callLog, callQueue, endSession, logCall, sessionSummary, startSession, undoCall } from "@/server/services/calls";
+import { callLists, callLog, callQueue, callbackSchema, endSession, listCallbacks, logCall, scheduleCallback, sessionSummary, startSession, undoCall } from "@/server/services/calls";
+import { notifications } from "@/server/services/insights";
 import { sendFollowUp, sendSchema } from "@/server/services/email";
 import { getMyDay, setMode } from "@/server/services/myday";
 import { optOutContact, crmSnapshot } from "@/server/services/crm";
@@ -187,5 +188,86 @@ describe("Call mode round 9: downsell ladder and instant mail during the call (D
     const crm = await crmSnapshot(ctx.repo);
     expect(crm.accounts.filter((a) => a.name.toLowerCase() === "toiture libre (test)")).toHaveLength(1);
     expect(crm.opportunities.filter((o) => o.account_id === crm.accounts.find((a) => a.name === "Toiture Libre (test)")!.id)).toHaveLength(1);
+  });
+});
+
+describe("Call mode: call-backs after a missed call (D080)", () => {
+  const cb = (p: Record<string, unknown>, now?: Date) => scheduleCallback(ctx, "theo", callbackSchema.parse(p), now);
+  it("stores the call-back on the call (idempotent), brings it first in the queue once due, lists it and reminds once due", async () => {
+    const listId = randomUUID();
+    await commit(ctx.repo, "theo", { import_id: listId, csv: CSV, brand: "local", owner_founder: null, lead_source: "x", list_name: "" });
+    const sid = randomUUID();
+    await startSession(ctx, "theo", { id: sid, list_id: listId });
+    const q = await callQueue(ctx, "theo", listId);
+    const deux = q.queue[1];
+    const key = randomUUID();
+    await call(sid, { idempotency_key: key, account_id: deux.accountId, outcome: "no_answer" });
+    const at = new Date(Date.now() + 2 * 3_600_000).toISOString();
+    const r1 = await cb({ idempotency_key: key, at });
+    const r2 = await cb({ idempotency_key: key, at }); // a retried tap
+    expect(r1).toMatchObject({ duplicate: false, accountId: deux.accountId });
+    expect(r2.duplicate).toBe(true);
+    const ev = (await ctx.repo.list("ActivityEvents", { fresh: true })).rows.filter((e) => e.idempotency_key === key);
+    expect(ev).toHaveLength(1); // still one call, counted once
+    expect(ev[0]).toMatchObject({ next_action: "Call back", next_action_at: at, version: 2 });
+    expect((await sessionSummary(ctx, "theo", sid)).stats.dials).toBe(1);
+    // Not due yet: out of the queue until its time; listed for My Day / Agenda; no reminder yet.
+    let queue = await callQueue(ctx, "theo", listId);
+    expect(queue.queue.map((x) => x.accountId)).not.toContain(deux.accountId);
+    expect(await listCallbacks(ctx, "theo")).toMatchObject([{ accountId: deux.accountId, at, isDue: false }]);
+    expect((await notifications(ctx, "theo")).some((n) => n.key.startsWith("callback:"))).toBe(false);
+    // Once due: first in the queue (even before businesses never called), from any list, and in the bell.
+    const later = new Date(Date.parse(at) + 60_000);
+    queue = await callQueue(ctx, "theo", listId, 25, later);
+    expect(queue.queue[0]).toMatchObject({ accountId: deux.accountId, why: "Call back due", callbackAt: at });
+    expect((await callQueue(ctx, "theo", "", 25, later)).queue[0].accountId).toBe(deux.accountId);
+    expect((await listCallbacks(ctx, "theo", later))[0].isDue).toBe(true);
+    expect((await notifications(ctx, "theo", later)).find((n) => n.key === `callback:${key}:${at}`)).toMatchObject({ title: "Call back now", href: "/call" });
+    // Moved: the new time replaces the old one (same event, no new row).
+    const at2 = new Date(Date.now() + 26 * 3_600_000).toISOString();
+    expect((await cb({ idempotency_key: key, at: at2 })).duplicate).toBe(false);
+    expect((await listCallbacks(ctx, "theo")).map((c) => c.at)).toEqual([at2]);
+    // Called again: the call-back is done.
+    await call(sid, { account_id: deux.accountId, outcome: "not_interested" });
+    expect(await listCallbacks(ctx, "theo")).toEqual([]);
+  });
+
+  it("a picked-up \"call back\" moves the deal's next step to the chosen day; past times, unknown calls and opted-out businesses are refused", async () => {
+    const listId = randomUUID();
+    await commit(ctx.repo, "theo", { import_id: listId, csv: CSV, brand: "local", owner_founder: null, lead_source: "x", list_name: "" });
+    const sid = randomUUID();
+    await startSession(ctx, "theo", { id: sid, list_id: listId });
+    const q = await callQueue(ctx, "theo", listId);
+    const key = randomUUID();
+    const yes = await call(sid, { idempotency_key: key, account_id: q.queue[0].accountId, outcome: "call_back" });
+    const at = new Date(Date.now() + 3 * 86_400_000).toISOString();
+    const r = await cb({ idempotency_key: key, at });
+    const opp = (await ctx.repo.list("Opportunities", { fresh: true })).rows.find((o) => o.id === yes.opportunityId)!;
+    expect(opp).toMatchObject({ next_action: "Call back", next_action_due: r.due });
+    await expect(cb({ idempotency_key: key, at: new Date(Date.now() - 3_600_000).toISOString() })).rejects.toThrow(/future/);
+    await expect(cb({ idempotency_key: randomUUID(), at })).rejects.toThrow(/log it first/);
+    // Garage Trois (contact Sam) did not pick up; Sam then opts out (asked through Pablo): no call-back for them.
+    const trois = q.queue.find((x) => x.name === "Garage Trois (test)")!;
+    const missedKey = randomUUID();
+    await call(sid, { idempotency_key: missedKey, account_id: trois.accountId, outcome: "voicemail" });
+    const sam = (await crmSnapshot(ctx.repo)).contacts.find((x) => x.full_name === "Sam")!;
+    await optOutContact(ctx.repo, "pablo", { contact_id: sam.id, reason: "test" });
+    await expect(cb({ idempotency_key: missedKey, at })).rejects.toThrow(/opted out|blocked|suppression/i);
+    expect((await listCallbacks(ctx, "theo")).map((x) => x.accountId)).not.toContain(trois.accountId);
+  });
+
+  it("free dialling: a missed number gets its business (named once) so the call-back can be made", async () => {
+    const sid = randomUUID();
+    await startSession(ctx, "theo", { id: sid, list_id: "" });
+    const key = randomUUID();
+    await call(sid, { idempotency_key: key, phone: "06 11 22 33 77", market: "FR", outcome: "no_answer" });
+    const at = new Date(Date.now() + 3_600_000).toISOString();
+    await expect(cb({ idempotency_key: key, at })).rejects.toThrow(/Name the business/);
+    const r = await cb({ idempotency_key: key, at, business_name: "Menuiserie Rappel (test)", phone: "06 11 22 33 77", market: "FR" });
+    await cb({ idempotency_key: key, at, business_name: "Menuiserie Rappel (test)", phone: "06 11 22 33 77", market: "FR" });
+    const crm = await crmSnapshot(ctx.repo);
+    expect(crm.accounts.filter((a) => a.name === "Menuiserie Rappel (test)")).toHaveLength(1);
+    expect(crm.accounts.find((a) => a.id === r.accountId)).toMatchObject({ phone: "06 11 22 33 77", owner_founder: "theo" });
+    expect(await listCallbacks(ctx, "theo")).toMatchObject([{ accountId: r.accountId, name: "Menuiserie Rappel (test)" }]);
   });
 });

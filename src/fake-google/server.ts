@@ -5,6 +5,8 @@ import type { Fault } from "../fake-sheets/server";
 
 export class FakeGoogleServer {
   readonly store = new FakeGoogleStore();
+  /** Drive files.copy of a spreadsheet clones its content in the fake Sheets server when one is linked (D084). */
+  copySpreadsheet: ((sourceId: string, newId: string, name: string) => boolean) | null = null;
   faults: Fault[] = [];
   log: { method: string; path: string; token: string; status: number }[] = [];
   private server: http.Server | null = null;
@@ -76,7 +78,26 @@ export class FakeGoogleServer {
         s.writes.push({ kind: "drive.folder", by: token });
         return send(200, s.addFile({ id: `fld-${s.files.length + 1}`, name: b.name, mimeType: b.mimeType, parents: b.parents ?? [] }, token));
       }
+      m = /^\/drive\/v3\/files\/([^/]+)\/copy$/.exec(url.pathname);
+      if (m && method === "POST") {
+        const b = JSON.parse(raw.toString("utf8") || "{}") as { name?: string; parents?: string[] };
+        const parent = b.parents?.[0] ?? "";
+        // Like Google: a service account owns what it copies, so outside a Shared Drive it hits storageQuotaExceeded.
+        if (token === "sa-token" && !s.sharedDriveFolders.has(parent)) return send(403, { error: { code: 403, message: "The user's Drive storage quota has been exceeded.", errors: [{ reason: "storageQuotaExceeded" }] } });
+        const newId = `copy-${s.files.length + 1}-${Date.now().toString(36)}`;
+        if (this.copySpreadsheet && !this.copySpreadsheet(decodeURIComponent(m[1]), newId, b.name ?? "copy")) return send(404, { error: { code: 404, message: "File not found" } });
+        s.writes.push({ kind: "drive.copy", by: token });
+        return send(200, s.addFile({ id: newId, name: b.name ?? "copy", mimeType: "application/vnd.google-apps.spreadsheet", parents: b.parents ?? [] }, token === "sa-token" ? "service-account" : token));
+      }
       m = /^\/drive\/v3\/files\/([^/]+)$/.exec(url.pathname);
+      if (m && method === "PATCH") {
+        const f = s.files.find((x) => x.id === decodeURIComponent(m![1]));
+        if (!f) return send(404, { error: { code: 404, message: "File not found" } });
+        const b = JSON.parse(raw.toString("utf8") || "{}") as { trashed?: boolean };
+        if (b.trashed) f.trashed = true;
+        s.writes.push({ kind: "drive.trash", by: token });
+        return send(200, f);
+      }
       if (m && method === "GET") {
         const f = s.files.find((x) => x.id === decodeURIComponent(m![1]));
         return f ? send(200, f) : send(404, { error: { code: 404, message: "File not found" } });

@@ -1,6 +1,6 @@
 # Financial definitions (managerial, not statutory)
 
-Valemont OS is a management dashboard. It is not bookkeeping, certified invoicing or tax advice, and claims no compliance with French or Spanish e-invoicing. Pure functions: `src/domain/finance.ts`, `src/domain/fx.ts` (tests next to them; scenarios 8 and 9 in `tests/integration/finance.test.ts`). Decision: D078.
+Valemont OS is a management dashboard. It is not bookkeeping, certified invoicing or tax advice, and claims no compliance with French or Spanish e-invoicing. Pure functions: `src/domain/finance.ts` (tests next to it; scenario 8 and the EUR-only rules in `tests/integration/finance.test.ts`). Decisions: D078, D082 (everything in EUR, no exchange rates).
 
 | Term | Definition |
 |---|---|
@@ -16,9 +16,9 @@ Valemont OS is a management dashboard. It is not bookkeeping, certified invoicin
 | MRR | Sum of active subscription contracts on the date, normalized by billing period (yearly ÷ 12). Excludes VAT, set-up fees, one-off sales (30/30), unsigned quotes. The Stripe snapshot is shown for comparison and used only while no subscription contract exists. |
 | MRR movements | Per client, month end vs previous month end: new, expansion, contraction, churn, reactivation. |
 | ARR | MRR × 12, a run rate: not booked annual revenue and not a forecast. |
-| Runway | Cash (Wise + Stripe balances, converted at the latest rate) ÷ average net operating cash burn of the last 3 complete months; not shown when the business does not burn cash. |
+| Runway | Cash (Wise + Stripe balances in EUR; balances in another currency are not converted and not counted) ÷ average net operating cash burn of the last 3 complete months; not shown when the business does not burn cash. |
 | Set-up fees | Never in MRR. Recognized on payment (setting `finance_setup_fee_recognition`), to confirm with the accountant. |
-| FX | ECB reference rate of the transaction date (1 EUR = rate × currency), last publication up to 7 days old (weekends, holidays) with its real date shown; integer maths ×10^6, half away from zero. Manual entries lock rate, date and source. No rate → refused (entry) or left out of totals and counted (bank row); a founder may enter the bank's rate by hand. The EUR/USD switch is a reporting conversion, never a restatement. DEMO uses labelled demo rates. |
-| Corrections | Manual entries are never edited or deleted: a reversing entry (same locked rate, opposite amounts) cancels one. |
+| Currency | Everything is EUR (D082: the founders dropped EUR/USD and ECB rates). Manual entries and contracts are EUR only. A bank movement or balance in another currency is shown in its own currency with "hors EUR, non converti", counted, and left out of every EUR total; no rate is ever used or invented. |
+| Corrections | Manual entries are never edited or deleted: a reversing entry (opposite amounts) cancels one. |
 
 Accountant exports: Money › Export (team) includes "Managerial P&L by month" next to bank movements by category.

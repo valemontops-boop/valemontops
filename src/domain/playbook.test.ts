@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_PLAYBOOK, fill, findItem, gmailComposeLink, hasMissingLink, mailtoLink, mergePlaybook, suggestedFollowUp, whatsappLink } from "./playbook";
-import { OBJECTION_GUIDE, objectionGroups, pickVariant, replySteps, replyStats } from "./objections";
+import { OBJECTION_GUIDE, REPLY_STEP_MAX_WORDS, objectionDefaults, objectionGroups, pickVariant, replySteps, replyStats, wordCount } from "./objections";
 import { emailBenchmarks, type SendRow } from "./email";
 
 describe("playbook", () => {
@@ -11,7 +11,17 @@ describe("playbook", () => {
       expect(replySteps(it!.body)).toHaveLength(3);
     }
     const keys = OBJECTION_GUIDE.map((g) => g.hotkey);
-    expect(new Set([...keys, "e", "p", "w", "c", "n", "m", "x"]).size).toBe(keys.length + 7);
+    expect(new Set([...keys, "e", "p", "w", "c", "n", "m", "x", "v", "o", "y", "u"]).size).toBe(keys.length + 11);
+  });
+  it("keeps every reply step short enough to read in large type mid-call: two lines, prospect-facing vous / usted (D080)", () => {
+    for (const d of objectionDefaults()) {
+      for (const step of replySteps(d.body)) {
+        expect(wordCount(step), `${d.language} ${d.key}: ${step}`).toBeLessThanOrEqual(REPLY_STEP_MAX_WORDS);
+        expect(step.length, `${d.language} ${d.key}: ${step}`).toBeLessThanOrEqual(75);
+        if (d.language === "FR") expect(step).not.toMatch(/(?<!\p{L})(tu|toi|ton|ta|tes)(?!\p{L})/iu);
+        else expect(step).not.toMatch(/(?<!\p{L})(tú|tienes|puedes|quieres)(?!\p{L})/iu);
+      }
+    }
   });
   it("tries every reply variant before settling on the one that wins most often", () => {
     const ev = (r: string, won: boolean) => ({ activity_type: "connected_call", outcome: won ? "meeting_booked" : "not_interested", replies: [r] });

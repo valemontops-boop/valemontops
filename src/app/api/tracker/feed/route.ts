@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { RATE, clientIp, ipHash, rateLimit } from "@/server/guard";
 import { ZodError } from "zod";
 import { getContext } from "@/server/repo";
 import { RuleError } from "@/server/errors";
@@ -10,6 +11,8 @@ import { feedSchema, trackerFeed } from "@/server/services/tracker";
  * (TRACKER_FEED_TOKEN_<FOUNDER>, env only) authenticates and selects the founder. Read-only.
  */
 export async function GET(req: NextRequest) {
+  const wait = rateLimit("tracker-feed", ipHash(clientIp(req)), RATE.feed);
+  if (wait) return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: { "retry-after": String(wait) } });
   const founder = founderForFeedToken(req.headers.get("authorization"));
   if (!founder) return NextResponse.json({ error: "unauthenticated" }, { status: 401, headers: { "www-authenticate": "Bearer", "cache-control": "no-store" } });
   try {

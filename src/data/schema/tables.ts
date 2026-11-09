@@ -26,7 +26,7 @@ import { INBOX_SOURCES, INBOX_STATUSES } from "@/domain/inbox";
 import { LADDER_STEPS } from "@/domain/calls";
 import { BILLINGS, ITEM_KINDS, PRICE_MODES, QUOTE_STATUSES, UNITS } from "@/domain/quotes";
 import { AUDIT_LANGUAGES, COMPLEXITIES, SECTORS, questionsSchema, summarySchema } from "@/domain/audit";
-import { CONTENT_FORMATS, PIECE_STAGES, SNAPSHOT_CHECKPOINTS, VARIANT_STATUSES } from "@/domain/content-studio";
+import { CONTENT_FORMATS, LEGACY_FORMATS, LEGACY_STAGES, LINK_PLACEMENTS, PRODUCTION_STAGES, SNAPSHOT_CHECKPOINTS, VARIANT_STATUSES } from "@/domain/content-studio";
 import { bool, day, int, iso, json, oneOf, oneOfAlias, oneOfOr, optDay, optInt, optIso, optOneOf, reqText, text } from "./codecs";
 
 /** Revision domains: a mutation in a table bumps its domain token (spec 4.1). */
@@ -173,6 +173,8 @@ export const TABLES = {
       replies: json(z.array(z.string().max(60)), []),
       /** Downsell ladder during the call (D071): "local" / "thirty" offered, "_yes" = accepted. */
       offers_pitched: json(z.array(z.enum(LADDER_STEPS)), []),
+      /** Call-back time set after the call (D080, late column): the queue brings the business back first once it is due. */
+      next_action_at: optIso(),
     },
   },
   Accounts: {
@@ -294,6 +296,33 @@ export const TABLES = {
       record_id: text(40),
       fields: text(1_000),
       correlation_id: text(40),
+      /* Stage 4B (D084): the central route() hook. Never values: field names, a keyed hash of the input, a keyed IP hash. */
+      http_status: optInt(),
+      audit_scope: oneOfOr(["team", "private"] as const, "team"),
+      input_hash: text(20),
+      ip_hash: text(20),
+    },
+  },
+  /** Stage 4B (D084): one row per backup attempt; the day's "done" row id = UUIDv5(backup-run, day, done). Leases are rows too. */
+  BackupRuns: {
+    domain: "audit",
+    shape: {
+      ...base,
+      day: day(),
+      trigger: oneOf(["scheduler", "first_request", "founder"] as const),
+      status: oneOf(["running", "done", "error"] as const),
+      owner: text(40),
+      file_id: text(200),
+      file_name: text(200),
+      file_url: text(500),
+      tabs: optInt(),
+      rows: optInt(),
+      verify_status: oneOfOr(["ok", "mismatch", "not_run"] as const, "not_run"),
+      verify_detail: text(1_000),
+      deleted: optInt(),
+      error: text(500),
+      started_at: iso(),
+      finished_at: optIso(),
     },
   },
   SchemaMigrations: {
@@ -484,7 +513,7 @@ export const TABLES = {
       ...base,
       idempotency_key: reqText(80),
       founder_key: founder(),
-      deliverable: oneOf(["concept", "reel", "brand_post", "personal_post", "story", "vsl"] as const),
+      deliverable: oneOf(["concept", "reel", "brand_post", "personal_post", "story", "vsl", "ig_post"] as const),
       brand: optOneOf(BRANDS),
       language: optOneOf(["FR", "ES"] as const),
       title: text(200),
@@ -995,11 +1024,13 @@ export const TABLES = {
       ...base,
       brand: optOneOf(BRANDS),
       title: reqText(200),
-      format: oneOf(CONTENT_FORMATS),
+      /** Round 11 (D081): reel / carousel / post / story / video; older brand_post, personal_post, vsl read as post / video. */
+      format: oneOfAlias(CONTENT_FORMATS, LEGACY_FORMATS),
       hook: text(500),
       target_persona: text(200),
       script: text(20_000),
-      stage: oneOf(PIECE_STAGES),
+      /** idea / draft / ready (D081); older script, shoot → draft and edit → ready. */
+      stage: oneOfAlias(PRODUCTION_STAGES, { ...LEGACY_STAGES, scheduled: "ready", published: "ready" }),
       author_founder: founder(),
       asset_url: text(500),
       notes: text(2_000),
@@ -1029,6 +1060,18 @@ export const TABLES = {
       published_at: optIso(),
       platform_post_url: text(1_000),
       media_id: text(80),
+      /** Late columns (round 11, D081): composer fields, time of day, link placement and Drive media (ids + metadata, no copy). */
+      scheduled_time: text(5),
+      hook: text(500),
+      hashtags: text(1_000),
+      alt_text: text(1_000),
+      first_comment: text(2_200),
+      cover_text: text(200),
+      link_placement: oneOfOr(LINK_PLACEMENTS, "first_comment"),
+      drive_media: json(z.array(z.object({
+        file_id: z.string().max(200), name: z.string().max(300), mime: z.string().max(120), web_link: z.string().max(1_000), thumbnail_link: z.string().max(1_000).default(""),
+        width: z.number().int().nullable().default(null), height: z.number().int().nullable().default(null), duration_ms: z.number().int().nullable().default(null),
+      })).max(20), []),
     },
   },
   /**
@@ -1082,7 +1125,7 @@ export const TABLES = {
       error: text(500),
     },
   },
-  /* ----- Stage 3 finance (D078): ledger, allocations, contracts, revenue schedule, ECB rates ----- */
+  /* ----- Stage 3 finance (D078): ledger, allocations, contracts, revenue schedule (EUR only, D082) ----- */
   /**
    * Manual ledger entries for money that did not go through Wise or Stripe (append-only: a correction is a reversing
    * entry with corrects_id). Amount ex VAT and VAT in the original currency (signed: income +, expense −), the EUR
@@ -1100,6 +1143,7 @@ export const TABLES = {
       currency: reqText(3),
       amount_minor: int(),
       vat_minor: int(),
+      /* fx_rate, fx_date, fx_source: legacy (before D082), always empty now; kept so existing sheets keep their headers. */
       fx_rate: text(20),
       fx_date: optDay(),
       fx_source: text(20),
@@ -1176,10 +1220,37 @@ export const TABLES = {
       earned_on: optDay(),
     },
   },
-  /** ECB reference rates (1 EUR = rate × currency), cached per publication date; demo rates are labelled "demo". */
-  FxRates: {
-    domain: "finance",
-    shape: { ...base, base: reqText(3), quote: reqText(3), rate: reqText(20), rate_date: day(), source: oneOf(["ecb", "manual", "demo"] as const), fetched_at: iso() },
+  /* FxRates (ECB rates) retired by D082: no longer read, written or created by setup; an existing tab in a live
+     spreadsheet is left untouched (setup and doctor ignore tabs outside the schema). */
+  /* ----- Stage 4A (D083): website form submissions (signed webhook) ----- */
+  /**
+   * One row per accepted website form event (id = UUIDv5("website", event_id): a replayed or retried event adds nothing).
+   * No name, email or phone here: those live on the Contact. Holds the form type, UTM, consent as captured and the outcome.
+   */
+  WebsiteSubmissions: {
+    domain: "crm",
+    shape: {
+      ...base,
+      event_id: reqText(100),
+      site: oneOf(["valemont", "thirty"] as const),
+      form_type: oneOf(["contact", "lead", "booking"] as const),
+      language: optOneOf(["FR", "ES"] as const),
+      submitted_at: iso(),
+      outcome: oneOf(["created", "matched", "suppressed"] as const),
+      account_id: text(40),
+      contact_id: text(40),
+      inbox_item_id: text(40),
+      page_url: text(1_000),
+      referrer: text(1_000),
+      utm_source: text(120),
+      utm_medium: text(120),
+      utm_campaign: text(200),
+      utm_term: text(200),
+      utm_content: text(200),
+      consent_marketing: bool(),
+      consent_text: text(500),
+      consent_version: text(40),
+    },
   },
   /* ----- private founder spreadsheets only (spec 4.7) ----- */
   PrivateTasks: { domain: "private", shape: taskShape() },
@@ -1204,8 +1275,8 @@ export interface BaseRow {
 export type Row<T extends TableName> = RowMap[T] & BaseRow;
 export type BaseFields = keyof typeof base;
 /** Columns added after a table was first created: optional on create, filled by CREATE_DEFAULTS. */
-export const CREATE_DEFAULTS: Record<string, unknown> = { list_id: "", call_session_id: "", target_key: "", duration_sec: null, area: "sales", objections: [], replies: [], recurrence_days: [] , worked: "", blocked: "", offers_pitched: [] };
-type LateKeys = "list_id" | "call_session_id" | "target_key" | "duration_sec" | "area" | "objections" | "replies" | "recurrence_days" | "worked" | "blocked" | "offers_pitched";
+export const CREATE_DEFAULTS: Record<string, unknown> = { list_id: "", call_session_id: "", target_key: "", duration_sec: null, area: "sales", objections: [], replies: [], recurrence_days: [] , worked: "", blocked: "", offers_pitched: [], next_action_at: null, http_status: null, audit_scope: "team", input_hash: "", ip_hash: "" };
+type LateKeys = "list_id" | "call_session_id" | "target_key" | "duration_sec" | "area" | "objections" | "replies" | "recurrence_days" | "worked" | "blocked" | "offers_pitched" | "next_action_at" | "http_status" | "audit_scope" | "input_hash" | "ip_hash";
 export type NewRow<T extends TableName> = Omit<Row<T>, Exclude<BaseFields, "id"> | LateKeys> &
   Partial<Pick<Row<T>, Extract<keyof Row<T>, LateKeys>>> & { id: string };
 

@@ -174,6 +174,12 @@ export class GoogleSheetsRepository implements DataRepository {
     const rows = records.map((r) => completeRow(table, r, actor, writeId));
     const header = await this.header(table);
     await this.client.append(`${quoteSheet(table)}!A1`, rows.map((r) => rowToCells(table, r, header)));
+    if (actor.quiet) {
+      // Keep the header for the next quiet append (one request per flush, spec 4.1); rows are re-read on the next list.
+      const kept = this.cache.get(table);
+      if (kept) this.cache.set(table, { ...kept, fetchedAt: 0 });
+      return rows;
+    }
     this.cache.delete(table);
     await this.bump(domainOf(table));
     return rows;

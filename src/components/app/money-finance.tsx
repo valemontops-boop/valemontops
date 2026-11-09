@@ -147,7 +147,7 @@ function DrillPanel({ fin, month, months, lines, label, onClose }: { fin: Fin; m
               <p className="text-[12px] text-text-3">
                 {it ? `${new Date(`${it.date}T12:00:00Z`).toLocaleDateString(dt, { day: "2-digit", month: "short", year: "numeric" })} · ${it.source === "bank" ? (it.bank === "stripe" ? "Stripe" : "Wise") : t("Manual entry")}` : s ? `${t("Revenue schedule")} · ${s.earned_on ?? s.period_start}` : ""}
                 {it?.service_from ? ` · ${t("service {from} → {to}", { from: it.service_from, to: it.service_to ?? "" })}` : ""}
-                {it && it.currency !== "EUR" ? ` · ${formatMoney(Math.abs(it.gross_minor), it.currency)}${it.fx ? ` @ ${it.fx.rate} (${it.fx.rate_date})` : ""}` : ""}
+                {it && it.currency !== "EUR" ? ` · ${formatMoney(Math.abs(it.gross_minor), it.currency)}` : ""}
               </p>
             </div>
             <span className="num shrink-0">{fmt(amount)}</span>
@@ -161,7 +161,6 @@ function DrillPanel({ fin, month, months, lines, label, onClose }: { fin: Fin; m
 /* ---------------- one bank movement: how it is read ---------------- */
 export function AllocationPanel({ item, fin, onClose }: { item: FinItemView; fin: Fin; onClose: () => void }) {
   const t = useT();
-  const fmt = useFmt();
   const inv = useInvalidate();
   const onError = useOnError();
   const [f, setF] = React.useState({
@@ -178,7 +177,7 @@ export function AllocationPanel({ item, fin, onClose }: { item: FinItemView; fin
     onError,
   });
   return (
-    <DetailPanel open onClose={onClose} title={<div><h2 className="text-base font-semibold">{item.counterparty || t(item.label) || "—"}</h2><p className="text-[13px] text-text-2">{formatMoney(item.gross_minor, item.currency)}{item.currency !== "EUR" ? ` · ${item.eur_gross === null ? t("no rate yet") : `${fmt(item.eur_gross)} @ ${item.fx?.rate} (${item.fx?.rate_date})`}` : ""} · {t(CATEGORY_LABELS[item.category])}</p></div>}
+    <DetailPanel open onClose={onClose} title={<div><h2 className="text-base font-semibold">{item.counterparty || t(item.label) || "—"}</h2><p className="text-[13px] text-text-2">{formatMoney(item.gross_minor, item.currency)}{item.currency !== "EUR" ? ` · ${t("not in EUR, not converted")}` : ""} · {t(CATEGORY_LABELS[item.category])}</p></div>}
       footer={<div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>{t("Cancel")}</Button><Button variant="dark" disabled={save.isPending} onClick={() => save.mutate()}>{t("Save")}</Button></div>}>
       <div className="flex flex-col gap-4">
         {item.auto ? <p className="text-[13px] text-text-2">{t("Suggested automatically; saving confirms it.")}</p> : null}
@@ -203,7 +202,6 @@ export function AllocationPanel({ item, fin, onClose }: { item: FinItemView; fin
 export function EntriesPanel({ fin }: { fin: Fin }) {
   const t = useT();
   const dt = useDateTag();
-  const fmt = useFmt();
   const inv = useInvalidate();
   const onError = useOnError();
   const [adding, setAdding] = React.useState(false);
@@ -224,7 +222,7 @@ export function EntriesPanel({ fin }: { fin: Fin }) {
               </span>
               <span className="num text-right text-sm">
                 {formatMoney(r.gross_minor, r.currency)}
-                {r.currency !== "EUR" ? <span className="block text-[11px] text-text-3">{fmt(r.eur_gross)} · {r.fx?.rate} ({r.fx?.rate_date}, {t(r.fx?.source === "ecb" ? "ECB" : r.fx?.source === "demo" ? "demo rate" : "by hand")})</span> : null}
+                {r.currency !== "EUR" ? <span className="block text-[11px] text-text-3">{t("not in EUR, not converted")}</span> : null}
               </span>
               {r.kind !== "adjustment" && !r.reversed ? <Button size="sm" variant="ghost" disabled={rev.isPending} onClick={() => rev.mutate(r.id)}>{t("Reverse")}</Button> : <span />}
             </li>
@@ -241,25 +239,24 @@ function EntryForm({ fin, onClose }: { fin: Fin; onClose: () => void }) {
   const inv = useInvalidate();
   const [id] = React.useState(newId); // generated when the form opens, reused on every retry (spec 4.2)
   const [err, setErr] = React.useState<string | null>(null);
-  const [f, setF] = React.useState({ date: fin.today, kind: "expense" as "income" | "expense", category: "software" as BankCategory, cost_center: "shared" as CostCenter, currency: "EUR", amount: "", vat: "", counterparty: "", reference: "", receipt_url: "", service_from: "", service_to: "", contract_id: "", note: "", manual_rate: "" });
+  const [f, setF] = React.useState({ date: fin.today, kind: "expense" as "income" | "expense", category: "software" as BankCategory, cost_center: "shared" as CostCenter, amount: "", vat: "", counterparty: "", reference: "", receipt_url: "", service_from: "", service_to: "", contract_id: "", note: "" });
   const save = useMutation({
     mutationFn: () => {
       const amount = parseAmount(f.amount), vat = f.vat.trim() ? parseAmount(f.vat) : 0;
       if (!amount || vat === null) throw new Error(t("Invalid amount"));
-      return api("/api/finance/entries", { body: { id, date: f.date, kind: f.kind, category: f.category, cost_center: f.cost_center, cost_class: "", currency: f.currency, amount_minor: amount, vat_minor: vat, counterparty: f.counterparty, reference: f.reference, receipt_url: f.receipt_url.trim(), project_id: "", contract_id: f.contract_id, service_from: f.service_from || null, service_to: f.service_to || null, note: f.note, manual_rate: f.manual_rate } });
+      return api("/api/finance/entries", { body: { id, date: f.date, kind: f.kind, category: f.category, cost_center: f.cost_center, cost_class: "", currency: "EUR", amount_minor: amount, vat_minor: vat, counterparty: f.counterparty, reference: f.reference, receipt_url: f.receipt_url.trim(), project_id: "", contract_id: f.contract_id, service_from: f.service_from || null, service_to: f.service_to || null, note: f.note } });
     },
     onSuccess: () => { toast(t("Saved")); inv(); onClose(); },
     onError: (e) => setErr((e as Error).message),
   });
   return (
-    <Modal open onOpenChange={(o) => !o && onClose()} title={t("Add an entry")} description={t("Amount ex VAT in its own currency; the EUR equivalent is locked with the ECB rate of the date.")}>
+    <Modal open onOpenChange={(o) => !o && onClose()} title={t("Add an entry")} description={t("Amounts in euros, ex VAT.")}>
       <form className="grid grid-cols-2 gap-3" onSubmit={(e) => { e.preventDefault(); setErr(null); save.mutate(); }}>
         <Field label={t("Type")} htmlFor="en-kind"><Select id="en-kind" value={f.kind} onChange={(e) => { const kind = e.target.value as "income" | "expense"; setF({ ...f, kind, category: kind === "income" ? "revenue" : "software", cost_center: kind === "income" ? "consulting" : "shared" }); }}><option value="expense">{t("Expense")}</option><option value="income">{t("Income")}</option></Select></Field>
         <Field label={t("Date")} htmlFor="en-date"><Input id="en-date" type="date" required value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></Field>
         <Field label={t("Category")} htmlFor="en-cat"><Select id="en-cat" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value as BankCategory })}>{BANK_CATEGORIES.map((c) => <option key={c} value={c}>{t(CATEGORY_LABELS[c])}</option>)}</Select></Field>
         <Field label={t("Activity")} htmlFor="en-cc"><Select id="en-cc" value={f.cost_center} onChange={(e) => setF({ ...f, cost_center: e.target.value as CostCenter })}>{COST_CENTERS.map((c) => <option key={c} value={c}>{t(COST_CENTER_LABELS[c])}</option>)}</Select></Field>
         <Field label={t("Amount ex VAT")} htmlFor="en-amt"><Input id="en-amt" inputMode="decimal" required value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} placeholder="0,00" /></Field>
-        <Field label={t("Currency")} htmlFor="en-cur"><Select id="en-cur" value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value })}><option value="EUR">EUR</option><option value="USD">USD</option><option value="GBP">GBP</option></Select></Field>
         <Field label={t("VAT")} htmlFor="en-vat"><Input id="en-vat" inputMode="decimal" value={f.vat} onChange={(e) => setF({ ...f, vat: e.target.value })} placeholder="0,00" /></Field>
         <Field label={t("Client or supplier")} htmlFor="en-cp"><Input id="en-cp" value={f.counterparty} onChange={(e) => setF({ ...f, counterparty: e.target.value })} /></Field>
         <Field label={t("Service from")} htmlFor="en-sf"><Input id="en-sf" type="date" value={f.service_from} onChange={(e) => setF({ ...f, service_from: e.target.value })} /></Field>
@@ -268,7 +265,6 @@ function EntryForm({ fin, onClose }: { fin: Fin; onClose: () => void }) {
         <Field label={t("Receipt link (Drive)")} htmlFor="en-rc"><Input id="en-rc" type="url" placeholder="https://" value={f.receipt_url} onChange={(e) => setF({ ...f, receipt_url: e.target.value })} /></Field>
         <Field label={t("Contract")} htmlFor="en-ct"><Select id="en-ct" value={f.contract_id} onChange={(e) => setF({ ...f, contract_id: e.target.value })}><option value="">—</option>{fin.contracts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select></Field>
         <Field label={t("Note")} htmlFor="en-note"><Input id="en-note" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></Field>
-        {f.currency !== "EUR" ? <Field className="col-span-2" label={t("Rate by hand (only if no ECB rate)")} htmlFor="en-rate" hint={t("1 EUR = x {cur}, as shown by the bank. Leave empty to use the ECB rate.", { cur: f.currency })}><Input id="en-rate" inputMode="decimal" value={f.manual_rate} onChange={(e) => setF({ ...f, manual_rate: e.target.value })} /></Field> : null}
         {err ? <p role="alert" className="col-span-2 text-[13px] text-bad">{err}</p> : null}
         <div className="col-span-2 flex justify-end gap-2"><Button type="button" variant="ghost" onClick={onClose}>{t("Cancel")}</Button><Button type="submit" variant="dark" disabled={save.isPending}>{t("Save")}</Button></div>
       </form>
@@ -276,7 +272,7 @@ function EntryForm({ fin, onClose }: { fin: Fin; onClose: () => void }) {
   );
 }
 
-/* ---------------- contracts, revenue schedule, rates ---------------- */
+/* ---------------- contracts, revenue schedule ---------------- */
 export function ContractsTab({ fin }: { fin: Fin }) {
   const t = useT();
   const dt = useDateTag();
@@ -340,7 +336,6 @@ export function ContractsTab({ fin }: { fin: Fin }) {
           </ul>
         )}
       </Panel>
-      <RatesPanel fin={fin} />
       {adding ? <ContractForm fin={fin} onClose={() => setAdding(false)} /> : null}
     </>
   );
@@ -351,12 +346,12 @@ function ContractForm({ fin, onClose }: { fin: Fin; onClose: () => void }) {
   const inv = useInvalidate();
   const [id] = React.useState(newId);
   const [err, setErr] = React.useState<string | null>(null);
-  const [f, setF] = React.useState({ name: "", kind: "subscription" as "subscription" | "one_off", cost_center: "local" as CostCenter, amount: "", setup: "", billing_months: "1", start_date: fin.today, end_date: "", currency: "EUR" });
+  const [f, setF] = React.useState({ name: "", kind: "subscription" as "subscription" | "one_off", cost_center: "local" as CostCenter, amount: "", setup: "", billing_months: "1", start_date: fin.today, end_date: "" });
   const save = useMutation({
     mutationFn: () => {
       const amount = parseAmount(f.amount), setup = f.setup.trim() ? parseAmount(f.setup) : 0;
       if (!amount || setup === null) throw new Error(t("Invalid amount"));
-      return api("/api/finance/contracts", { body: { id, name: f.name, client_id: "", project_id: "", cost_center: f.cost_center, kind: f.kind, currency: f.currency, setup_minor: f.kind === "subscription" ? setup : 0, one_off_minor: f.kind === "one_off" ? amount : 0, recurring_minor: f.kind === "subscription" ? amount : 0, billing_months: Number(f.billing_months), start_date: f.start_date, end_date: f.end_date || null, notes: "" } });
+      return api("/api/finance/contracts", { body: { id, name: f.name, client_id: "", project_id: "", cost_center: f.cost_center, kind: f.kind, currency: "EUR", setup_minor: f.kind === "subscription" ? setup : 0, one_off_minor: f.kind === "one_off" ? amount : 0, recurring_minor: f.kind === "subscription" ? amount : 0, billing_months: Number(f.billing_months), start_date: f.start_date, end_date: f.end_date || null, notes: "" } });
     },
     onSuccess: () => { toast(t("Saved")); inv(); onClose(); },
     onError: (e) => setErr((e as Error).message),
@@ -370,41 +365,11 @@ function ContractForm({ fin, onClose }: { fin: Fin; onClose: () => void }) {
         <Field label={f.kind === "subscription" ? t("Amount per billing period, ex VAT") : t("Amount, ex VAT")} htmlFor="ct-amt"><Input id="ct-amt" inputMode="decimal" required value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} placeholder="0,00" /></Field>
         {f.kind === "subscription" ? <Field label={t("Billed every (months)")} htmlFor="ct-bm"><Select id="ct-bm" value={f.billing_months} onChange={(e) => setF({ ...f, billing_months: e.target.value })}>{["1", "3", "6", "12"].map((m) => <option key={m} value={m}>{m}</option>)}</Select></Field> : <span />}
         {f.kind === "subscription" ? <Field label={t("Set-up fee (never in MRR)")} htmlFor="ct-setup"><Input id="ct-setup" inputMode="decimal" value={f.setup} onChange={(e) => setF({ ...f, setup: e.target.value })} placeholder="0,00" /></Field> : null}
-        <Field label={t("Currency")} htmlFor="ct-cur"><Select id="ct-cur" value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value })}><option value="EUR">EUR</option><option value="USD">USD</option></Select></Field>
         <Field label={t("Start")} htmlFor="ct-start"><Input id="ct-start" type="date" required value={f.start_date} onChange={(e) => setF({ ...f, start_date: e.target.value })} /></Field>
         <Field label={t("End (optional)")} htmlFor="ct-end"><Input id="ct-end" type="date" value={f.end_date} onChange={(e) => setF({ ...f, end_date: e.target.value })} /></Field>
         {err ? <p role="alert" className="col-span-2 text-[13px] text-bad">{err}</p> : null}
         <div className="col-span-2 flex justify-end gap-2"><Button type="button" variant="ghost" onClick={onClose}>{t("Cancel")}</Button><Button type="submit" variant="dark" disabled={save.isPending}>{t("Save")}</Button></div>
       </form>
     </Modal>
-  );
-}
-
-function RatesPanel({ fin }: { fin: Fin }) {
-  const t = useT();
-  const dt = useDateTag();
-  const inv = useInvalidate();
-  const onError = useOnError();
-  const [f, setF] = React.useState({ quote: "USD", rate_date: fin.today, rate: "" });
-  const add = useMutation({ mutationFn: () => api("/api/finance/fx", { body: f }), onSuccess: () => { toast(t("Saved")); setF({ ...f, rate: "" }); inv(); }, onError });
-  const refresh = useMutation({ mutationFn: () => api<{ added: number; error: string | null }>("/api/finance/fx/refresh", { body: {} }), onSuccess: (r) => { toast(r.error ? t("ECB rates could not be downloaded; the last cached rates are used.") : t("{n} new rates", { n: r.added })); inv(); }, onError });
-  const SRC: Record<string, string> = { ecb: "ECB reference rate", demo: "demo rate, not ECB", manual: "rate entered by hand" };
-  return (
-    <Panel>
-      <PanelTitle action={fin.mode === "live" ? <Button size="sm" variant="ghost" disabled={refresh.isPending} onClick={() => refresh.mutate()}>{t("Refresh ECB rates")}</Button> : null}>{t("Exchange rates")}</PanelTitle>
-      <p className="mb-3 text-[13px] text-text-2">{fin.mode === "live" ? t("ECB reference rates, downloaded on the first read of the day and kept in the Sheet. Weekends and holidays use the last published rate, with its date.") : t("Demo: stored demo rates, labelled, never presented as ECB rates. Nothing is downloaded.")}</p>
-      {fin.fx.rates.length === 0 ? <p className="text-sm text-text-2">{t("No rate yet.")}</p> : (
-        <ul className="mb-4 flex flex-col divide-y divide-hairline text-[13px]">
-          {fin.fx.rates.slice(0, 5).map((r) => <li key={`${r.quote}${r.rate_date}${r.source}`} className="flex justify-between gap-3 py-1.5"><span>{new Date(`${r.rate_date}T12:00:00Z`).toLocaleDateString(dt, { day: "2-digit", month: "short", year: "numeric" })} · {t(SRC[r.source])}</span><span className="num">1 EUR = {r.rate} {r.quote}</span></li>)}
-        </ul>
-      )}
-      <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); add.mutate(); }}>
-        <Field label={t("Currency")} htmlFor="fx-q"><Select id="fx-q" value={f.quote} onChange={(e) => setF({ ...f, quote: e.target.value })}><option value="USD">USD</option><option value="GBP">GBP</option></Select></Field>
-        <Field label={t("Date")} htmlFor="fx-d"><Input id="fx-d" type="date" required value={f.rate_date} onChange={(e) => setF({ ...f, rate_date: e.target.value })} /></Field>
-        <Field label={t("1 EUR =")} htmlFor="fx-r"><Input id="fx-r" inputMode="decimal" required value={f.rate} onChange={(e) => setF({ ...f, rate: e.target.value })} placeholder="1,0850" /></Field>
-        <Button type="submit" variant="outline" disabled={add.isPending}>{t("Add a rate by hand")}</Button>
-      </form>
-      <p className="mt-2 text-[12px] text-text-3">{t("Manual fallback when the ECB has no rate for a date: copy the rate from the bank statement. An ECB rate of the same date always wins; entries already saved keep their locked rate.")}</p>
-    </Panel>
   );
 }

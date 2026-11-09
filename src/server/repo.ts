@@ -23,6 +23,8 @@ import { demoGoogleStore } from "./services/demo-google";
 import { seedDemoWork } from "./services/demo-seed";
 import { setActivitySink } from "./activity-hooks";
 import { trackerSink } from "./services/tracker";
+import { backupSettingsFromEnv, type BackupEnv } from "./services/backups";
+import { GoogleBackupDrive } from "@/data/google/backup-drive";
 
 export class SetupRequiredError extends Error {
   readonly code = "setup_required";
@@ -141,6 +143,7 @@ async function buildContext(cfg: AppConfig): Promise<AppContext> {
     payments: process.env.STRIPE_API_KEY ? new StripeAdapter(process.env.STRIPE_API_BASE_URL || "https://api.stripe.com", process.env.STRIPE_API_KEY) : null,
     // Instagram Graph (read-only) only in LIVE with credentials in env; otherwise manual entry (D079).
     instagram: instagramFromEnv(),
+    backup: backupFromEnv(cfg, (id) => new SheetsClient({ baseUrl: cfg.sheets.baseUrl, spreadsheetId: id, getToken: sheetsToken }), new GoogleHttp(api, serviceAccountTokenProvider(key, BACKUP_SCOPES), { maxRetries: 2 })),
     baseUrl: cfg.baseUrl,
     mode: "live",
   };
@@ -159,6 +162,13 @@ export async function getContext(): Promise<AppContext> {
     });
   }
   return g.__valemontCtx.ctx;
+}
+
+/** Backups (D084): the service account copies the live Sheet into BACKUP_DRIVE_FOLDER_ID (shared with it as Editor). */
+const BACKUP_SCOPES = ["https://www.googleapis.com/auth/drive"];
+function backupFromEnv(cfg: AppConfig, clientFor: (id: string) => SheetsClient, http: GoogleHttp): BackupEnv {
+  const s = backupSettingsFromEnv();
+  return { sourceId: cfg.sheets.spreadsheetId, clientFor, drive: s.folderId ? new GoogleBackupDrive(http) : null, folderId: s.folderId, retentionDays: s.retentionDays };
 }
 
 /** Wise read access from env (never in Sheets): WISE_API_TOKEN, optional WISE_PROFILE_ID and WISE_SCA_PRIVATE_KEY_BASE64. */
