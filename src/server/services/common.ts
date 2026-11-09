@@ -11,9 +11,15 @@ export async function userRow(repo: DataRepository, founder: FounderKey): Promis
   return u;
 }
 
+/** Settings that may also come from the hosting environment when the Sheet has no value yet (one-time setup). */
+export const SETTING_ENV_FALLBACK: Record<string, string> = { drive_folder_id: "DRIVE_FOLDER_ID" };
+
 export async function settingValue(repo: DataRepository, key: string): Promise<string | null> {
   const { rows } = await repo.list("SystemSettings");
-  return rows.find((r) => r.key === key && !r.is_archived)?.value ?? null;
+  const v = rows.find((r) => r.key === key && !r.is_archived)?.value;
+  if (v) return v;
+  const env = SETTING_ENV_FALLBACK[key];
+  return (env && process.env[env]?.trim()) || null;
 }
 
 export async function stageProbabilities(repo: DataRepository): Promise<Record<Stage, number>> {

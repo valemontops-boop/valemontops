@@ -1,3 +1,4 @@
+import { SETTING_ENV_FALLBACK, settingValue } from "./common";
 import { z } from "zod";
 import type { Row } from "@/data/schema/tables";
 import type { FounderKey } from "@/domain/constants";
@@ -44,7 +45,7 @@ const maxIso = (xs: (string | null | undefined)[]) => xs.reduce<string | null>((
 export async function integrationHub(ctx: AppContext, founder: FounderKey, grants: Grants, env: Env = processEnv(), now = new Date()) {
   const t = await ctx.repo.listMany(["IntegrationStatuses", "SystemSettings", "CalendarSources", "SnapshotRuns", "SocialAccounts", "SocialAccountDaily", "TrafficDaily", "SearchConsoleRows", "WebsiteSubmissions", "InboxItems", "BackupRuns"]);
   const statusById = new Map(t.IntegrationStatuses.rows.map((r) => [r.id, r]));
-  const setting = (k: string) => t.SystemSettings.rows.find((r) => r.key === k && !r.is_archived)?.value ?? "";
+  const setting = (k: string) => t.SystemSettings.rows.find((r) => r.key === k && !r.is_archived)?.value || (SETTING_ENV_FALLBACK[k] ? process.env[SETTING_ENV_FALLBACK[k]]?.trim() ?? "" : "");
   const live = ctx.mode === "live";
   const stats = ctx.repo.stats();
   const linkedinIds = new Set(t.SocialAccounts.rows.filter((a) => a.platform !== "instagram").map((a) => a.id));
@@ -122,7 +123,7 @@ export async function testIntegration(ctx: AppContext, founder: FounderKey, inpu
   switch (input.key) {
     case "sheets": return run(async () => { await ctx.repo.revisions({ fresh: true }); return ok(`The spreadsheet answers${demo}.`); }, "sheets");
     case "drive": return run(async () => {
-      const folder = (await ctx.repo.list("SystemSettings")).rows.find((r) => r.key === "drive_folder_id" && !r.is_archived)?.value;
+      const folder = await settingValue(ctx.repo, "drive_folder_id");
       if (!ctx.drive || !folder) throw new RuleError("Set the shared Drive folder first (Settings › Workspace).");
       const files = await ctx.drive.list(folder);
       return ok(`Drive answers: {n} files in the shared folder${demo}.`, { n: String(files.length) });
