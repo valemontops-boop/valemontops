@@ -11,12 +11,16 @@ import { childId } from "@/lib/ids";
 import { RuleError } from "../errors";
 import type { AppContext } from "../context";
 import { offerDefaults, settingValue, userRow } from "./common";
+import { PAY_CURRENCIES, USD_RATE_SOURCES, parseRate, rateString, usdToEur, type UsdRate, type UsdRateSource } from "@/domain/usd";
+import { bankRatesOf, currentUsdRate, usdRateOverview } from "./usd-rates";
 
 /**
  * Stage 3 finance (spec 5.10, D078): ledger (bank movements + manual entries), contracts, revenue schedule, managerial
  * P&L and MRR/ARR. Reads only through the repository; every derived number is recomputed on read.
  * Everything is EUR (D082: the founders dropped EUR/USD and ECB rates): a movement in another currency is shown in its
- * own currency and left out of the EUR totals, never converted with an invented rate.
+ * own currency and left out of the EUR totals, never converted with an invented rate. Exception (D085): a manual entry
+ * paying a supplier in USD locks its rate at entry (Wise payment > Wise today > manual > demo); without one it stays
+ * "rate missing" and out of the EUR totals.
  */
 const FINANCE_TABLES = ["BankTransactions", "BankBalances", "RevenueSnapshots", "FinanceAllocations", "LedgerEntries", "Contracts", "RevenueSchedules", "Clients", "Projects", "Milestones", "Quotes"] as const;
 
@@ -37,7 +41,8 @@ export function ledgerItems(db: Db, localMonthly: number) {
   const clients = live(db.Clients.rows);
   const contracts = live(db.Contracts.rows);
   const allocs = new Map(live(db.FinanceAllocations.rows).map((a) => [a.bank_tx_id, a]));
-  const items: (FinItem & { alloc_version: number; bank: string; auto: boolean; kind: string; corrects_id: string; reversed: boolean })[] = [];
+  const bankRates = bankRatesOf(db.BankTransactions.rows);
+  const items: (FinItem & { alloc_version: number; bank: string; auto: boolean; kind: string; corrects_id: string; reversed: boolean; fx: UsdRate | null; rate_missing: boolean; fx_minor: number | null; fx_currency: string })[] = [];
   const nameMatch = (text: string) => clients.find((c) => c.name.trim().length >= 3 && text.toLowerCase().includes(c.name.replace(/\s*\(d[eé]mo\)\s*/i, "").trim().toLowerCase()));
   for (const t of live(db.BankTransactions.rows)) {
     const a = allocs.get(t.id);
@@ -53,20 +58,35 @@ export function ledgerItems(db: Db, localMonthly: number) {
       currency: t.currency, gross_minor: t.amount_minor, vat_minor: vat, eur_gross: g, eur_vat: v, eur_net: g === null || v === null ? null : g - v,
       service_from: a?.service_from ?? null, service_to: a?.service_to ?? null, contract_id: a ? a.contract_id : autoContract, project_id: a?.project_id ?? "",
       receipt_url: a?.receipt_url ?? "", reference: a?.reference ?? "", reconciled: a?.reconciled ?? false, alloc_version: a?.version ?? 0, auto: !a, kind: t.direction, corrects_id: "", reversed: false,
+      // A Wise payment sent in USD from the EUR balance: the EUR debited is what counts; the USD sent and its real rate are shown.
+      fx: bankRates.get(t.id) ?? null, rate_missing: false, fx_minor: t.fx_amount_minor ?? null, fx_currency: t.fx_currency ?? "",
     });
   }
   const entries = live(db.LedgerEntries.rows);
   const reversed = new Set(entries.map((e) => e.corrects_id).filter(Boolean));
   for (const e of entries) {
-    const eur = e.currency.toUpperCase() === "EUR"; // legacy non-EUR entries (before D082) are not converted either
+    const usd = e.currency.toUpperCase() === "USD";
+    const fx = usd ? entryRate(e) : null;
+    // EUR as is; USD at its locked rate (D085); legacy non-EUR entries (before D082, e.g. ECB) are not converted.
+    const eur = e.currency.toUpperCase() === "EUR";
+    const g = eur ? e.amount_minor + e.vat_minor : fx ? e.eur_minor + e.eur_vat_minor : null;
+    const v = eur ? e.vat_minor : fx ? e.eur_vat_minor : null;
     items.push({
       id: e.id, source: "manual", bank: "", date: e.date, label: e.note, counterparty: e.counterparty, category: e.category, cost_center: e.cost_center, cls: (e.cost_class || defaultClass(e.category)) as FinItem["cls"],
-      currency: e.currency, gross_minor: e.amount_minor + e.vat_minor, vat_minor: e.vat_minor, eur_gross: eur ? e.amount_minor + e.vat_minor : null, eur_vat: eur ? e.vat_minor : null, eur_net: eur ? e.amount_minor : null,
+      currency: e.currency, gross_minor: e.amount_minor + e.vat_minor, vat_minor: e.vat_minor, eur_gross: g, eur_vat: v, eur_net: g === null || v === null ? null : g - v,
+      fx, rate_missing: usd && !fx, fx_minor: null, fx_currency: "",
       service_from: e.service_from, service_to: e.service_to,
       contract_id: e.contract_id, project_id: e.project_id, receipt_url: e.receipt_url, reference: e.reference, reconciled: true, alloc_version: e.version, auto: false, kind: e.kind, corrects_id: e.corrects_id, reversed: reversed.has(e.id),
     });
   }
   return items.sort((a, b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id));
+}
+
+/** The rate locked on a USD manual entry (D085 sources only; an ECB rate from before D082 is not used). */
+function entryRate(e: Row<"LedgerEntries">): UsdRate | null {
+  const micro = parseRate(e.fx_rate);
+  if (micro === null || !e.fx_date || !(USD_RATE_SOURCES as readonly string[]).includes(e.fx_source)) return null;
+  return { micro, date: e.fx_date, source: e.fx_source as UsdRateSource, ...(e.wise_tx_id ? { bank_tx_id: e.wise_tx_id } : {}) };
 }
 
 /** Revenue schedule lines; a line tied to a project milestone is earned the day the milestone is done. */
@@ -126,7 +146,8 @@ export async function financeOverview(ctx: AppContext, founder: FounderKey, inpu
   const projects = new Map(live(db.Projects.rows).map((p) => [p.id, p]));
   const clients = new Map(live(db.Clients.rows).map((c) => [c.id, c]));
   const projectsWithoutContract = live(db.Projects.rows).filter((p) => (p.mrr_minor > 0 || p.revenue_one_off_minor > 0) && !contracts.some((c) => c.project_id === p.id)).length;
-  const nonEur = items.filter((i) => i.eur_gross === null).length;
+  const nonEur = items.filter((i) => i.eur_gross === null && !i.rate_missing).length;
+  const usdMissing = items.filter((i) => i.rate_missing && !i.reversed && i.kind !== "adjustment");
   const quarterStart = window.slice(-((Number(today.slice(5, 7)) - 1) % 3 + 1));
   const ytd = window.filter((m) => m.startsWith(today.slice(0, 4)));
   return {
@@ -145,6 +166,9 @@ export async function financeOverview(ctx: AppContext, founder: FounderKey, inpu
     mrr_movements: movements,
     /** Movements in another currency: listed in their own currency, left out of every EUR total (no conversion, D082). */
     non_eur: nonEur,
+    /** USD supplier payments with no rate (D085): shown in USD with "rate missing", left out of EUR totals. */
+    usd_missing: { count: usdMissing.length, usd_minor: usdMissing.reduce((a, i) => a + Math.abs(i.gross_minor), 0) },
+    usd: await usdRateOverview(ctx, founder),
     projects_without_contract: projectsWithoutContract,
     projects: live(db.Projects.rows).map((p) => ({ id: p.id, name: p.name })),
     setup_fee_policy: (await settingValue(ctx.repo, "finance_setup_fee_recognition")) === "over_term" ? "over_term" : "at_payment",
@@ -197,8 +221,10 @@ export const entrySchema = z.object({
   category: z.enum(BANK_CATEGORIES),
   cost_center: z.enum(COST_CENTERS),
   cost_class: z.enum(["", ...COST_CLASSES]).default(""),
-  /** Everything is EUR (D082). */
-  currency: z.literal("EUR").default("EUR"),
+  /** EUR; USD only for an expense paying a supplier (D085). */
+  currency: z.enum(PAY_CURRENCIES).default("EUR"),
+  /** USD only: the Wise payment whose real rate to use (else Wise today > manual rate). */
+  wise_tx_id: z.union([z.literal(""), z.string().uuid()]).default(""),
   /** Ex VAT, positive; the sign comes from `kind`. */
   amount_minor: z.number().int().min(1).max(10_000_000_000),
   vat_minor: z.number().int().min(0).max(10_000_000_000).default(0),
@@ -210,21 +236,39 @@ export const entrySchema = z.object({
   service_from: optDay,
   service_to: optDay,
   note: z.string().trim().max(500).default(""),
-}).refine(periodOk, { message: "Service period: both dates, start before end", path: ["service_to"] });
+}).refine(periodOk, { message: "Service period: both dates, start before end", path: ["service_to"] })
+  .refine((v) => v.currency === "EUR" || v.kind === "expense", { message: "USD only for paying a supplier", path: ["currency"] })
+  .refine((v) => !v.wise_tx_id || v.currency === "USD", { message: "Only a USD entry takes the rate of a Wise payment", path: ["wise_tx_id"] });
 
 /**
  * Manual entry for money that did not go through Wise or Stripe. Append-only, idempotent by the id generated when the
- * form opened. Always in EUR (D082); the legacy fx_* columns stay empty.
+ * form opened. EUR, or USD for a supplier payment (D085): the rate, its date and source are locked at entry with the EUR
+ * amounts; with no rate at all the entry is kept in USD, "rate missing", out of EUR totals (never an invented rate).
  */
 export async function addEntry(ctx: AppContext, founder: FounderKey, input: z.infer<typeof entrySchema>) {
   const existing = await ctx.repo.get("LedgerEntries", input.id, { fresh: true });
   if (existing) return existing;
   if (input.vat_minor > input.amount_minor * 2) throw new RuleError("VAT looks wrong: check the amount ex VAT and the VAT");
   const sign = input.kind === "income" ? 1 : -1;
-  const { amount_minor, vat_minor, ...rest } = input;
+  const { amount_minor, vat_minor, wise_tx_id, ...rest } = input;
+  let fx = { fx_rate: "", fx_date: null as string | null, fx_source: "", eur_minor: sign * amount_minor, eur_vat_minor: sign * vat_minor };
+  if (input.currency === "USD") {
+    let rate: UsdRate | null = null;
+    if (wise_tx_id) {
+      const tx = await ctx.repo.get("BankTransactions", wise_tx_id);
+      rate = tx && !tx.is_archived ? bankRatesOf([tx]).get(tx.id) ?? null : null;
+      if (!rate) throw new RuleError("This Wise movement is not a USD payment.");
+    } else {
+      const today = localDate(new Date(), (await userRow(ctx.repo, founder)).timezone);
+      rate = (await currentUsdRate(ctx, today)).rate;
+    }
+    fx = rate
+      ? { fx_rate: rateString(rate.micro), fx_date: rate.date, fx_source: rate.source, eur_minor: sign * usdToEur(amount_minor, rate.micro), eur_vat_minor: sign * usdToEur(vat_minor, rate.micro) }
+      : { fx_rate: "", fx_date: null, fx_source: "", eur_minor: 0, eur_vat_minor: 0 };
+  }
   return (await ctx.repo.insert("LedgerEntries", [{
     ...rest, service_from: rest.service_from ?? null, service_to: rest.service_to ?? null, amount_minor: sign * amount_minor, vat_minor: sign * vat_minor,
-    fx_rate: "", fx_date: null, fx_source: "", eur_minor: sign * amount_minor, eur_vat_minor: sign * vat_minor, corrects_id: "",
+    ...fx, corrects_id: "", wise_tx_id,
   }], { founder }))[0];
 }
 
@@ -243,7 +287,7 @@ export async function reverseEntry(ctx: AppContext, founder: FounderKey, input: 
     id, date: today < e.date ? e.date : today, kind: "adjustment", category: e.category, cost_center: e.cost_center, cost_class: e.cost_class, currency: e.currency,
     amount_minor: -e.amount_minor, vat_minor: -e.vat_minor, fx_rate: e.fx_rate, fx_date: e.fx_date, fx_source: e.fx_source, eur_minor: -e.eur_minor, eur_vat_minor: -e.eur_vat_minor,
     counterparty: e.counterparty, reference: e.reference, receipt_url: e.receipt_url, project_id: e.project_id, contract_id: e.contract_id,
-    service_from: e.service_from, service_to: e.service_to, corrects_id: e.id, note: input.note || e.note,
+    service_from: e.service_from, service_to: e.service_to, corrects_id: e.id, note: input.note || e.note, wise_tx_id: e.wise_tx_id,
   }], { founder }))[0];
 }
 

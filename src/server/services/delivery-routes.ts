@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { FounderKey } from "@/domain/constants";
 import type { AppContext } from "../context";
 import {
-  addCost, addMilestone, addProjectTask, addTimeEntry, assignContractor, assignmentUpdateSchema, assignSchema, clientUpdateSchema, costSchema, deliveryOverview,
+  addCost, costLinkSchema, linkCost, addMilestone, addProjectTask, addTimeEntry, assignContractor, assignmentUpdateSchema, assignSchema, clientUpdateSchema, costSchema, deliveryOverview,
   milestoneSchema, milestoneUpdateSchema, projectTaskSchema, timeEntrySchema, updateAssignment, updateClient, updateMilestone, updateProject, updateProjectSchema,
   wonSchema, wonStatus, wonToProject,
 } from "./delivery";
@@ -27,6 +27,7 @@ export const DELIVERY_ROUTES: Record<string, [z.ZodTypeAny | null, Handler]> = {
   "PATCH /api/clients/milestones": [milestoneUpdateSchema, (c, f, i) => updateMilestone(c, f, i)],
   "POST /api/clients/time": [timeEntrySchema, (c, f, i) => addTimeEntry(c, f, i)],
   "POST /api/clients/costs": [costSchema, (c, f, i) => addCost(c, f, i)],
+  "PATCH /api/clients/costs": [costLinkSchema, (c, f, i) => linkCost(c, f, i)],
   "POST /api/clients/assignments": [assignSchema, (c, f, i) => assignContractor(c, f, i)],
   "PATCH /api/clients/assignments": [assignmentUpdateSchema, (c, f, i) => updateAssignment(c, f, i)],
   "POST /api/clients/tasks": [projectTaskSchema, (c, f, i) => addProjectTask(c, f, i)],

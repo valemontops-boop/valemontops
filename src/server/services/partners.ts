@@ -7,6 +7,8 @@ import { localDate } from "@/domain/time";
 import { patchOf } from "@/lib/zod";
 import type { AppContext } from "../context";
 import { userRow } from "./common";
+import { eurConverter, PAY_CURRENCIES } from "@/domain/usd";
+import { currentUsdRate } from "./usd-rates";
 
 /**
  * Three separate registries (spec 5.8), never mixed: (a) human contractors and suppliers (`Vendors`), (b) software / AI
@@ -15,6 +17,9 @@ import { userRow } from "./common";
 export async function partnersOverview(ctx: AppContext, founder: FounderKey, now = new Date()) {
   const t = await ctx.repo.listMany(["Vendors", "ToolCosts", "AgentTemplates", "ProjectAssignments", "Projects"]);
   const today = localDate(now, (await userRow(ctx.repo, founder)).timezone);
+  // USD contractors (D085): their rates are shown with the EUR equivalent at today's Wise / manual / demo rate.
+  const usd = await currentUsdRate(ctx, today);
+  const toEur = eurConverter(usd.rate);
   const projects = t.Projects.rows.filter((p) => !p.is_archived);
   const projectName = new Map(projects.map((p) => [p.id, p.name]));
   const assignments = t.ProjectAssignments.rows.filter((a) => !a.is_archived);
@@ -24,13 +29,14 @@ export async function partnersOverview(ctx: AppContext, founder: FounderKey, now
     return {
       ...v, load: cap, freeHoursWeek: Math.max(0, Math.round((v.capacity_hours_week - cap.plannedPerWeek) * 10) / 10),
       rateExpired: Boolean(v.rate_valid_until && v.rate_valid_until < today),
+      eur: v.currency.toUpperCase() === "USD" ? { hourly: v.hourly_rate_minor === null ? null : toEur(v.hourly_rate_minor, "USD"), daily: v.daily_rate_minor === null ? null : toEur(v.daily_rate_minor, "USD"), fixed: v.fixed_rate_minor === null ? null : toEur(v.fixed_rate_minor, "USD") } : null,
       projects: [...new Set(mine.filter((a) => a.status !== "cancelled").map((a) => projectName.get(a.project_id) ?? ""))].filter(Boolean),
     };
   });
   const tools = t.ToolCosts.rows.filter((x) => !x.is_archived).map((x) => ({ ...x, projects: x.linked_project_ids.map((id) => projectName.get(id)).filter(Boolean) as string[] }));
   const agents = t.AgentTemplates.rows.filter((x) => !x.is_archived).map((x) => ({ ...x, projects: x.linked_project_ids.map((id) => projectName.get(id)).filter(Boolean) as string[], tools: x.linked_tool_ids.map((id) => tools.find((y) => y.id === id)?.name).filter(Boolean) as string[] }));
   return {
-    today, vendors, tools, agents,
+    today, vendors, tools, agents, usd: { rate: usd.rate, wise_status: usd.wise_status },
     projects: projects.map((p) => ({ id: p.id, name: p.name })),
     toolsMonthlyMinor: tools.filter((x) => x.integration_status !== "retired" && x.currency === "EUR").reduce((s, x) => s + x.monthly_cost_minor, 0),
   };
@@ -47,7 +53,8 @@ const vendorInput = z.object({
   services: z.string().trim().max(1_000).default(""),
   timezone: z.string().trim().max(60).default(""),
   country: z.string().trim().toUpperCase().max(2).default(""),
-  currency: z.string().trim().toUpperCase().length(3).default("EUR"),
+  /** EUR, or USD for contractors paid in dollars (D085). Rates below are in this currency. */
+  currency: z.preprocess((v) => (typeof v === "string" ? v.trim().toUpperCase() : v), z.enum(PAY_CURRENCIES)).default("EUR"),
   hourly_rate_eur: eur.default(null),
   daily_rate_eur: eur.default(null),
   fixed_rate_eur: eur.default(null),

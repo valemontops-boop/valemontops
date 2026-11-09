@@ -3,6 +3,11 @@
  * Valemont Local plan limits and per-client contribution margin. Pure functions, money in integer cents.
  */
 import { addDays } from "./time";
+import type { ToEur } from "./usd";
+
+/** EUR passes through; another currency needs the converter (USD contractors, D085); null = rate missing. */
+const inEur = (minor: number, currency: string | undefined, toEur?: ToEur): number | null =>
+  !currency || currency.toUpperCase() === "EUR" ? minor : toEur ? toEur(minor, currency) : null;
 
 export const PROJECT_STATUSES = ["planned", "in_progress", "review", "delivered", "on_hold"] as const;
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
@@ -14,7 +19,7 @@ export const MARGIN_STATUS_LABELS: Record<MarginStatus, string> = { healthy: "He
 export const MARGIN_GUARDRAIL_PCT_SEED = 30;
 
 export type RateUnit = "hour" | "day" | "fixed";
-export interface AssignmentLike { planned_hours: number; rate_minor: number; rate_unit: RateUnit; status?: string; vendor_id?: string; start_date?: string | null; end_date?: string | null }
+export interface AssignmentLike { planned_hours: number; rate_minor: number; rate_unit: RateUnit; currency?: string; status?: string; vendor_id?: string; start_date?: string | null; end_date?: string | null }
 
 /** Cost of an assignment: hours × hourly rate, days of 8 h × daily rate, or the fixed fee. */
 export function assignmentCost(a: AssignmentLike, hours = a.planned_hours): number {
@@ -30,15 +35,26 @@ export interface CostInput {
   apiMinor: number;
   infraMinor: number;
   otherMinor?: number;
+  /** Converts USD assignments to EUR (D085); without it, or without a rate, they are left out and counted in `missing`. */
+  toEur?: ToEur;
 }
-export interface CostBreakdown { founder: number; contractors: number; api: number; infra: number; other: number; total: number }
+export interface CostBreakdown { founder: number; contractors: number; api: number; infra: number; other: number; total: number; missing: number; missing_usd_minor: number }
 
-/** Project cost calculator (spec 5.8): founder labour + contractors + API usage + infrastructure (+ quoted delivery cost not broken down). */
+/**
+ * Project cost calculator (spec 5.8): founder labour + contractors + API usage + infrastructure (+ quoted delivery cost not
+ * broken down), in EUR. A USD contractor converts at the rate given (D085); with no rate it is left out of the total and
+ * counted in `missing` / `missing_usd_minor` ("rate missing"), never guessed.
+ */
 export function projectCost(i: CostInput): CostBreakdown {
   const founder = Math.round(i.founderHours * i.hourCostMinor);
-  const contractors = i.assignments.filter((a) => a.status !== "cancelled").reduce((s, a) => s + assignmentCost(a), 0);
+  let contractors = 0, missing = 0, missingUsd = 0;
+  for (const a of i.assignments.filter((x) => x.status !== "cancelled")) {
+    const native = assignmentCost(a);
+    const eur = inEur(native, a.currency, i.toEur);
+    if (eur === null) { missing++; if ((a.currency ?? "").toUpperCase() === "USD") missingUsd += native; } else contractors += eur;
+  }
   const other = i.otherMinor ?? 0;
-  return { founder, contractors, api: i.apiMinor, infra: i.infraMinor, other, total: founder + contractors + i.apiMinor + i.infraMinor + other };
+  return { founder, contractors, api: i.apiMinor, infra: i.infraMinor, other, total: founder + contractors + i.apiMinor + i.infraMinor + other, missing, missing_usd_minor: missingUsd };
 }
 
 export function marginOf(revenueMinor: number, costMinor: number, guardrailPct = MARGIN_GUARDRAIL_PCT_SEED): { margin: number; pct: number | null; status: MarginStatus } {
@@ -54,21 +70,30 @@ export function projectRevenue(p: { revenue_one_off_minor: number; mrr_minor: nu
 }
 
 export interface TimeEntryLike { minutes: number; person_kind: "founder" | "contractor"; vendor_id: string }
-export interface DirectCostLike { amount_minor: number; kind: string }
+/** `eur_minor` when the caller already converted it (e.g. at the real rate of the Wise payment); null = rate missing. */
+export interface DirectCostLike { amount_minor: number; kind: string; currency?: string; eur_minor?: number | null }
 
-/** Actual cost so far: founder minutes × hour cost, contractor minutes × their assignment rate, direct costs. */
-export function actualCost(i: { entries: TimeEntryLike[]; costs: DirectCostLike[]; hourCostMinor: number; assignments: AssignmentLike[] }): { founder: number; contractors: number; direct: number; total: number; founderHours: number; contractorHours: number } {
-  let founder = 0, contractors = 0, fm = 0, cm = 0;
+/**
+ * Actual cost so far, in EUR: founder minutes × hour cost, contractor minutes × their assignment rate, direct costs.
+ * USD amounts convert with `toEur` (or the cost's own `eur_minor`); without a rate they are counted in `missing`.
+ */
+export function actualCost(i: { entries: TimeEntryLike[]; costs: DirectCostLike[]; hourCostMinor: number; assignments: AssignmentLike[]; toEur?: ToEur }): { founder: number; contractors: number; direct: number; total: number; founderHours: number; contractorHours: number; missing: number; missing_usd_minor: number } {
+  let founder = 0, contractors = 0, fm = 0, cm = 0, missing = 0, missingUsd = 0;
+  const add = (native: number, currency: string | undefined, eur: number | null | undefined): number => {
+    const v = eur !== undefined ? eur : inEur(native, currency, i.toEur);
+    if (v === null) { missing++; if ((currency ?? "").toUpperCase() === "USD") missingUsd += native; return 0; }
+    return v;
+  };
   for (const e of i.entries) {
     if (e.person_kind === "founder") { fm += e.minutes; founder += Math.round((e.minutes / 60) * i.hourCostMinor); continue; }
     cm += e.minutes;
     const a = i.assignments.find((x) => x.vendor_id === e.vendor_id && x.status !== "cancelled");
-    if (a && a.rate_unit !== "fixed") contractors += assignmentCost(a, e.minutes / 60);
+    if (a && a.rate_unit !== "fixed") contractors += add(assignmentCost(a, e.minutes / 60), a.currency, undefined);
   }
   // Fixed-fee assignments cost their fee once work has started on them.
-  for (const a of i.assignments) if (a.rate_unit === "fixed" && a.status !== "cancelled" && i.entries.some((e) => e.vendor_id === a.vendor_id)) contractors += a.rate_minor;
-  const direct = i.costs.reduce((s, c) => s + c.amount_minor, 0);
-  return { founder, contractors, direct, total: founder + contractors + direct, founderHours: fm / 60, contractorHours: cm / 60 };
+  for (const a of i.assignments) if (a.rate_unit === "fixed" && a.status !== "cancelled" && i.entries.some((e) => e.vendor_id === a.vendor_id)) contractors += add(a.rate_minor, a.currency, undefined);
+  const direct = i.costs.reduce((s, c) => s + add(c.amount_minor, c.currency, c.eur_minor), 0);
+  return { founder, contractors, direct, total: founder + contractors + direct, founderHours: fm / 60, contractorHours: cm / 60, missing, missing_usd_minor: missingUsd };
 }
 
 /**

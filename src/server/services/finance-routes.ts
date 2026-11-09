@@ -5,6 +5,7 @@ import {
   addEntry, allocationSchema, contractSchema, contractsFromProjects, contractUpdateSchema, createContract, entrySchema, financeOverview, generateSchedule,
   generateSchema, overviewSchema, reverseEntry, reverseSchema, saveAllocation, scheduleUpdateSchema, updateContract, updateScheduleLine,
 } from "./finance";
+import { manualRateSchema, saveManualRate, usdRateOverview } from "./usd-rates";
 
 type Handler = (ctx: AppContext, founder: FounderKey, input: never) => Promise<unknown>;
 /**
@@ -21,4 +22,7 @@ export const FINANCE_ROUTES: Record<string, [z.ZodTypeAny | null, Handler]> = {
   "POST /api/finance/contracts/from-projects": [z.object({}).passthrough(), (c, f) => contractsFromProjects(c, f)],
   "POST /api/finance/schedules/generate": [generateSchema, (c, f, i) => generateSchedule(c, f, i)],
   "PATCH /api/finance/schedules": [scheduleUpdateSchema, (c, f, i) => updateScheduleLine(c, f, i)],
+  /* D085: USD→EUR rate for contractor payments (Wise today, manual fallback). */
+  "GET /api/finance/usd-rate": [null, (c, f) => usdRateOverview(c, f)],
+  "PUT /api/finance/usd-rate": [manualRateSchema, (c, f, i) => saveManualRate(c, f, i)],
 };

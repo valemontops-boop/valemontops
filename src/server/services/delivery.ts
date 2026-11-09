@@ -6,6 +6,7 @@ import {
   projectRevenue, PROJECT_STATUSES, templateMilestones, type ProjectAlert,
 } from "@/domain/delivery";
 import { addDays, localDate } from "@/domain/time";
+import { eurConverter, PAY_CURRENCIES, usdToEur, type UsdRate } from "@/domain/usd";
 import { LOCALE_OF, translate } from "@/i18n";
 import { childId } from "@/lib/ids";
 import { patchOf } from "@/lib/zod";
@@ -15,6 +16,7 @@ import { numSetting, offerDefaults, userRow } from "./common";
 import { localProvisions } from "./local-subscriptions";
 import { quoteForOpportunity } from "./quotes";
 import { runWorkflow, runIdOf, stepChildId } from "./workflows";
+import { bankRatesOf, currentUsdRate, usdPayments } from "./usd-rates";
 
 /* ---------- quote lookup (Stage 2A) ---------- */
 
@@ -185,9 +187,19 @@ export async function deliverySettings(repo: DataRepository) {
 export type ProjectView = Awaited<ReturnType<typeof deliveryOverview>>["projects"][number];
 
 export async function deliveryOverview(ctx: AppContext, founder: FounderKey, now = new Date()) {
-  const t = await ctx.repo.listMany(["Clients", "Projects", "Milestones", "TimeEntries", "ProjectCosts", "ProjectAssignments", "Vendors", "Tasks", "WorkflowRuns", "Opportunities", "Accounts"]);
+  const t = await ctx.repo.listMany(["Clients", "Projects", "Milestones", "TimeEntries", "ProjectCosts", "ProjectAssignments", "Vendors", "Tasks", "WorkflowRuns", "Opportunities", "Accounts", "BankTransactions"]);
   const today = localDate(now, (await userRow(ctx.repo, founder)).timezone);
   const s = await deliverySettings(ctx.repo);
+  // USD contractors (D085): a cost paid through Wise uses that payment's real rate; the rest today's Wise / manual / demo rate.
+  const usd = await currentUsdRate(ctx, today);
+  const toEur = eurConverter(usd.rate);
+  const bankRates = bankRatesOf(t.BankTransactions.rows);
+  const costRate = (c: { currency: string; wise_tx_id: string }): UsdRate | null => (c.currency.toUpperCase() === "USD" ? bankRates.get(c.wise_tx_id) ?? usd.rate : null);
+  const costEur = (c: { amount_minor: number; currency: string; wise_tx_id: string }): number | null => {
+    if (c.currency.toUpperCase() === "EUR") return c.amount_minor;
+    const r = costRate(c);
+    return c.currency.toUpperCase() === "USD" && r ? usdToEur(c.amount_minor, r.micro) : null;
+  };
   const live = <R extends { is_archived: boolean }>(rows: R[]) => rows.filter((r) => !r.is_archived);
   const vendors = live(t.Vendors.rows);
   const vendorName = new Map(vendors.map((v) => [v.id, v.name]));
@@ -201,8 +213,8 @@ export async function deliveryOverview(ctx: AppContext, founder: FounderKey, now
     const entries = live(t.TimeEntries.rows).filter((e) => e.project_id === p.id);
     const costs = live(t.ProjectCosts.rows).filter((c) => c.project_id === p.id);
     const tasks = live(t.Tasks.rows).filter((x) => x.project_id === p.id);
-    const estimate = projectCost({ founderHours: p.est_founder_hours, hourCostMinor: s.hourCostMinor, assignments: as, apiMinor: p.est_api_minor, infraMinor: p.est_infra_minor, otherMinor: p.est_other_minor });
-    const actual = actualCost({ entries: entries.map((e) => ({ minutes: e.minutes, person_kind: e.person_kind, vendor_id: e.vendor_id })), costs, hourCostMinor: s.hourCostMinor, assignments: as });
+    const estimate = projectCost({ founderHours: p.est_founder_hours, hourCostMinor: s.hourCostMinor, assignments: as, apiMinor: p.est_api_minor, infraMinor: p.est_infra_minor, otherMinor: p.est_other_minor, toEur });
+    const actual = actualCost({ entries: entries.map((e) => ({ minutes: e.minutes, person_kind: e.person_kind, vendor_id: e.vendor_id })), costs: costs.map((c) => ({ amount_minor: c.amount_minor, kind: c.kind, currency: c.currency, eur_minor: costEur(c) })), hourCostMinor: s.hourCostMinor, assignments: as, toEur });
     const revenue = projectRevenue(p);
     const forecast = forecastCost(estimate.total, actual.total);
     const margin = marginOf(revenue, forecast, s.guardrailPct);
@@ -210,9 +222,9 @@ export async function deliveryOverview(ctx: AppContext, founder: FounderKey, now
     const plannedContractorHours = as.filter((a) => a.status !== "cancelled").reduce((x, a) => x + a.planned_hours, 0);
     return {
       ...p, clientName: clientName.get(p.client_id) ?? p.name, milestones: ms,
-      assignments: as.map((a) => ({ ...a, vendorName: vendorName.get(a.vendor_id) ?? "—", overCapacity: overCap.has(a.vendor_id) })),
+      assignments: as.map((a) => ({ ...a, vendorName: vendorName.get(a.vendor_id) ?? "—", overCapacity: overCap.has(a.vendor_id), rate_eur_minor: toEur(a.rate_minor, a.currency), fx_rate: a.currency.toUpperCase() === "USD" ? usd.rate : null })),
       entries: entries.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 30).map((e) => ({ ...e, who: e.person_kind === "founder" ? e.founder_key ?? "" : vendorName.get(e.vendor_id) ?? "—" })),
-      costs: costs.sort((a, b) => b.date.localeCompare(a.date)),
+      costs: costs.sort((a, b) => b.date.localeCompare(a.date)).map((c) => ({ ...c, eur_minor: costEur(c), fx_rate: costRate(c) })),
       tasks: tasks.map((x) => ({ id: x.id, version: x.version, title: x.title, owner: x.owner, status: x.status, due_at: x.due_at, priority: x.priority })),
       estimate, actual, revenue, forecast, margin, alerts,
       hours: { estimated: p.est_founder_hours + plannedContractorHours, actual: Math.round((actual.founderHours + actual.contractorHours) * 10) / 10 },
@@ -227,6 +239,7 @@ export async function deliveryOverview(ctx: AppContext, founder: FounderKey, now
   const wonWaiting = t.Opportunities.rows.filter((o) => !o.is_archived && o.stage === "won" && !runSubjects.has(o.id)).map((o) => ({ id: o.id, name: o.name, brand: o.brand, account_id: o.account_id }));
   return {
     today, hourCostMinor: s.hourCostMinor, guardrailPct: s.guardrailPct, statuses: PROJECT_STATUSES,
+    usd: { rate: usd.rate, wise_status: usd.wise_status, payments: usdPayments(t.BankTransactions.rows) },
     clients: clients.map((c) => ({ id: c.id, version: c.version, name: c.name, brand: c.brand, market: c.market, status: c.status, owner_founder: c.owner_founder, account_id: c.account_id })),
     projects, runs, wonWaiting,
     vendors: vendors.map((v) => ({ id: v.id, name: v.name, hourly_rate_minor: v.hourly_rate_minor, daily_rate_minor: v.daily_rate_minor, fixed_rate_minor: v.fixed_rate_minor, currency: v.currency, capacity_hours_week: v.capacity_hours_week })),
@@ -325,18 +338,42 @@ export async function addTimeEntry(ctx: AppContext, founder: FounderKey, i: z.in
 
 export const costSchema = z.object({
   id: z.string().uuid(), project_id: z.string().uuid(), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), kind: z.enum(["api", "infra", "contractor", "other"]),
+  /** Amount in `currency` (named before D085, when everything was EUR). */
   label: z.string().trim().min(1).max(200), amount_eur: z.number().min(0).max(1_000_000), tool_id: z.union([z.literal(""), z.string().uuid()]).default(""),
+  currency: z.enum(PAY_CURRENCIES).default("EUR"),
+  /** The Wise payment that paid it (its real rate converts USD to EUR). */
+  wise_tx_id: z.union([z.literal(""), z.string().uuid()]).default(""),
 });
 export async function addCost(ctx: AppContext, founder: FounderKey, i: z.infer<typeof costSchema>) {
   await mustProject(ctx.repo, i.project_id);
   if (await ctx.repo.get("ProjectCosts", i.id, { fresh: true })) return { duplicate: true };
-  await ctx.repo.insert("ProjectCosts", [{ id: i.id, project_id: i.project_id, date: i.date, kind: i.kind, label: i.label, amount_minor: Math.round(i.amount_eur * 100), currency: "EUR", tool_id: i.tool_id }], { founder });
+  if (i.wise_tx_id) await mustUsdPayment(ctx.repo, i.wise_tx_id, i.currency);
+  await ctx.repo.insert("ProjectCosts", [{ id: i.id, project_id: i.project_id, date: i.date, kind: i.kind, label: i.label, amount_minor: Math.round(i.amount_eur * 100), currency: i.currency, tool_id: i.tool_id, wise_tx_id: i.wise_tx_id }], { founder });
   return { duplicate: false };
+}
+
+/** A Wise movement can give its rate only when it is a USD payment out of a EUR balance. */
+async function mustUsdPayment(repo: DataRepository, txId: string, currency: string) {
+  if (currency !== "USD") throw new RuleError("Only a USD cost takes the rate of a Wise payment.");
+  const tx = await repo.get("BankTransactions", txId);
+  if (!tx || tx.is_archived || !bankRatesOf([tx]).has(tx.id)) throw new RuleError("This Wise movement is not a USD payment.");
+}
+
+export const costLinkSchema = z.object({ id: z.string().uuid(), expected_version: z.number().int(), wise_tx_id: z.union([z.literal(""), z.string().uuid()]) });
+/** Link (or unlink) a USD project cost to the Wise payment that paid it, once paid: its real rate replaces the estimate. */
+export async function linkCost(ctx: AppContext, founder: FounderKey, i: z.infer<typeof costLinkSchema>) {
+  const c = await ctx.repo.get("ProjectCosts", i.id, { fresh: true });
+  if (!c || c.is_archived) throw new RuleError("Record not found");
+  if (i.wise_tx_id) await mustUsdPayment(ctx.repo, i.wise_tx_id, c.currency.toUpperCase());
+  return ctx.repo.update("ProjectCosts", i.id, i.expected_version, { wise_tx_id: i.wise_tx_id }, { founder });
 }
 
 export const assignSchema = z.object({
   id: z.string().uuid(), project_id: z.string().uuid(), vendor_id: z.string().uuid(), role: z.string().trim().max(200).default(""),
+  /** Rate in `currency` (named before D085). */
   rate_eur: z.number().min(0).max(100_000), rate_unit: z.enum(["hour", "day", "fixed"]), planned_hours: z.number().int().min(0).max(5_000),
+  /** Defaults to the contractor's currency (EUR or USD). */
+  currency: z.enum(PAY_CURRENCIES).optional(),
   start_date: optDay.default(""), end_date: optDay.default(""), note: z.string().trim().max(500).default(""),
 });
 /** Assign a contractor with a rate and planned hours; returns the capacity check (a warning, never a silent block). */
@@ -348,14 +385,14 @@ export async function assignContractor(ctx: AppContext, founder: FounderKey, i: 
   if (i.start_date && i.end_date && i.end_date < i.start_date) throw new RuleError("The end date is before the start date.");
   const existing = await ctx.repo.get("ProjectAssignments", i.id, { fresh: true });
   if (!existing) {
-    await ctx.repo.insert("ProjectAssignments", [{ id: i.id, project_id: i.project_id, vendor_id: i.vendor_id, role: i.role, rate_minor: Math.round(i.rate_eur * 100), rate_unit: i.rate_unit, currency: vendor.currency || "EUR", planned_hours: i.planned_hours, start_date: i.start_date || null, end_date: i.end_date || null, status: "planned", note: i.note }], { founder });
+    await ctx.repo.insert("ProjectAssignments", [{ id: i.id, project_id: i.project_id, vendor_id: i.vendor_id, role: i.role, rate_minor: Math.round(i.rate_eur * 100), rate_unit: i.rate_unit, currency: i.currency ?? (vendor.currency.toUpperCase() === "USD" ? "USD" : "EUR"), planned_hours: i.planned_hours, start_date: i.start_date || null, end_date: i.end_date || null, status: "planned", note: i.note }], { founder });
   }
   const all = (await ctx.repo.list("ProjectAssignments", { fresh: true })).rows.filter((a) => !a.is_archived && a.vendor_id === vendor.id);
   const cap = capacityCheck(vendor.capacity_hours_week, all);
   const rateExpired = Boolean(vendor.rate_valid_until && vendor.rate_valid_until < localDate(new Date(), "Europe/Paris"));
   return { duplicate: Boolean(existing), capacity: cap, rateExpired, ndaSigned: vendor.nda_status === "signed" };
 }
-export const assignmentUpdateSchema = z.object({ id: z.string().uuid(), expected_version: z.number().int(), patch: z.object({ status: z.enum(["planned", "active", "done", "cancelled"]).optional(), planned_hours: z.number().int().min(0).max(5_000).optional(), rate_eur: z.number().min(0).max(100_000).optional() }) });
+export const assignmentUpdateSchema = z.object({ id: z.string().uuid(), expected_version: z.number().int(), patch: z.object({ status: z.enum(["planned", "active", "done", "cancelled"]).optional(), planned_hours: z.number().int().min(0).max(5_000).optional(), rate_eur: z.number().min(0).max(100_000).optional(), currency: z.enum(PAY_CURRENCIES).optional() }) });
 export async function updateAssignment(ctx: AppContext, founder: FounderKey, i: z.infer<typeof assignmentUpdateSchema>) {
   const { rate_eur, ...rest } = i.patch;
   return ctx.repo.update("ProjectAssignments", i.id, i.expected_version, { ...rest, ...(rate_eur !== undefined ? { rate_minor: Math.round(rate_eur * 100) } : {}) }, { founder });

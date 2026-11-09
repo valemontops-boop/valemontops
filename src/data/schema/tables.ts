@@ -618,6 +618,10 @@ export const TABLES = {
       category_source: oneOf(["auto", "manual"] as const),
       running_balance_minor: optInt(),
       note: text(500),
+      /* Late columns (D085): a payment in another currency out of this balance (e.g. a USD transfer to a contractor paid
+         from the EUR balance): that currency and the amount sent, from Wise's statement exchange details or CSV. */
+      fx_currency: text(3),
+      fx_amount_minor: optInt(),
     },
   },
   BankBalances: {
@@ -769,10 +773,13 @@ export const TABLES = {
     domain: "work",
     shape: { ...base, project_id: reqText(40), person_kind: oneOf(["founder", "contractor"] as const), founder_key: optFounder(), vendor_id: text(40), date: day(), minutes: int(), note: text(500) },
   },
-  /** Direct costs booked on a project (API usage, infrastructure, other). Amounts in cents. */
+  /**
+   * Direct costs booked on a project (API usage, infrastructure, other). Amounts in cents of `currency` (EUR or USD, D085).
+   * Late `wise_tx_id`: the Wise movement that paid it; its real rate converts a USD cost to EUR.
+   */
   ProjectCosts: {
     domain: "work",
-    shape: { ...base, project_id: reqText(40), date: day(), kind: oneOf(["api", "infra", "contractor", "other"] as const), label: reqText(200), amount_minor: int(), currency: reqText(3), tool_id: text(40) },
+    shape: { ...base, project_id: reqText(40), date: day(), kind: oneOf(["api", "infra", "contractor", "other"] as const), label: reqText(200), amount_minor: int(), currency: reqText(3), tool_id: text(40), wise_tx_id: text(40) },
   },
   ProjectAssignments: {
     domain: "work",
@@ -1143,7 +1150,8 @@ export const TABLES = {
       currency: reqText(3),
       amount_minor: int(),
       vat_minor: int(),
-      /* fx_rate, fx_date, fx_source: legacy (before D082), always empty now; kept so existing sheets keep their headers. */
+      /* fx_rate, fx_date, fx_source: empty for EUR. Since D085 a USD supplier payment locks here the rate (EUR per 1 USD),
+         its date and source (bank | wise | manual | demo); rows from before D082 (source ecb) stay unconverted. */
       fx_rate: text(20),
       fx_date: optDay(),
       fx_source: text(20),
@@ -1158,6 +1166,8 @@ export const TABLES = {
       service_to: optDay(),
       corrects_id: text(40),
       note: text(500),
+      /* Late column (D085): Wise movement whose real rate was used for a USD entry (fx_source "bank"). */
+      wise_tx_id: text(40),
     },
   },
   /** How a bank movement is read (one row per movement, id = UUIDv5("alloc", bank tx id), version-checked edits). */
@@ -1220,6 +1230,11 @@ export const TABLES = {
       earned_on: optDay(),
     },
   },
+  /** Daily USD→EUR rate from the Wise API (D085), one row per day (id = UUIDv5("usd-rate", date, source)); demo rows in DEMO only. */
+  UsdRates: {
+    domain: "finance",
+    shape: { ...base, date: day(), rate: reqText(20), source: oneOf(["wise", "demo"] as const) },
+  },
   /* FxRates (ECB rates) retired by D082: no longer read, written or created by setup; an existing tab in a live
      spreadsheet is left untouched (setup and doctor ignore tabs outside the schema). */
   /* ----- Stage 4A (D083): website form submissions (signed webhook) ----- */
@@ -1275,8 +1290,8 @@ export interface BaseRow {
 export type Row<T extends TableName> = RowMap[T] & BaseRow;
 export type BaseFields = keyof typeof base;
 /** Columns added after a table was first created: optional on create, filled by CREATE_DEFAULTS. */
-export const CREATE_DEFAULTS: Record<string, unknown> = { list_id: "", call_session_id: "", target_key: "", duration_sec: null, area: "sales", objections: [], replies: [], recurrence_days: [] , worked: "", blocked: "", offers_pitched: [], next_action_at: null, http_status: null, audit_scope: "team", input_hash: "", ip_hash: "" };
-type LateKeys = "list_id" | "call_session_id" | "target_key" | "duration_sec" | "area" | "objections" | "replies" | "recurrence_days" | "worked" | "blocked" | "offers_pitched" | "next_action_at" | "http_status" | "audit_scope" | "input_hash" | "ip_hash";
+export const CREATE_DEFAULTS: Record<string, unknown> = { list_id: "", call_session_id: "", target_key: "", duration_sec: null, area: "sales", objections: [], replies: [], recurrence_days: [] , worked: "", blocked: "", offers_pitched: [], next_action_at: null, http_status: null, audit_scope: "team", input_hash: "", ip_hash: "", fx_currency: "", fx_amount_minor: null, wise_tx_id: "" };
+type LateKeys = "list_id" | "call_session_id" | "target_key" | "duration_sec" | "area" | "objections" | "replies" | "recurrence_days" | "worked" | "blocked" | "offers_pitched" | "next_action_at" | "http_status" | "audit_scope" | "input_hash" | "ip_hash" | "fx_currency" | "fx_amount_minor" | "wise_tx_id";
 export type NewRow<T extends TableName> = Omit<Row<T>, Exclude<BaseFields, "id"> | LateKeys> &
   Partial<Pick<Row<T>, Extract<keyof Row<T>, LateKeys>>> & { id: string };
 

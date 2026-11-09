@@ -24,11 +24,11 @@ async function setStatus(ctx: AppContext, status: string, error = "", actor: Act
   else await ctx.repo.insert("IntegrationStatuses", [{ id, integration, last_success_at: null, ...patch }], actor);
 }
 
-const txRow = (src: { bank?: "wise" | "stripe"; category?: BankCategory; source_id: string; origin: "api" | "webhook" | "csv" | "demo"; balance_id: string; currency: string; amount_minor: number; fee_minor: number | null; occurred_at: string; description: string; counterparty: string; bank_type: string; merchant_category: string; running_balance_minor: number | null }, tz: string) => {
+const txRow = (src: { bank?: "wise" | "stripe"; category?: BankCategory; source_id: string; origin: "api" | "webhook" | "csv" | "demo"; balance_id: string; currency: string; amount_minor: number; fee_minor: number | null; occurred_at: string; description: string; counterparty: string; bank_type: string; merchant_category: string; running_balance_minor: number | null; fx_currency?: string; fx_amount_minor?: number | null }, tz: string) => {
   const direction = src.amount_minor >= 0 ? ("credit" as const) : ("debit" as const);
-  const { bank = "wise", category, ...rest } = src;
+  const { bank = "wise", category, fx_currency = "", fx_amount_minor = null, ...rest } = src;
   return {
-    id: childId(bank === "wise" ? "wise-tx" : "stripe-tx", src.source_id), bank, ...rest, direction, date: localDate(new Date(src.occurred_at), tz), note: "",
+    id: childId(bank === "wise" ? "wise-tx" : "stripe-tx", src.source_id), bank, ...rest, fx_currency, fx_amount_minor, direction, date: localDate(new Date(src.occurred_at), tz), note: "",
     category: category ?? autoCategory({ direction, bank_type: src.bank_type, description: src.description, counterparty: src.counterparty, merchant_category: src.merchant_category }), category_source: "auto" as const,
   };
 };
@@ -73,11 +73,11 @@ export async function syncBank(ctx: AppContext, actor: Actor = SYSTEM, days = 90
     const fresh: ReturnType<typeof txRow>[] = [];
     for (const x of txs) {
       if (!x.referenceNumber) continue;
-      const r = txRow({ source_id: x.referenceNumber, origin: "api", balance_id: b.id, currency: x.currency || b.currency, amount_minor: signed(x), fee_minor: x.fee_minor, occurred_at: x.occurred_at, description: x.description, counterparty: x.counterparty, bank_type: x.detailsType, merchant_category: x.merchantCategory, running_balance_minor: x.running_balance_minor }, tz);
+      const r = txRow({ source_id: x.referenceNumber, origin: "api", balance_id: b.id, currency: x.currency || b.currency, amount_minor: signed(x), fee_minor: x.fee_minor, occurred_at: x.occurred_at, description: x.description, counterparty: x.counterparty, bank_type: x.detailsType, merchant_category: x.merchantCategory, running_balance_minor: x.running_balance_minor, fx_currency: x.fx_currency ?? "", fx_amount_minor: x.fx_amount_minor ?? null }, tz);
       if (rows.some((y) => y.id === r.id) || fresh.some((y) => y.id === r.id)) continue;
       const live = rows.find((y) => y.origin === "webhook" && !y.is_archived && sameMovement(y, r));
       if (live) {
-        await ctx.repo.update("BankTransactions", live.id, live.version, { source_id: r.source_id, origin: "api", description: r.description, counterparty: r.counterparty, bank_type: r.bank_type, merchant_category: r.merchant_category, fee_minor: r.fee_minor, running_balance_minor: r.running_balance_minor, ...(live.category_source === "auto" ? { category: r.category } : {}) }, actor);
+        await ctx.repo.update("BankTransactions", live.id, live.version, { source_id: r.source_id, origin: "api", description: r.description, counterparty: r.counterparty, bank_type: r.bank_type, merchant_category: r.merchant_category, fee_minor: r.fee_minor, running_balance_minor: r.running_balance_minor, fx_currency: r.fx_currency, fx_amount_minor: r.fx_amount_minor, ...(live.category_source === "auto" ? { category: r.category } : {}) }, actor);
         continue;
       }
       fresh.push(r);

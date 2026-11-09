@@ -93,7 +93,7 @@ export function parseWiseCsv(rows: Record<string, string>[]) {
     for (const n of names) { const k = Object.keys(r).find((x) => x.trim().toLowerCase() === n.toLowerCase()); if (k && r[k] !== undefined && r[k] !== "") return r[k].trim(); }
     return "";
   };
-  const out: { source_id: string; currency: string; amount_minor: number; fee_minor: number | null; date: string; description: string; counterparty: string; bank_type: string; merchant_category: string; running_balance_minor: number | null }[] = [];
+  const out: { source_id: string; currency: string; amount_minor: number; fee_minor: number | null; date: string; description: string; counterparty: string; bank_type: string; merchant_category: string; running_balance_minor: number | null; fx_currency: string; fx_amount_minor: number | null }[] = [];
   const errors: string[] = [];
   rows.forEach((r, i) => {
     const id = pick(r, "TransferWise ID", "ID", "Transaction ID");
@@ -104,10 +104,15 @@ export function parseWiseCsv(rows: Record<string, string>[]) {
     if (!id || !Number.isFinite(amount) || !date) { errors.push(`Row ${i + 2}: missing ID, date or amount`); return; }
     const fee = Number(pick(r, "Total fees").replace(",", "."));
     const bal = Number(pick(r, "Running Balance").replace(",", "."));
+    // D085: a payment sent in another currency (e.g. USD to a contractor from the EUR balance): "Exchange To" + "Exchange To Amount".
+    const cur = pick(r, "Currency").toUpperCase();
+    const fxCur = pick(r, "Exchange To").toUpperCase().slice(0, 3);
+    const fxAmt = Number(pick(r, "Exchange To Amount").replace(/\s/g, "").replace(",", "."));
+    const fx = fxCur && fxCur !== cur && Number.isFinite(fxAmt) && fxAmt !== 0 ? { fx_currency: fxCur, fx_amount_minor: Math.abs(Math.round(fxAmt * 100)) } : { fx_currency: "", fx_amount_minor: null };
     out.push({
       source_id: id, currency: pick(r, "Currency").toUpperCase(), amount_minor: Math.round(amount * 100), fee_minor: Number.isFinite(fee) && pick(r, "Total fees") ? Math.round(fee * 100) : null,
       date, description: pick(r, "Description"), counterparty: pick(r, "Payer Name", "Payee Name", "Merchant"), bank_type: pick(r, "Transaction Details Type", "Type"),
-      merchant_category: pick(r, "Card Last Four Digits") ? pick(r, "Merchant") : "", running_balance_minor: Number.isFinite(bal) && pick(r, "Running Balance") ? Math.round(bal * 100) : null,
+      merchant_category: pick(r, "Card Last Four Digits") ? pick(r, "Merchant") : "", running_balance_minor: Number.isFinite(bal) && pick(r, "Running Balance") ? Math.round(bal * 100) : null, ...fx,
     });
   });
   return { rows: out, errors };
