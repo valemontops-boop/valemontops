@@ -74,7 +74,17 @@ export class GoogleSheetsRepository implements DataRepository {
     if (!opts.fresh && this.revCache && Date.now() - this.revCache.at < this.revTtl) return this.revCache.value;
     if (!opts.fresh && this.revInflight) return this.revInflight;
     const p = (async () => {
-      const [grid] = await this.client.batchGet([`${quoteSheet(REVISIONS_TAB)}!A1:C${DOMAINS.length + 10}`]);
+      let grid: Awaited<ReturnType<SheetsClient["batchGet"]>>[number];
+      try {
+        [grid] = await this.client.batchGet([`${quoteSheet(REVISIONS_TAB)}!A1:C${DOMAINS.length + 10}`]);
+      } catch (e) {
+        // Over the per-minute read quota: keep the last known tokens for another TTL instead of failing every screen.
+        if (isQuota(e) && this.revCache && !opts.fresh) {
+          this.revCache = { value: this.revCache.value, at: Date.now() };
+          return this.revCache.value;
+        }
+        throw e;
+      }
       const value = Object.fromEntries(DOMAINS.map((d) => [d, "missing"])) as Record<Domain, string>;
       for (const r of grid.slice(1)) {
         const d = String(r[0] ?? "") as Domain;
@@ -122,7 +132,14 @@ export class GoogleSheetsRepository implements DataRepository {
       let p = this.readInflight.get(key);
       if (!p) {
         p = (async () => {
-          const grids = await this.client.batchGet(stale.map((t) => this.rangeFor(t)));
+          let grids: Awaited<ReturnType<SheetsClient["batchGet"]>>;
+          try {
+            grids = await this.client.batchGet(stale.map((t) => this.rangeFor(t)));
+          } catch (e) {
+            // Over quota but every table is cached: serve the cached rows (at most a minute old in practice).
+            if (isQuota(e) && !opts.fresh && stale.every((t) => this.cache.has(t))) return;
+            throw e;
+          }
           stale.forEach((t, i) => {
             const grid = grids[i];
             this.cache.set(t, {
@@ -243,4 +260,9 @@ export class GoogleSheetsRepository implements DataRepository {
       lastSuccessAt: s.lastSuccessAt,
     };
   }
+}
+
+/** Google Sheets per-minute quota exceeded (HTTP 429). */
+function isQuota(e: unknown): boolean {
+  return e instanceof StorageError && e.status === 429;
 }
