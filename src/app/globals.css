@@ -1,0 +1,132 @@
+@import "tailwindcss";
+
+:root {
+  --canvas: #f1f0ec;
+  --panel: #fbfaf7;
+  --ink: #17161a;
+  --text-2: #57545c;
+  --text-3: #6e6a72;
+  --hairline: #e2e0da;
+  --control-border: #8e8a92;
+  /* Primary action color. Orange was replaced by ink (D017); change these three to rebrand. */
+  --accent: #17161a;
+  --accent-hover: #2f2d35;
+  --on-accent: #fbfaf7;
+  --accent-text: #17161a;
+  --good: #17704f;
+  --bad: #b3261e;
+  --brand-consulting: #2f5fbf;
+  --brand-local: #d6457a; /* was orange; the palette has no orange (D044) */
+  --brand-thirty: #7a4fd6;
+  --market-fr: #17161a;
+  --market-es: #8e8a92;
+  --subtle: #ebe9e3;
+  /* Sober color system (D047, replaces D044): ink + one blue for data, green only for results.
+     No tinted tiles: soft tokens equal the panel. Marketing and ops reuse the blue. */
+  --sales: #2a78d6;
+  --sales-soft: #fbfaf7;
+  --win: #16946a;
+  --win-soft: #fbfaf7;
+  --mkt: #2a78d6;
+  --mkt-soft: #fbfaf7;
+  --ops: #2a78d6;
+  --ops-soft: #fbfaf7;
+  color-scheme: light;
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-panel: var(--panel);
+  --color-ink: var(--ink);
+  --color-text-2: var(--text-2);
+  --color-text-3: var(--text-3);
+  --color-hairline: var(--hairline);
+  --color-control: var(--control-border);
+  --color-accent: var(--accent);
+  --color-accent-text: var(--accent-text);
+  --color-accent-hover: var(--accent-hover);
+  --color-on-accent: var(--on-accent);
+  --color-good: var(--good);
+  --color-bad: var(--bad);
+  --color-subtle: var(--subtle);
+  --color-sales: var(--sales);
+  --color-sales-soft: var(--sales-soft);
+  --color-win: var(--win);
+  --color-win-soft: var(--win-soft);
+  --color-mkt: var(--mkt);
+  --color-mkt-soft: var(--mkt-soft);
+  --color-ops: var(--ops);
+  --color-ops-soft: var(--ops-soft);
+  --color-brand-consulting: var(--brand-consulting);
+  --color-brand-local: var(--brand-local);
+  --color-brand-thirty: var(--brand-thirty);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --radius-panel: 20px;
+  --radius-row: 12px;
+}
+
+html,
+body {
+  background: var(--canvas);
+  color: var(--ink);
+}
+body {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  caret-color: var(--accent-text);
+}
+::selection {
+  background: #dcd9d1;
+  color: var(--ink);
+}
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #c9c6be transparent;
+}
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+.hatch {
+  background-image: repeating-linear-gradient(135deg, var(--control-border) 0 1px, transparent 1px 5px);
+  opacity: 0.55;
+}
+@keyframes fill-in {
+  from {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.tick-fill {
+  animation: fill-in 160ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+.hatch-strong {
+  background-color: var(--subtle);
+  background-image: repeating-linear-gradient(135deg, var(--control-border) 0 1.5px, transparent 1.5px 6px);
+}
+
+/* Call mode: a 2-second "pause before you answer" cue when an objection is ticked. */
+@keyframes vos-pause {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}

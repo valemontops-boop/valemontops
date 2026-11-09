@@ -1,0 +1,474 @@
+"use client";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import * as React from "react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { ErrorState, Field, Input, Panel, PanelTitle, SegmentedSwitch, Select, Skeleton, Textarea } from "@/components/ui/form";
+import { DEFAULT_PLAYBOOK, EMAIL_TEMPLATE_LABELS, LINKEDIN_TEMPLATE_LABELS, objectionLabel, type Lang, type PlaybookItem } from "@/domain/playbook";
+import { CONTACT_TYPE_LABELS, RULE_STATUSES } from "@/domain/constants";
+import { useLocale, useT } from "@/i18n/react";
+import { ApiError, api } from "@/lib/api";
+import { formatEur, relTime } from "@/lib/utils";
+import { useMe } from "./providers";
+import { TargetsEditor } from "./targets-editor";
+import { NewTaskModal, useRecurrenceText, useTasks } from "./tasks-view";
+import { fmtDay } from "./bits";
+import { useMyDay } from "./use-crm";
+import { ConflictNotice } from "./conflict";
+import Link from "next/link";
+import { FOUNDERS, FOUNDER_NAMES } from "@/domain/constants";
+import { addDays } from "@/domain/time";
+import { TrackerPanel } from "./tracker-panel";
+import { CommercialSettings } from "./commercial-settings";
+import { AuditPanel, BackupsPanel, HealthPanel } from "./ops-panel";
+import { IntegrationsHub } from "./integrations-hub";
+
+type Tab = "profile" | "targets" | "calendars" | "sprint" | "workspace" | "playbook" | "rules" | "suppression" | "diagnostics" | "integrations" | "tracker" | "commercial" | "roadmap";
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+export function SettingsView() {
+  const t = useT();
+  const [tab, setTab] = React.useState<Tab>("profile");
+  return (
+    <div className="flex max-w-5xl flex-col gap-5">
+      <nav aria-label={t("More")} className="grid grid-cols-3 gap-2 md:hidden">
+        {[["/marketing", "Growth"], ["/money", "Money"], ["/agenda", "Agenda"], ["/ideas", "Ideas"], ["/files", "Files"], ["/reports", "Reports"], ["/tasks", "Tasks"]].map(([h, l]) => (
+          <Link key={h} href={h} className="flex h-12 items-center justify-center rounded-[12px] bg-panel text-sm font-medium">{t(l)}</Link>
+        ))}
+      </nav>
+      <h1 className="text-2xl font-semibold tracking-tight">{t("Settings")}</h1>
+      <div className="overflow-x-auto">
+        <SegmentedSwitch label={t("Settings section")} value={tab} onChange={setTab} options={[
+          { value: "profile", label: t("Profile") }, { value: "targets", label: t("Mode & targets") }, { value: "calendars", label: t("Calendars") }, { value: "sprint", label: t("Sprint") }, { value: "workspace", label: t("Workspace") }, { value: "playbook", label: t("Playbook") }, { value: "rules", label: t("Channel rules") },
+          { value: "suppression", label: t("Suppression") }, { value: "diagnostics", label: t("Diagnostics") }, { value: "integrations", label: t("Integrations") }, { value: "tracker", label: t("My tracker") }, { value: "commercial", label: t("Commercial") }, { value: "roadmap", label: t("Roadmap") },
+        ]} />
+      </div>
+      {tab === "profile" ? <Profile /> : tab === "targets" ? <TargetsTab /> : tab === "calendars" ? <Calendars /> : tab === "sprint" ? <SprintTab /> : tab === "workspace" ? <Workspace /> : tab === "playbook" ? <PlaybookTab /> : tab === "rules" ? <Rules /> : tab === "suppression" ? <Suppression /> : tab === "diagnostics" ? <Diagnostics /> : tab === "integrations" ? <IntegrationsHub /> : tab === "tracker" ? <TrackerPanel /> : tab === "commercial" ? <CommercialSettings /> : <Roadmap />}
+    </div>
+  );
+}
+
+function TargetsTab() {
+  const d = useMyDay();
+  return (
+    <div className="flex flex-col gap-5">
+      <Panel>{d.isPending ? <Skeleton className="h-40" /> : <TargetsEditor initialMode={d.data?.mode ?? null} />}</Panel>
+      <Routines />
+    </div>
+  );
+}
+
+/** Recurring tasks of the founder (every day, every Tuesday…): the next open instance of each routine. */
+function Routines() {
+  const t = useT();
+  const q = useTasks("mine");
+  const repeats = useRecurrenceText();
+  const [adding, setAdding] = React.useState(false);
+  const rows = (q.data ?? []).filter((x) => x.recurrence !== "none" && (x.status === "todo" || x.status === "in_progress"));
+  return (
+    <Panel>
+      <PanelTitle action={<Button size="sm" variant="primary" onClick={() => setAdding(true)}>{t("Add a routine")}</Button>}>{t("Routines")}</PanelTitle>
+      {q.isPending ? <Skeleton className="h-24" /> : q.isError ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : rows.length === 0 ? (
+        <p className="text-sm text-text-2">{t("No routine yet. A routine is a task that comes back on its own, for example every Tuesday.")}</p>
+      ) : (
+        <ul className="text-sm">
+          {rows.map((r) => (
+            <li key={r.id} className="flex flex-wrap items-baseline justify-between gap-x-3 border-t border-hairline py-2 first:border-t-0">
+              <span className="font-medium">{r.title}</span>
+              <span className="text-[13px] text-text-2">{repeats(r)}{r.due_at ? ` · ${t("next one on {date}", { date: fmtDay(r.due_at) })}` : ""}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <NewTaskModal open={adding} onOpenChange={setAdding} defaults={{ recurrence: "weekly" }} />
+    </Panel>
+  );
+}
+
+type UserRow = { id: string; version: number; timezone: string; workdays: number[]; capacity_minutes: number; display_name: string; avail_start: string; avail_end: string };
+function Profile() {
+  const q = useQuery({ queryKey: ["profile"], queryFn: () => api<UserRow>("/api/settings/profile") });
+  if (q.isPending) return <Skeleton className="h-48" />;
+  if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
+  return <ProfileForm key={q.data.version} initial={q.data} onReload={() => q.refetch()} />;
+}
+
+function ProfileForm({ initial, onReload }: { initial: UserRow; onReload: () => void }) {
+  const t = useT();
+  const qc = useQueryClient();
+  const [v, setV] = React.useState<UserRow>(initial);
+  const m = useMutation({
+    mutationFn: (expected: number) => api("/api/settings/profile", { body: { expected_version: expected, timezone: v!.timezone, workdays: v!.workdays, capacity_minutes: v!.capacity_minutes, avail_start: v!.avail_start || "09:00", avail_end: v!.avail_end || "18:00" } }),
+    onSuccess: () => { qc.invalidateQueries(); toast(t("Saved")); },
+  });
+  const err = m.error instanceof ApiError ? m.error : null;
+  return (
+    <Panel>
+      <PanelTitle>{v.display_name}</PanelTitle>
+      <form className="flex max-w-md flex-col gap-4" onSubmit={(e) => { e.preventDefault(); m.mutate(v.version); }}>
+        <Field label={t("Time zone")} htmlFor="tz" hint={t("Your day closes at local midnight in this time zone.")}><Input id="tz" value={v.timezone} onChange={(e) => setV({ ...v, timezone: e.target.value })} /></Field>
+        <fieldset>
+          <legend className="mb-1.5 text-[13px] font-medium text-text-2">{t("Workdays")}</legend>
+          <div className="flex flex-wrap gap-2">
+            {DAYS.map((d, i) => (
+              <label key={d} className="flex h-10 cursor-pointer items-center gap-1.5 rounded-full border border-control px-3 text-sm has-[:checked]:border-ink has-[:checked]:bg-ink has-[:checked]:text-panel">
+                <input type="checkbox" className="sr-only" checked={v.workdays.includes(i)} onChange={(e) => setV({ ...v, workdays: e.target.checked ? [...v.workdays, i].sort() : v.workdays.filter((x) => x !== i) })} />{t(d)}
+              </label>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[13px] text-text-3">{t("Days off are never penalised.")}</p>
+        </fieldset>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label={t("Available for founder points from")} htmlFor="av-s"><Input id="av-s" type="time" value={v.avail_start || "09:00"} onChange={(e) => setV({ ...v, avail_start: e.target.value })} /></Field>
+          <Field label={t("until")} htmlFor="av-e"><Input id="av-e" type="time" value={v.avail_end || "18:00"} onChange={(e) => setV({ ...v, avail_end: e.target.value })} /></Field>
+        </div>
+        <Field label={t("Outreach capacity per workday (minutes)")} htmlFor="cap" hint={t("Excludes meetings and delivery time. Used for the feasibility check.")}><Input id="cap" type="number" min={0} max={960} className="num w-32" value={v.capacity_minutes} onChange={(e) => setV({ ...v, capacity_minutes: Number(e.target.value) || 0 })} /></Field>
+        {err?.isConflict ? <ConflictNotice mine={v as never} current={err.body.current} fields={["timezone", "capacity_minutes"]} onKeepTheirs={onReload} onApplyMine={() => m.mutate(Number(err.body.current?.version))} /> : m.isError ? <ErrorState error={m.error} onRetry={() => m.mutate(v.version)} /> : null}
+        <Button type="submit" variant="dark" className="self-start" disabled={m.isPending}>{m.isPending ? t("Saving…") : t("Save")}</Button>
+      </form>
+    </Panel>
+  );
+}
+
+type Rule = { id: string; version: number; market: "FR" | "ES"; contact_type: keyof typeof CONTACT_TYPE_LABELS; channel: string; status: (typeof RULE_STATUSES)[number]; note: string; source_url: string; review_date: string | null };
+function Rules() {
+  const t = useT();
+  const q = useQuery({ queryKey: ["rules"], queryFn: () => api<Rule[]>("/api/settings/channel-rules") });
+  const [market, setMarket] = React.useState<"FR" | "ES">("FR");
+  if (q.isPending) return <Skeleton className="h-64" />;
+  if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
+  return (
+    <Panel>
+      <PanelTitle action={<SegmentedSwitch size="sm" label={t("Market")} value={market} onChange={setMarket} options={[{ value: "FR", label: t("France") }, { value: "ES", label: t("Spain") }]} />}>{t("Outreach rules")}</PanelTitle>
+      <p className="mb-4 rounded-[12px] bg-subtle p-3 text-[13px] text-text-2">{t("This is not legal advice. Every rule starts as “needs review” for qualified counsel to confirm. The logging form shows the status and warns; opt-outs and the suppression list are always a hard block.")}</p>
+      <div className="flex flex-col divide-y divide-hairline">
+        {q.data.filter((r) => r.market === market).map((r) => <RuleRow key={r.id + r.version} rule={r} />)}
+      </div>
+    </Panel>
+  );
+}
+
+function RuleRow({ rule }: { rule: Rule }) {
+  const t = useT();
+  const qc = useQueryClient();
+  const [v, setV] = React.useState({ status: rule.status, note: rule.note, source_url: rule.source_url, review_date: rule.review_date ?? "" });
+  const dirty = v.status !== rule.status || v.note !== rule.note || v.source_url !== rule.source_url || v.review_date !== (rule.review_date ?? "");
+  const m = useMutation({ mutationFn: () => api("/api/settings/channel-rules", { body: { id: rule.id, expected_version: rule.version, ...v } }), onSuccess: () => { qc.invalidateQueries(); toast(t("Saved")); } });
+  return (
+    <div className="grid grid-cols-1 gap-2 py-3 md:grid-cols-[180px_180px_1fr]">
+      <div className="text-sm"><p className="font-medium">{t(CONTACT_TYPE_LABELS[rule.contact_type])}</p><p className="text-text-2">{t(rule.channel.replace("_", " "))}</p></div>
+      <Select aria-label={t("Status")} value={v.status} onChange={(e) => setV({ ...v, status: e.target.value as Rule["status"] })} className="h-9">{RULE_STATUSES.map((s) => <option key={s} value={s}>{t(s.replace(/_/g, " "))}</option>)}</Select>
+      <div className="flex flex-col gap-2">
+        <Input aria-label={t("Note")} value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} placeholder={t("Note for this rule")} className="h-9" />
+        {dirty ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <Input aria-label={t("Source URL")} value={v.source_url} onChange={(e) => setV({ ...v, source_url: e.target.value })} placeholder={t("Source URL")} className="h-9 max-w-xs" />
+            <Input aria-label={t("Review date")} type="date" value={v.review_date} onChange={(e) => setV({ ...v, review_date: e.target.value })} className="h-9 w-40" />
+            <Button size="sm" variant="dark" onClick={() => m.mutate()} disabled={m.isPending}>{m.isPending ? t("Saving…") : t("Save")}</Button>
+          </div>
+        ) : rule.source_url ? <a className="truncate text-[12px] text-text-3 underline" href={rule.source_url} target="_blank" rel="noreferrer noopener">{rule.source_url}</a> : null}
+        {m.isError ? <ErrorState error={m.error} onRetry={() => m.mutate()} /> : null}
+      </div>
+    </div>
+  );
+}
+
+function Suppression() {
+  const t = useT();
+  const qc = useQueryClient();
+  const [kind, setKind] = React.useState("email");
+  const [value, setValue] = React.useState("");
+  const [reason, setReason] = React.useState("");
+  const m = useMutation({ mutationFn: () => api<{ added: boolean }>("/api/crm/suppression", { body: { kind, value, reason } }), onSuccess: (r) => { qc.invalidateQueries(); toast(r.added ? t("Added to the suppression list") : t("Already suppressed")); setValue(""); } });
+  return (
+    <Panel>
+      <PanelTitle>{t("Suppression list")}</PanelTitle>
+      <p className="mb-4 text-sm text-text-2">{t("A suppressed email, phone or domain blocks outreach logging and queueing for both founders on every channel. To opt out a known contact, use “Mark opted out” on the contact in the CRM.")}</p>
+      <form className="flex max-w-xl flex-col gap-3" onSubmit={(e) => { e.preventDefault(); if (value.trim()) m.mutate(); }}>
+        <div className="flex gap-2">
+          <Select aria-label={t("Kind")} value={kind} onChange={(e) => setKind(e.target.value)} className="w-32"><option value="email">{t("Email")}</option><option value="phone">{t("Phone")}</option><option value="domain">{t("Domain")}</option></Select>
+          <Input aria-label={t("Value")} value={value} onChange={(e) => setValue(e.target.value)} placeholder={t("e.g. owner@business.example.com")} />
+        </div>
+        <Input aria-label={t("Reason")} value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t("Reason (optional)")} />
+        {m.isError ? <ErrorState error={m.error} onRetry={() => m.mutate()} /> : null}
+        <Button type="submit" variant="dark" className="self-start" disabled={m.isPending || !value.trim()}>{m.isPending ? t("Saving…") : t("Suppress")}</Button>
+      </form>
+    </Panel>
+  );
+}
+
+type Diag = { adapter: string; stats: { requests: number; requestsLastMinute: number; retries: number; errors: number; lastError: string | null; lastSuccessAt: string | null }; revisions: Record<string, string>; tables: { table: string; rows: number; warnings: number }[]; warnings: { table: string; kind: string; detail: string; rowNumber?: number }[] };
+function Diagnostics() {
+  const tr = useT();
+  const me = useMe();
+  const q = useQuery({ queryKey: ["diagnostics"], queryFn: () => api<Diag>("/api/diagnostics") });
+  if (q.isPending) return <Skeleton className="h-64" />;
+  if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
+  const d = q.data;
+  return (
+    <div className="flex flex-col gap-5">
+      <Panel>
+        <PanelTitle action={<Button size="sm" variant="ghost" onClick={() => q.refetch()}>{tr("Refresh")}</Button>}>{tr("Storage")}</PanelTitle>
+        <dl className="grid grid-cols-[200px_1fr] gap-y-1.5 text-sm">
+          <dt className="text-text-3">{tr("Mode")}</dt><dd>{me.config.mode?.toUpperCase()} · {me.config.backend === "google-sheets" ? "Google Sheets" : me.config.backend === "fake-sheets" ? tr("local fake Sheets server") : tr("server memory (demo)")}</dd>
+          <dt className="text-text-3">{tr("Sheets API requests (this server)")}</dt><dd className="num">{tr("{total} total · {last} in the last minute (budget: 60/min shared by both founders)", { total: d.stats.requests, last: d.stats.requestsLastMinute })}</dd>
+          <dt className="text-text-3">{tr("Retries / errors")}</dt><dd className="num">{d.stats.retries} / {d.stats.errors}</dd>
+          <dt className="text-text-3">{tr("Last success")}</dt><dd>{tr(relTime(d.stats.lastSuccessAt))}</dd>
+          {d.stats.lastError ? <><dt className="text-text-3">{tr("Last error")}</dt><dd className="text-bad">{d.stats.lastError}</dd></> : null}
+          <dt className="text-text-3">{tr("Poll interval")}</dt><dd>{tr("{n} s (reads one small revision range)", { n: me.config.pollSeconds })}</dd>
+        </dl>
+      </Panel>
+      {/* Stage 4B (D084): health, backups with restore, audit log. */}
+      <HealthPanel />
+      <BackupsPanel />
+      <AuditPanel />
+      <Panel className="overflow-x-auto">
+        <PanelTitle>{tr("Tabs")}</PanelTitle>
+        <table className="w-full text-sm"><thead><tr className="text-left text-[12px] text-text-3"><th className="py-1 font-medium">{tr("Tab")}</th><th className="text-right font-medium">{tr("Rows")}</th><th className="text-right font-medium">{tr("Integrity warnings")}</th></tr></thead>
+          <tbody>{d.tables.map((t) => <tr key={t.table} className="border-t border-hairline"><td className="py-1.5">{t.table}</td><td className="num text-right">{t.rows}</td><td className={`num text-right ${t.warnings ? "text-bad" : ""}`}>{t.warnings}</td></tr>)}</tbody>
+        </table>
+        {d.warnings.length ? (
+          <ul className="mt-4 flex flex-col gap-1 text-[13px]">{d.warnings.map((w, i) => <li key={i}><span className="font-medium">{w.table}</span>{w.rowNumber ? ` ${tr("row {n}", { n: w.rowNumber })}` : ""}: {tr(w.kind.replace(/_/g, " "))} ({w.detail})</li>)}</ul>
+        ) : <p className="mt-3 text-sm text-text-2">{tr("No integrity warnings.")}</p>}
+      </Panel>
+    </div>
+  );
+}
+
+const ROADMAP: [string, string][] = [
+  ["Stage 3", "Instagram numbers through the API as soon as the Meta app and its token are set (manual entry in the Content Studio until then)."],
+  ["Stage 4", "LinkedIn API after LinkedIn approval; GA4 and Search Console APIs once accounts exist (CSV imports until then); validation with real credentials."],
+  ["After approval", "LinkedIn statistics through the API once LinkedIn approves the Community Management API (export files until then); personal Calendar OAuth for invitations and Meet links, off by default; GA4 and Search Console APIs if accounts and credentials exist (CSV imports until then)."],
+];
+function Roadmap() {
+  const tr = useT();
+  return (
+    <Panel>
+      <PanelTitle>{tr("Planned modules")}</PanelTitle>
+      <p className="mb-4 text-sm text-text-2">{tr("Modules appear in the navigation only once they work.")}</p>
+      <ol className="flex flex-col gap-3">{ROADMAP.map(([s, t]) => <li key={s} className="text-sm"><span className="font-semibold">{tr(s)}.</span> <span className="text-text-2">{tr(t)}</span></li>)}</ol>
+    </Panel>
+  );
+}
+
+type Source = { id: string; version: number; calendar_id: string; label: string; kind: "shared" | "personal"; owner_founder: string | null; access: string };
+function Calendars() {
+  const t = useT();
+  const qc = useQueryClient();
+  const me = useMe();
+  const q = useQuery({ queryKey: ["calendar-sources"], queryFn: () => api<Source[]>("/api/calendar-sources") });
+  const [v, setV] = React.useState({ calendar_id: "", label: "", kind: "shared" as "shared" | "personal", access: "free_busy" });
+  const add = useMutation({ mutationFn: () => api("/api/calendar-sources", { body: { ...v, owner_founder: v.kind === "personal" ? me.founder : null } }), onSuccess: () => { qc.invalidateQueries(); toast(t("Calendar added")); setV({ calendar_id: "", label: "", kind: "shared", access: "free_busy" }); } });
+  const remove = useMutation({ mutationFn: (s: Source) => api("/api/calendar-sources", { method: "PATCH", body: { id: s.id, expected_version: s.version } }), onSuccess: () => qc.invalidateQueries() });
+  return (
+    <Panel>
+      <PanelTitle>{t("Calendars")}</PanelTitle>
+      <ol className="mb-4 flex list-decimal flex-col gap-1 pl-5 text-sm text-text-2">
+        <li>{t("Create a shared “Valemont” Google calendar; share it with your co-founder and with the service account (“Make changes to events”).")}</li>
+        <li>{t("Each founder shares their own calendar with the service account (“See only free/busy” is recommended).")}</li>
+        <li>{t("Paste each calendar id below (Google Calendar › Settings › Integrate calendar). Ids are never guessed from your sign-in address.")}</li>
+      </ol>
+      {q.isPending ? <Skeleton className="h-20" /> : q.isError ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : (
+        <ul className="mb-4 flex flex-col divide-y divide-hairline text-sm">
+          {q.data.map((s) => (
+            <li key={s.id} className="flex items-center justify-between gap-3 py-2">
+              <span className="min-w-0"><span className="font-medium">{s.label}</span> <span className="text-text-3">{s.kind === "shared" ? t("shared") : t("{name} personal · {access}", { name: FOUNDER_NAMES[s.owner_founder as "theo"], access: s.access === "details" ? t("details") : t("free/busy") })}</span><span className="block truncate text-[12px] text-text-3">{s.calendar_id}</span></span>
+              {s.kind === "shared" || s.owner_founder === me.founder ? <Button size="sm" variant="ghost" onClick={() => remove.mutate(s)}>{t("Remove")}</Button> : null}
+            </li>
+          ))}
+          {q.data.length === 0 ? <li className="py-2 text-text-2">{t("No calendar yet.")}</li> : null}
+        </ul>
+      )}
+      <form className="grid grid-cols-1 gap-3 sm:grid-cols-2" onSubmit={(e) => { e.preventDefault(); if (v.calendar_id && v.label) add.mutate(); }}>
+        <Field label={t("Calendar id")} htmlFor="cs-id"><Input id="cs-id" value={v.calendar_id} onChange={(e) => setV({ ...v, calendar_id: e.target.value })} placeholder="…@group.calendar.google.com" /></Field>
+        <Field label={t("Label")} htmlFor="cs-l"><Input id="cs-l" value={v.label} onChange={(e) => setV({ ...v, label: e.target.value })} /></Field>
+        <Field label={t("Type")} htmlFor="cs-k"><Select id="cs-k" value={v.kind} onChange={(e) => setV({ ...v, kind: e.target.value as "shared" })}><option value="shared">{t("Shared Valemont calendar")}</option><option value="personal">{t("My personal calendar")}</option></Select></Field>
+        {v.kind === "personal" ? <Field label={t("Shared with the service account as")} htmlFor="cs-a" hint={t("Your co-founder always sees only Busy, whatever you choose.")}><Select id="cs-a" value={v.access} onChange={(e) => setV({ ...v, access: e.target.value })}><option value="free_busy">{t("Free/busy only")}</option><option value="details">{t("All event details (so you see titles)")}</option></Select></Field> : null}
+        {add.isError ? <div className="sm:col-span-2"><ErrorState error={add.error} onRetry={() => add.mutate()} /></div> : null}
+        <Button type="submit" variant="primary" className="self-start" disabled={add.isPending || !v.calendar_id || !v.label}>{t("Add calendar")}</Button>
+      </form>
+    </Panel>
+  );
+}
+
+function SprintTab() {
+  const t = useT();
+  const qc = useQueryClient();
+  const today = new Date().toLocaleDateString("en-CA");
+  const cur = useQuery({ queryKey: ["sprint"], queryFn: () => api<{ progress: { sprint: { name: string; start_date: string; end_date: string }; signed: { clients: number; eurMinor: number; goalClients: number; goalEurMinor: number } } | null }>("/api/sprints") });
+  // Iteration 8 over 10 workdays at FULL_TIME: 90 new businesses a day, 1 qualified conversation a day, 2 meetings a week; one offer (Consulting).
+  const blank = { contacted: 900, replies: 10, demos: 4, pilots: 1 };
+  const [v, setV] = React.useState({ name: t("14-day sprint"), start_date: today, end_date: addDays(today, 13), niche: "", theo: blank, pablo: blank, local: 0, consulting: 100, thirty: 0 });
+  const m = useMutation({
+    mutationFn: () => api("/api/sprints", { body: { name: v.name, start_date: v.start_date, end_date: v.end_date, niche: v.niche, targets: { theo: v.theo, pablo: v.pablo }, brand_split: { local: v.local / 100, consulting: v.consulting / 100, thirty: v.thirty / 100 } } }),
+    onSuccess: () => { qc.invalidateQueries(); toast(t("Sprint started")); },
+  });
+  return (
+    <Panel>
+      <PanelTitle>{t("Sprint")}</PanelTitle>
+      <p className="mb-4 text-sm text-text-2">{cur.data?.progress ? t("Active: {name} ({start} → {end}). Starting a new sprint closes it.", { name: cur.data.progress.sprint.name, start: cur.data.progress.sprint.start_date, end: cur.data.progress.sprint.end_date }) : t("No active sprint.")} {t("Targets are working targets, not forecasts.")}</p>
+      {cur.data?.progress ? <p className="-mt-2 mb-4 text-sm"><span className="font-medium">{t("Sprint goal")}</span> · {t("{n} of {total} paying clients", { n: cur.data.progress.signed.clients, total: cur.data.progress.signed.goalClients })} · {formatEur(cur.data.progress.signed.eurMinor)} / {formatEur(cur.data.progress.signed.goalEurMinor)} {t("signed ex VAT")}</p> : null}
+      <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); m.mutate(); }}>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+          <Field label={t("Name")} htmlFor="sp-n" className="sm:col-span-2"><Input id="sp-n" value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} /></Field>
+          <Field label={t("Start")} htmlFor="sp-s"><Input id="sp-s" type="date" value={v.start_date} onChange={(e) => setV({ ...v, start_date: e.target.value })} /></Field>
+          <Field label={t("End")} htmlFor="sp-e"><Input id="sp-e" type="date" value={v.end_date} onChange={(e) => setV({ ...v, end_date: e.target.value })} /></Field>
+          <Field label={t("Niche for new targets")} htmlFor="sp-ni" className="sm:col-span-2" hint={t("Feeds the Next Best Action queue, e.g. garage")}><Input id="sp-ni" value={v.niche} onChange={(e) => setV({ ...v, niche: e.target.value })} /></Field>
+        </div>
+        <table className="w-full max-w-lg text-sm">
+          <thead><tr className="text-left text-[12px] text-text-3"><th className="font-medium">{t("Per founder")}</th>{FOUNDERS.map((f) => <th key={f} className="font-medium">{FOUNDER_NAMES[f]}</th>)}</tr></thead>
+          <tbody>{(["contacted", "replies", "demos", "pilots"] as const).map((k) => <tr key={k} className="border-t border-hairline"><td className="py-1.5">{t({ contacted: "Businesses contacted", replies: "Qualified replies", demos: "Demos", pilots: "Pilot clients" }[k])}</td>{FOUNDERS.map((f) => <td key={f} className="py-1.5 pr-2"><Input aria-label={`${FOUNDER_NAMES[f]} ${t({ contacted: "Businesses contacted", replies: "Qualified replies", demos: "Demos", pilots: "Pilot clients" }[k])}`} type="number" min={0} className="num h-9 w-20" value={v[f][k]} onChange={(e) => setV({ ...v, [f]: { ...v[f], [k]: Math.max(0, Number(e.target.value) || 0) } })} /></td>)}</tr>)}</tbody>
+        </table>
+        <div className="grid max-w-lg grid-cols-3 gap-3">
+          {(["consulting", "local", "thirty"] as const).map((b) => <Field key={b} label={t("{brand} effort %", { brand: { local: t("Local (entry offer)"), consulting: "Consulting", thirty: t("30/30 (marketing)") }[b] })} htmlFor={`sp-${b}`}><Input id={`sp-${b}`} type="number" min={0} max={100} className="num" value={v[b]} onChange={(e) => setV({ ...v, [b]: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} /></Field>)}
+        </div>
+        {v.local + v.consulting + v.thirty !== 100 ? <p className="text-sm text-bad">{t("The effort split adds up to {n}%, not 100%.", { n: v.local + v.consulting + v.thirty })}</p> : null}
+        {m.isError ? <ErrorState error={m.error} onRetry={() => m.mutate()} /> : null}
+        <Button type="submit" variant="primary" className="self-start" disabled={m.isPending || v.local + v.consulting + v.thirty !== 100}>{m.isPending ? t("Saving…") : t("Start sprint")}</Button>
+      </form>
+    </Panel>
+  );
+}
+
+function Workspace() {
+  const t = useT();
+  const me = useMe();
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["system-settings"], queryFn: () => api<Record<string, string>>("/api/settings/system") });
+  const save = useMutation({ mutationFn: (b: { key: string; value: string }) => api("/api/settings/system", { body: b }), onSuccess: () => { qc.invalidateQueries(); toast(t("Saved")); } });
+  const LABELS: Record<string, [string, string]> = {
+    company_name: ["Company legal name", "Entered by a founder; never invented."],
+    drive_folder_id: ["Drive folder id", "The “Valemont OS” folder shared with the service account as Viewer (the id in its URL)."],
+    founder_point_video_link: ["Standing video link", "Inserted in every founder point event."],
+    ideas_testing_limit: ["Ideas in Testing during a sprint", "Seed 2."],
+    hot_lead_stale_days: ["Hot lead goes cold after (days)", "Seed 5."],
+    conversion_min_sample: ["Show conversion rates from (attempts)", "Below this, reports say “not enough data”."],
+    calendly_url_theo: ["Théo's Calendly link", "Inserted in call follow-ups (email and WhatsApp)."],
+    calendly_url_pablo: ["Pablo's Calendly link", "Inserted in call follow-ups (email and WhatsApp)."],
+    deck_url_fr: ["Commercial deck, French", "A Drive or PDF link shared “anyone with the link”."],
+    deck_url_es: ["Commercial deck, Spanish", "A Drive or PDF link shared “anyone with the link”."],
+    thirty_url: ["30/30 link", "Sent in one click when a prospect says yes to 30/30 during a call."],
+    offer_priority: ["Priority offer", "Seed Consulting."],
+    offer_consulting_value_eur: ["Consulting deal value (€ ex VAT)", "The one Valemont offer. Used when a deal has no value. Seed 1,500 = sprint goal 3,000 € / 2 clients."],
+    offer_local_monthly_eur: ["Valemont Local price (€ per month)", "Entry offer, only when the budget is too small. Seed 100."],
+    effort_consulting_pct: ["Consulting sales effort (%)", "Seed 100: all sales effort goes to Consulting."],
+    effort_local_pct: ["Local sales effort (%)", "Seed 0: Local is only offered to those not interested in Consulting."],
+    ads_monthly_spend_eur: ["Ads spend per month (€)", "Seed 0: no ads. Used for CAC."],
+    founder_hour_cost_eur: ["Cost of a founder hour (€)", "Seed 30. Used for CAC per channel."],
+    website_url_fr: ["French website (https)", "Audited in Growth › Web › SEO (same-site pages only, up to 20)."],
+    website_url_es: ["Spanish website (https)", "Audited in Growth › Web › SEO (same-site pages only, up to 20)."],
+    seo_brand_terms: ["Brand words in searches", "Comma separated, e.g. valemont, 30/30. Used for the brand vs non-brand share."],
+    content_minutes_per_deliverable: ["Minutes per content piece", "JSON, e.g. {\"concept\": 60, \"reel\": 90, \"brand_post\": 30, \"personal_post\": 20, \"story\": 10, \"vsl\": 180}. Used for the cost of social networks."],
+    linkedin_daily_invitation_limit: ["LinkedIn invitations per day (limit)", "LinkedIn limits always take priority over targets. Seed 20."],
+    linkedin_weekly_invitation_limit: ["LinkedIn invitations per week (limit)", "Seed 100."],
+    time_split_target: ["Time split target", "Sales / content / site, tools and analysis in %, e.g. 75/15/10."],
+    [`signature_${me.founder}`]: ["Email signature", me.founder === "theo" ? "Théo's email signature (several lines allowed)." : "Pablo's email signature (several lines allowed)."],
+  };
+  if (q.isPending) return <Skeleton className="h-64" />;
+  if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
+  return (
+    <Panel>
+      <PanelTitle>{t("Workspace")}</PanelTitle>
+      <div className="flex max-w-xl flex-col gap-4">
+        {Object.entries(LABELS).map(([k, [label, hint]]) => (
+          <React.Fragment key={k + q.data[k]}>
+            {k === "offer_priority" ? <p className="text-sm text-text-2">{t("Ladder: Consulting first. Not interested, on the call or in a meeting → Local, cheaper and more accessible. Still not interested → 30/30.")}</p> : null}
+            {k === "offer_priority"
+              ? <OfferPriorityField label={t(label)} hint={t(hint)} initial={q.data[k] || "consulting"} onSave={(value) => save.mutate({ key: k, value })} />
+              : <SettingField k={k} label={t(label)} hint={t(hint)} initial={q.data[k] ?? ""} onSave={(value) => save.mutate({ key: k, value })} />}
+            {k === "effort_local_pct" ? <OfferSeedsReadOnly thirty={q.data.effort_thirty ?? ""} channels={q.data.prospecting_channels ?? ""} /> : null}
+          </React.Fragment>
+        ))}
+        {save.isError ? <ErrorState error={save.error} onRetry={() => save.reset()} /> : null}
+      </div>
+    </Panel>
+  );
+}
+/** Iteration 9 seeds shown read-only (D073): 30/30 gets marketing effort only; prospecting channels are phone and LinkedIn. */
+function OfferSeedsReadOnly({ thirty, channels }: { thirty: string; channels: string }) {
+  const t = useT();
+  let list: string[] = [];
+  try { const v: unknown = JSON.parse(channels || "[]"); if (Array.isArray(v)) list = v.map(String); } catch { /* shown as empty */ }
+  const name: Record<string, string> = { phone: t("Phone"), linkedin: "LinkedIn", email: t("Email") };
+  return (
+    <div className="-mt-2 flex flex-col gap-1 text-sm">
+      <p><span className="font-medium">{t("30/30 effort")}</span> · <span className="text-text-2">{thirty === "marketing" ? t("marketing only, no sales effort") : thirty || "—"}</span></p>
+      <p><span className="font-medium">{t("Prospecting channels")}</span> · <span className="text-text-2">{list.length ? list.map((c) => name[c] ?? c).join(", ") : "—"}</span></p>
+      <p className="text-[12px] text-text-3">{t("No Instagram DMs and no ads. Emails are counted, with no daily target: mainly prospects with no time on the phone or not reachable.")}</p>
+    </div>
+  );
+}
+function OfferPriorityField({ label, hint, initial, onSave }: { label: string; hint: string; initial: string; onSave: (v: string) => void }) {
+  const t = useT();
+  const [v, setV] = React.useState(initial);
+  return (
+    <form className="flex items-end gap-2" onSubmit={(e) => { e.preventDefault(); onSave(v); }}>
+      <Field label={label} htmlFor="ws-offer_priority" hint={hint} className="flex-1">
+        <Select id="ws-offer_priority" value={v} onChange={(e) => setV(e.target.value)}>
+          <option value="consulting">Consulting</option>
+          <option value="local">{t("Local, entry offer (budget too small)")}</option>
+        </Select>
+      </Field>
+      <Button type="submit" variant="outline" disabled={v === initial} className="mb-6">{t("Save")}</Button>
+    </form>
+  );
+}
+function SettingField({ k, label, hint, initial, onSave }: { k: string; label: string; hint: string; initial: string; onSave: (v: string) => void }) {
+  const t = useT();
+  const [v, setV] = React.useState(initial);
+  return (
+    <form className="flex items-end gap-2" onSubmit={(e) => { e.preventDefault(); onSave(v); }}>
+      <Field label={label} htmlFor={`ws-${k}`} hint={hint} className="flex-1">{k.startsWith("signature_") ? <Textarea id={`ws-${k}`} rows={4} value={v} onChange={(e) => setV(e.target.value)} placeholder={"…\nValemont"} /> : <Input id={`ws-${k}`} value={v} onChange={(e) => setV(e.target.value)} />}</Field>
+      <Button type="submit" variant="outline" disabled={v === initial} className="mb-6">{t("Save")}</Button>
+    </form>
+  );
+}
+
+const KIND_TITLES: Record<PlaybookItem["kind"], string> = { opener: "Call opener and downsell pitches", objection: "Objection replies: 3 lines = Label · Ask · Next step (shown live in call mode, best reply first)", email: "Follow-up emails", whatsapp: "WhatsApp messages", linkedin: "LinkedIn messages (invitation note ≤ 300 characters)" };
+function PlaybookTab() {
+  const t = useT();
+  const qc = useQueryClient();
+  // Each founder edits the scripts in their own language (Théo FR, Pablo ES).
+  const lang: Lang = useLocale() === "es" ? "ES" : "FR";
+  const q = useQuery({ queryKey: ["playbook"], queryFn: () => api<{ items: PlaybookItem[] }>("/api/playbook") });
+  const save = useMutation({ mutationFn: (b: PlaybookItem) => api("/api/playbook", { body: b }), onSuccess: () => { qc.invalidateQueries({ queryKey: ["playbook"] }); toast(t("Saved")); } });
+  if (q.isPending) return <Skeleton className="h-64" />;
+  if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
+  const items = q.data.items.filter((i) => i.language === lang);
+  return (
+    <div className="flex flex-col gap-4">
+      <Panel className="flex flex-wrap items-center justify-between gap-3">
+        <p className="max-w-xl text-sm text-text-2">{t("Scripts and templates used live in call mode. Placeholders:")} <code>{"{business}"}</code> <code>{"{contact}"}</code> <code>{"{founder}"}</code> <code>{"{calendly}"}</code> <code>{"{deck}"}</code> <code>{"{first_name}"}</code> <code>{"{thirty}"}</code> <code>{"{local_price}"}</code>. {t("Links are set in Workspace. Nothing is ever sent without your click.")}</p>
+      </Panel>
+      {(["opener", "objection", "email", "whatsapp", "linkedin"] as const).map((kind) => (
+        <Panel key={kind}>
+          <PanelTitle>{t(KIND_TITLES[kind])}</PanelTitle>
+          <div className="flex flex-col gap-4">
+            {items.filter((i) => i.kind === kind).map((i) => <PlaybookEditor key={`${i.kind}:${i.key}:${i.language}:${i.body.length}:${i.subject}`} item={i} busy={save.isPending} onSave={(v) => save.mutate(v)} />)}
+          </div>
+        </Panel>
+      ))}
+      {save.isError ? <ErrorState error={save.error} onRetry={() => save.reset()} /> : null}
+    </div>
+  );
+}
+function PlaybookEditor({ item, busy, onSave }: { item: PlaybookItem; busy: boolean; onSave: (v: PlaybookItem) => void }) {
+  const t = useT();
+  const [subject, setSubject] = React.useState(item.subject);
+  const [body, setBody] = React.useState(item.body);
+  const def = DEFAULT_PLAYBOOK.find((d) => d.kind === item.kind && d.key === item.key && d.language === item.language);
+  const isDefault = def?.body === item.body && def?.subject === item.subject;
+  const title = item.kind === "objection" ? t(objectionLabel(item.key)) : item.kind === "email" ? t(EMAIL_TEMPLATE_LABELS[item.key as keyof typeof EMAIL_TEMPLATE_LABELS] ?? item.key) : item.kind === "whatsapp" ? `WhatsApp · ${t(EMAIL_TEMPLATE_LABELS[item.key as keyof typeof EMAIL_TEMPLATE_LABELS] ?? item.key)}` : item.kind === "linkedin" ? t(LINKEDIN_TEMPLATE_LABELS[item.key as keyof typeof LINKEDIN_TEMPLATE_LABELS] ?? item.key) : item.key === "pitch_local" ? t("Local pitch (after a no to Consulting, said live)") : item.key === "pitch_thirty" ? t("30/30 pitch (after a no to Local, said live)") : t("Opener");
+  const id = `pb-${item.kind}-${item.key}-${item.language}`;
+  return (
+    <form className="flex flex-col gap-2 border-t border-hairline pt-3 first:border-0 first:pt-0" onSubmit={(e) => { e.preventDefault(); onSave({ ...item, subject, body }); }}>
+      <p className="text-sm font-medium">{title}{isDefault ? <span className="ml-2 text-[12px] font-normal text-text-3">{t("default")}</span> : null}</p>
+      {item.kind === "email" || (item.kind === "linkedin" && item.key === "inmail") ? <Input aria-label={`${title} · ${t("Subject")}`} value={subject} onChange={(e) => setSubject(e.target.value)} /> : null}
+      <Textarea id={id} aria-label={`${title} · ${t("Text")}`} rows={item.kind === "email" ? 7 : 3} value={body} onChange={(e) => setBody(e.target.value)} />
+      <div className="flex gap-2">
+        <Button type="submit" size="sm" variant="outline" disabled={busy || (body === item.body && subject === item.subject)}>{t("Save")}</Button>
+        {!isDefault ? <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => onSave({ ...item, subject: "", body: "" })}>{t("Back to default")}</Button> : null}
+      </div>
+    </form>
+  );
+}

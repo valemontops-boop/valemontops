@@ -1,0 +1,180 @@
+import "server-only";
+import { InMemoryRepository } from "@/data/memory";
+import type { DataRepository } from "@/data/repository";
+import { decodeServiceAccountKey, serviceAccountTokenProvider } from "@/data/sheets/auth";
+import { SheetsClient } from "@/data/sheets/client";
+import { GoogleSheetsRepository } from "@/data/sheets/repository";
+import { setupSpreadsheet } from "@/data/sheets/setup";
+import { getConfig, type AppConfig } from "./config";
+import { seedBaseline } from "./services/baseline";
+import { seedDemo } from "./services/demo-seed";
+import { seedDemoLinkedIn } from "./services/demo-linkedin";
+import { seedDemoContent } from "./services/demo-content";
+import type { AppContext } from "./context";
+import { GoogleHttp } from "@/data/google/http";
+import { GmailSender, GoogleCalendarAdapter, GoogleDriveAdapter, GoogleDriveUploader } from "@/data/google/adapters";
+import { MemoryBank, demoWiseStore } from "@/fake-wise/store";
+import { WiseAdapter } from "@/data/bank/wise";
+import { StripeAdapter } from "@/data/bank/stripe";
+import { instagramFromEnv } from "@/data/instagram/graph";
+import { MemoryStripe, demoStripeStore } from "@/fake-stripe";
+import { MemoryCalendar, MemoryDrive, MemoryDriveUploader, MemoryMailer } from "@/fake-google/store";
+import { demoGoogleStore } from "./services/demo-google";
+import { seedDemoWork } from "./services/demo-seed";
+import { setActivitySink } from "./activity-hooks";
+import { trackerSink } from "./services/tracker";
+import { backupSettingsFromEnv, type BackupEnv } from "./services/backups";
+import { GoogleBackupDrive } from "@/data/google/backup-drive";
+
+export class SetupRequiredError extends Error {
+  readonly code = "setup_required";
+  constructor(readonly errors: string[]) {
+    super("Setup required: " + errors.join(" "));
+  }
+}
+
+const g = globalThis as unknown as { __valemontRepo?: { key: string; repo: Promise<DataRepository> }; __valemontCtx?: { key: string; ctx: Promise<AppContext> } };
+
+function keyOf(cfg: AppConfig) {
+  return [cfg.mode, cfg.demo.backend, cfg.demo.fakeUrl, cfg.sheets.spreadsheetId, cfg.sheets.baseUrl].join("|");
+}
+
+async function build(cfg: AppConfig): Promise<DataRepository> {
+  const tz = { theo: cfg.founders.theo.timezone, pablo: cfg.founders.pablo.timezone };
+  if (cfg.mode === "demo") {
+    if (cfg.demo.backend === "memory") {
+      const repo = new InMemoryRepository();
+      await seedBaseline(repo, tz);
+      await seedDemo(repo);
+      await seedDemoLinkedIn(repo);
+      await seedDemoContent(repo);
+      return repo;
+    }
+    const client = new SheetsClient({ baseUrl: cfg.demo.fakeUrl, spreadsheetId: cfg.demo.fakeSpreadsheetId, getToken: async () => "fake-demo-token" });
+    await setupSpreadsheet(client);
+    const repo = new GoogleSheetsRepository(client);
+    await seedBaseline(repo, tz);
+    await seedDemo(repo);
+    await seedDemoLinkedIn(repo);
+    await seedDemoContent(repo);
+    return repo;
+  }
+  // LIVE: never seeds demo data and never creates the spreadsheet; setup:sheets prepares it.
+  const key = decodeServiceAccountKey(cfg.sheets.serviceAccountB64);
+  const client = new SheetsClient({ baseUrl: cfg.sheets.baseUrl, spreadsheetId: cfg.sheets.spreadsheetId, getToken: serviceAccountTokenProvider(key) });
+  return new GoogleSheetsRepository(client);
+}
+
+/** The process-wide repository. LIVE with missing credentials throws SetupRequiredError: never a DEMO fallback. */
+export async function getRepo(): Promise<DataRepository> {
+  const cfg = getConfig();
+  if (!cfg.ok || !cfg.mode) throw new SetupRequiredError(cfg.errors);
+  const key = keyOf(cfg);
+  if (!g.__valemontRepo || g.__valemontRepo.key !== key) {
+    const repo = build(cfg);
+    g.__valemontRepo = { key, repo };
+    repo.catch(() => {
+      if (g.__valemontRepo?.repo === repo) g.__valemontRepo = undefined;
+    });
+  }
+  return g.__valemontRepo.repo;
+}
+
+const GOOGLE_SCOPES = [
+  "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/calendar.freebusy",
+  "https://www.googleapis.com/auth/drive.readonly",
+];
+
+async function buildContext(cfg: AppConfig): Promise<AppContext> {
+  const repo = await getRepo();
+  if (cfg.mode === "demo") {
+    const store = demoGoogleStore();
+    const privates = new Map<string, DataRepository>();
+    const privateRepo = (f: string) => {
+      if (!privates.has(f)) {
+        if (cfg.demo.backend === "memory") privates.set(f, new InMemoryRepository());
+        else {
+          const c = new SheetsClient({ baseUrl: cfg.demo.fakeUrl, spreadsheetId: `${cfg.demo.fakeSpreadsheetId}-private-${f}`, getToken: async () => "fake-demo-token" });
+          privates.set(f, new GoogleSheetsRepository(c));
+        }
+      }
+      return privates.get(f)!;
+    };
+    if (cfg.demo.backend === "fake-sheets") {
+      for (const f of ["theo", "pablo"]) {
+        await setupSpreadsheet(new SheetsClient({ baseUrl: cfg.demo.fakeUrl, spreadsheetId: `${cfg.demo.fakeSpreadsheetId}-private-${f}`, getToken: async () => "fake-demo-token" }), "private");
+      }
+    }
+    await seedDemoWork(repo, privateRepo);
+    setActivitySink(null); // DEMO never sends anything to a founder's tracker
+    return {
+      repo,
+      privateRepo,
+      calendar: new MemoryCalendar(store),
+      drive: new MemoryDrive(store),
+      uploaderFor: (f, grant) => (grant ? new MemoryDriveUploader(store, f) : null),
+      mailerFor: (f, grant) => (grant ? new MemoryMailer(store, f) : null),
+      bank: new MemoryBank(demoWiseStore()),
+      payments: new MemoryStripe(demoStripeStore()),
+      baseUrl: cfg.baseUrl,
+      mode: "demo",
+    };
+  }
+  setActivitySink(trackerSink()); // founder trackers (TRACKER_WEBHOOK_URL_*), no-op when not configured
+  const key = decodeServiceAccountKey(cfg.sheets.serviceAccountB64);
+  const privateIds: Record<string, string> = { theo: process.env.PRIVATE_SHEET_ID_THEO ?? "", pablo: process.env.PRIVATE_SHEET_ID_PABLO ?? "" };
+  const privates = new Map<string, DataRepository>();
+  const sheetsToken = serviceAccountTokenProvider(key);
+  const googleToken = serviceAccountTokenProvider(key, GOOGLE_SCOPES);
+  const api = (process.env.GOOGLE_API_BASE_URL || "https://www.googleapis.com").replace(/\/$/, "");
+  return {
+    repo,
+    privateRepo: (f) => {
+      if (!privateIds[f]) return null;
+      if (!privates.has(f)) privates.set(f, new GoogleSheetsRepository(new SheetsClient({ baseUrl: cfg.sheets.baseUrl, spreadsheetId: privateIds[f], getToken: sheetsToken })));
+      return privates.get(f)!;
+    },
+    calendar: new GoogleCalendarAdapter(new GoogleHttp(api, googleToken)),
+    drive: new GoogleDriveAdapter(new GoogleHttp(api, googleToken)),
+    uploaderFor: (_f, grant) => (grant ? new GoogleDriveUploader(new GoogleHttp(api, async () => grant)) : null),
+    mailerFor: (_f, grant) => (grant ? new GmailSender(new GoogleHttp(api, async () => grant)) : null),
+    bank: wiseFromEnv(),
+    payments: process.env.STRIPE_API_KEY ? new StripeAdapter(process.env.STRIPE_API_BASE_URL || "https://api.stripe.com", process.env.STRIPE_API_KEY) : null,
+    // Instagram Graph (read-only) only in LIVE with credentials in env; otherwise manual entry (D079).
+    instagram: instagramFromEnv(),
+    backup: backupFromEnv(cfg, (id) => new SheetsClient({ baseUrl: cfg.sheets.baseUrl, spreadsheetId: id, getToken: sheetsToken }), new GoogleHttp(api, serviceAccountTokenProvider(key, BACKUP_SCOPES), { maxRetries: 2 })),
+    baseUrl: cfg.baseUrl,
+    mode: "live",
+  };
+}
+
+/** Process-wide service context (repositories + Google ports). */
+export async function getContext(): Promise<AppContext> {
+  const cfg = getConfig();
+  if (!cfg.ok || !cfg.mode) throw new SetupRequiredError(cfg.errors);
+  const k = keyOf(cfg);
+  if (!g.__valemontCtx || g.__valemontCtx.key !== k) {
+    const ctx = buildContext(cfg);
+    g.__valemontCtx = { key: k, ctx };
+    ctx.catch(() => {
+      if (g.__valemontCtx?.ctx === ctx) g.__valemontCtx = undefined;
+    });
+  }
+  return g.__valemontCtx.ctx;
+}
+
+/** Backups (D084): the service account copies the live Sheet into BACKUP_DRIVE_FOLDER_ID (shared with it as Editor). */
+const BACKUP_SCOPES = ["https://www.googleapis.com/auth/drive"];
+function backupFromEnv(cfg: AppConfig, clientFor: (id: string) => SheetsClient, http: GoogleHttp): BackupEnv {
+  const s = backupSettingsFromEnv();
+  return { sourceId: cfg.sheets.spreadsheetId, clientFor, drive: s.folderId ? new GoogleBackupDrive(http) : null, folderId: s.folderId, retentionDays: s.retentionDays };
+}
+
+/** Wise read access from env (never in Sheets): WISE_API_TOKEN, optional WISE_PROFILE_ID and WISE_SCA_PRIVATE_KEY_BASE64. */
+function wiseFromEnv() {
+  const token = process.env.WISE_API_TOKEN;
+  if (!token) return null;
+  const key = process.env.WISE_SCA_PRIVATE_KEY_BASE64 ? Buffer.from(process.env.WISE_SCA_PRIVATE_KEY_BASE64, "base64").toString("utf8") : null;
+  return new WiseAdapter(process.env.WISE_API_BASE_URL || "https://api.wise.com", token, key, process.env.WISE_PROFILE_ID || null);
+}

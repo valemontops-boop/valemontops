@@ -1,0 +1,98 @@
+"use client";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
+import * as React from "react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { ErrorState, Field, Input, Panel, PanelTitle, Select, Textarea } from "@/components/ui/form";
+import { FOUNDERS, FOUNDER_NAMES } from "@/domain/constants";
+import type { ImportPreview } from "@/domain/csv";
+import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
+import { useT } from "@/i18n/react";
+
+const ROW_STATUS = { new: "new", duplicate: "duplicate", invalid: "invalid" } as const;
+const DUP_EXISTING = { domain: "Same domain as an existing business", email: "Same email as an existing business", phone: "Same phone as an existing business" } as const;
+const DUP_ROW = { domain: "Same domain as row {row}", email: "Same email as row {row}", phone: "Same phone as row {row}" } as const;
+
+export function ImportView() {
+  const t = useT();
+  const qc = useQueryClient();
+  const [importId, setImportId] = React.useState(() => crypto.randomUUID()); // stable across retries: re-submitting adds nothing
+  const [csv, setCsv] = React.useState("");
+  const [owner, setOwner] = React.useState("");
+  const [source, setSource] = React.useState(() => t("CSV import"));
+  const [listName, setListName] = React.useState("");
+  const [result, setResult] = React.useState<{ imported: number; contacts: number; skipped: number } | null>(null);
+  const preview = useMutation({ mutationFn: () => api<ImportPreview>("/api/crm/import/preview", { body: { csv } }) });
+  const commit = useMutation({
+    mutationFn: () => api<{ imported: number; contacts: number; skipped: number }>("/api/crm/import/commit", { body: { import_id: importId, csv, brand: "consulting", owner_founder: owner || null, lead_source: source, list_name: listName } }),
+    onSuccess: (r) => { qc.invalidateQueries(); setResult(r); toast(t("Imported {n} businesses", { n: r.imported })); },
+  });
+  const onFile = async (f: File | undefined) => {
+    if (!f) return;
+    if (f.size > 1_000_000) return toast(t("File too large (max 1 MB)"));
+    setCsv(await f.text());
+    setImportId(crypto.randomUUID());
+    setResult(null);
+    preview.reset();
+  };
+  const p = preview.data;
+  return (
+    <div className="flex max-w-5xl flex-col gap-5">
+      <div>
+        <Link href="/crm" className="text-sm text-text-2 underline">{t("Sales CRM")}</Link>
+        <h1 className="text-2xl font-semibold tracking-tight">{t("Import a call list")}</h1>
+        <p className="text-sm text-text-2">{t("CSV with a header row. Recognised columns: company, website, phone, email, contact name, role, LinkedIn, country, city, sector, niche, contact type, language, notes. Duplicates are detected by domain, email and phone. No scraping: lists you are allowed to use only.")}</p>
+      </div>
+      <Panel>
+        <div className="flex flex-col gap-4">
+          <Field label={t("CSV file")} htmlFor="csv-file"><input id="csv-file" type="file" accept=".csv,text/csv" onChange={(e) => onFile(e.target.files?.[0])} className="text-sm file:mr-3 file:h-9 file:rounded-full file:border file:border-control file:bg-panel file:px-4" /></Field>
+          <Field label={t("Or paste CSV")} htmlFor="csv-text"><Textarea id="csv-text" value={csv} onChange={(e) => { setCsv(e.target.value); setResult(null); }} className="num min-h-32 font-mono text-[13px]" placeholder={"Company,Website,Phone,Country\nPlomberie Exemple,plomberie.example.com,+33 1 00 00 00 00,FR"} /></Field>
+          <Field label={t("List name (you will call through it)")} htmlFor="imp-name"><Input id="imp-name" value={listName} onChange={(e) => setListName(e.target.value)} placeholder={t("e.g. Garages Lyon · November")} /></Field>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label={t("Owner")} htmlFor="imp-owner"><Select id="imp-owner" value={owner} onChange={(e) => setOwner(e.target.value)}><option value="">{t("Unassigned")}</option>{FOUNDERS.map((f) => <option key={f} value={f}>{FOUNDER_NAMES[f]}</option>)}</Select></Field>
+            <Field label={t("Lead source")} htmlFor="imp-src"><Input id="imp-src" value={source} onChange={(e) => setSource(e.target.value)} /></Field>
+          </div>
+          <Button variant="dark" className="self-start" disabled={!csv.trim() || preview.isPending} onClick={() => preview.mutate()}>{preview.isPending ? t("Checking…") : t("Preview")}</Button>
+          {preview.isError ? <ErrorState error={preview.error} onRetry={() => preview.mutate()} /> : null}
+        </div>
+      </Panel>
+
+      {p ? (
+        <Panel>
+          <PanelTitle action={
+            <Button variant="primary" disabled={p.counts.new === 0 || commit.isPending || Boolean(result)} onClick={() => commit.mutate()}>
+              {commit.isPending ? t("Importing…") : result ? t("Imported") : t("Import {n} new", { n: p.counts.new })}
+            </Button>
+          }>{t("Preview")}</PanelTitle>
+          <p className="text-sm">
+            <span className="num font-semibold">{t("{n} new", { n: p.counts.new })}</span> · <span className="num">{t("{n} duplicates skipped", { n: p.counts.duplicate })}</span> · <span className="num">{t("{n} invalid", { n: p.counts.invalid })}</span>
+          </p>
+          <p className="mt-1 text-[13px] text-text-2">{t("Mapped: {list}", { list: Object.entries(p.mapped).map(([h, f]) => `${h} → ${t(f)}`).join(", ") || t("none") })}</p>
+          {p.unrecognized.length ? <p className="mt-1 text-[13px] text-text-2">{t("Ignored columns: {list}", { list: p.unrecognized.join(", ") })}</p> : null}
+          {result ? <p className="mt-3 rounded-[12px] bg-subtle p-3 text-sm">{t("Imported {businesses} businesses and {contacts} contacts into a call list.", { businesses: result.imported, contacts: result.contacts })} <Link className="font-medium underline" href="/call">{t("Start calling")}</Link></p> : null}
+          {commit.isError ? <div className="mt-3"><ErrorState error={commit.error} onRetry={() => commit.mutate()} /></div> : null}
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead><tr className="border-b border-hairline text-left text-[12px] text-text-3"><th className="py-2 font-medium">{t("Row")}</th><th className="font-medium">{t("Status")}</th><th className="font-medium">{t("Company")}</th><th className="font-medium">{t("Country")}</th><th className="font-medium">{t("Phone")}</th><th className="font-medium">{t("Detail")}</th></tr></thead>
+              <tbody>
+                {p.rows.slice(0, 200).map((r) => (
+                  <tr key={r.index} className="border-b border-hairline last:border-0">
+                    <td className="num py-2">{r.index + 2}</td>
+                    <td className={cn(r.status === "invalid" && "text-bad", r.status === "duplicate" && "text-text-2")}>{t(ROW_STATUS[r.status])}</td>
+                    <td>{r.data?.company ?? "—"}</td>
+                    <td>{r.data?.country || "—"}</td>
+                    <td className="num">{r.data?.phone || "—"}</td>
+                    <td className="text-[13px] text-text-2">{r.errors.map((x) => t(x)).join("; ") || (r.duplicateOf ? (r.duplicateOf.existingAccountId ? t(DUP_EXISTING[r.duplicateOf.reason]) : t(DUP_ROW[r.duplicateOf.reason], { row: (r.duplicateOf.inFileRow ?? 0) + 2 })) : "")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {p.rows.length > 200 ? <p className="mt-2 text-[13px] text-text-3">{t("Showing the first 200 of {n} rows.", { n: p.rows.length })}</p> : null}
+          </div>
+        </Panel>
+      ) : null}
+    </div>
+  );
+}
