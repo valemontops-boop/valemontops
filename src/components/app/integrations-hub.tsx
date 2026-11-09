@@ -7,10 +7,12 @@ import type { HubAction, HubStatus, IntegrationKey, IntegrationMode } from "@/do
 import { useDateTag, useT } from "@/i18n/react";
 import { api } from "@/lib/api";
 import { Pill, fmtDateTime } from "./bits";
+import { connectorForm, type ConnectorKey } from "@/domain/connectors";
+import { ConnectorDialog, type Vault } from "./connector-form";
 
 type Item = {
   key: IntegrationKey; name: string; does: string; mode: IntegrationMode; status: HubStatus; scopes: string[]; note: string; docs: string; href: string | null;
-  env: { name: string; required: boolean; set: boolean }[]; lastSync: string | null; lastError: string; lastErrorAt: string | null; expiresAt: string | null; daysLeft: number | null;
+  env: { name: string; required: boolean; set: boolean; source?: "env" | "app" | null }[]; lastSync: string | null; lastError: string; lastErrorAt: string | null; expiresAt: string | null; daysLeft: number | null;
   detail: string; detailVars: Record<string, string>; actions: HubAction[];
 };
 type Hub = { mode: "live" | "demo"; items: Item[]; counts: Record<"connected" | "not_configured" | "error" | "needs_renewal", number> };
@@ -32,6 +34,8 @@ const REAUTH: Partial<Record<IntegrationKey, string>> = { gmail: "/api/auth/goog
 export function IntegrationsHub() {
   const t = useT();
   const q = useQuery({ queryKey: ["integrations"], queryFn: () => api<Hub>("/api/integrations") });
+  const v = useQuery({ queryKey: ["vault"], queryFn: () => api<Vault>("/api/integrations/vault") });
+  const [open, setOpen] = React.useState<{ key: ConnectorKey; name: string } | null>(null);
   if (q.isPending) return <Skeleton className="h-96" />;
   if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
   const h = q.data;
@@ -45,16 +49,65 @@ export function IntegrationsHub() {
             <div key={k} className="rounded-[12px] bg-subtle px-3 py-2"><dt className="text-[12px] text-text-3">{t(STATUS_LABEL[k])}</dt><dd className={`num text-xl font-semibold ${k === "error" || k === "needs_renewal" ? (h.counts[k] ? "text-bad" : "") : ""}`}>{h.counts[k]}</dd></div>
           ))}
         </dl>
-        <p className="mt-3 text-[13px] text-text-3">{t("Secrets stay in the host's environment settings: this page shows only whether each variable is set. Guides: docs/INTEGRATIONS.md.")}</p>
+        <p className="mt-3 text-[13px] text-text-3">{t("Connect a service with its “Configure” button: keys are encrypted before they are saved and are never shown again. A value set in Vercel always wins. Guides: docs/INTEGRATIONS.md.")}</p>
+        {v.data ? <VaultKeyNote vault={v.data} /> : null}
       </Panel>
       <Panel className="p-0">
-        <ul className="divide-y divide-hairline">{h.items.map((it) => <HubRow key={it.key} it={it} />)}</ul>
+        <ul className="divide-y divide-hairline">{h.items.map((it) => <HubRow key={it.key} it={it} onConfigure={v.data && connectorForm(it.key) ? () => setOpen({ key: it.key as ConnectorKey, name: it.name }) : null} />)}</ul>
       </Panel>
+      {v.data ? <BootstrapPanel vault={v.data} /> : null}
+      {open && v.data ? <ConnectorDialog vault={v.data} connector={open.key} name={open.name} onClose={() => setOpen(null)} /> : null}
     </div>
   );
 }
 
-function HubRow({ it }: { it: Item }) {
+/** Where the connector keys are encrypted, and whether some still use a previous key (D087). */
+function VaultKeyNote({ vault }: { vault: Vault }) {
+  const t = useT();
+  const qc = useQueryClient();
+  const rotate = useMutation({
+    mutationFn: () => api("/api/integrations/vault", { body: { action: "rotate" } }),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["vault"] }),
+  });
+  const k = vault.key;
+  const text = vault.mode === "demo" ? "Demo: nothing is really saved. Values are encrypted with a temporary key and never used to reach a real service."
+    : k.problem ? k.problem
+    : k.source === "dedicated" ? "Keys saved here are encrypted (AES-256-GCM) with CONNECTORS_ENCRYPTION_KEY, which stays in Vercel. The spreadsheet holds only unreadable ciphertext."
+    : k.source === "session" ? "Keys saved here are encrypted with a key derived from SESSION_SECRET. Recommended: add CONNECTORS_ENCRYPTION_KEY in Vercel; changing SESSION_SECRET would make saved keys unreadable."
+    : "No encryption key: set CONNECTORS_ENCRYPTION_KEY (or SESSION_SECRET) in the host's environment.";
+  return (
+    <div className="mt-3 flex flex-col gap-2 rounded-[12px] bg-subtle p-3 text-[13px] text-text-2" data-testid="vault-key-note">
+      <p className={k.problem ? "text-bad" : ""}>{t(text)}</p>
+      {k.oldKeyRows > 0 && vault.mode === "live" ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span>{t("{n} saved keys still use the previous encryption key.", { n: k.oldKeyRows })}</span>
+          <Button size="sm" variant="outline" disabled={rotate.isPending || !k.ok} onClick={() => rotate.mutate()}>{t("Re-encrypt with the new key")}</Button>
+        </div>
+      ) : null}
+      {rotate.isError ? <ErrorState error={rotate.error} /> : null}
+    </div>
+  );
+}
+
+/** Values the app needs before it can reach the spreadsheet: read-only here, set in Vercel. */
+function BootstrapPanel({ vault }: { vault: Vault }) {
+  const t = useT();
+  return (
+    <Panel data-testid="bootstrap-env">
+      <PanelTitle>{t("Base settings (set in Vercel)")}</PanelTitle>
+      <p className="mb-3 text-[13px] text-text-3">{t("The app needs these before it can open the spreadsheet, so they cannot be saved in it. Change them in Vercel › Settings › Environment Variables, then redeploy.")}</p>
+      <ul className="flex flex-wrap gap-1.5">
+        {vault.bootstrap.map((b) => (
+          <li key={b.name} className={`rounded-full px-2 py-0.5 font-mono text-[11px] ${b.set ? "bg-[#e6f2ec] text-good" : b.required && vault.mode === "live" ? "bg-[#fbeceb] text-bad" : "bg-subtle text-text-3"}`}>
+            {b.name} · {b.set ? t("set in Vercel") : b.required ? t("missing") : t("optional")}
+          </li>
+        ))}
+      </ul>
+    </Panel>
+  );
+}
+
+function HubRow({ it, onConfigure }: { it: Item; onConfigure: (() => void) | null }) {
   const t = useT();
   const tag = useDateTag();
   const qc = useQueryClient();
@@ -72,6 +125,7 @@ function HubRow({ it }: { it: Item }) {
         <Pill tone={STATUS_TONE[it.status]}>{t(STATUS_LABEL[it.status])}</Pill>
         <span className="text-[12px] text-text-3">{t(MODE_LABEL[it.mode])}</span>
         <span className="ml-auto flex flex-wrap gap-2">
+          {onConfigure ? <Button size="sm" variant="outline" onClick={onConfigure} data-testid={`configure-${it.key}`}>{t("Configure")}</Button> : null}
           {it.actions.includes("test") ? <Button size="sm" variant="outline" disabled={act.isPending} onClick={() => act.mutate("test")}>{t("Test connection")}</Button> : null}
           {it.actions.includes("sync") ? <Button size="sm" variant="outline" disabled={act.isPending} onClick={() => act.mutate("sync")}>{t("Sync now")}</Button> : null}
           {it.actions.includes("reauthorize") && REAUTH[it.key] ? <Button asChild size="sm" variant="outline"><a href={REAUTH[it.key]}>{it.status === "connected" ? t("Authorize again") : t("Authorize")}</a></Button> : null}
@@ -89,14 +143,14 @@ function HubRow({ it }: { it: Item }) {
           <><dt className="text-text-3">{t("Environment variables")}</dt>
             <dd className="flex flex-wrap gap-1.5">{it.env.map((e) => (
               <span key={e.name} className={`rounded-full px-2 py-0.5 font-mono text-[11px] ${e.set ? "bg-[#e6f2ec] text-good" : e.required ? "bg-[#fbeceb] text-bad" : "bg-subtle text-text-3"}`}>
-                {e.name} · {e.set ? t("set") : e.required ? t("missing") : t("optional")}
+                {e.name} · {e.set ? (e.source === "app" ? t("saved in the app") : t("set in Vercel")) : e.required ? t("missing") : t("optional")}
               </span>
             ))}</dd></>
         ) : null}
         <dt className="text-text-3">{t("Guide")}</dt><dd><span className="font-mono text-[12px]">{it.docs.split("#")[0]}</span> · {t(it.name)}</dd>
       </dl>
       {it.note ? <p className="text-[13px] text-text-3">{t(it.note)}</p> : null}
-      {it.status === "not_configured" && missing.length ? <p className="text-[13px] text-text-2">{t("To connect: set {vars} in the host's environment, then redeploy.", { vars: missing.map((e) => e.name).join(", ") })}</p> : null}
+      {it.status === "not_configured" && missing.length ? <p className="text-[13px] text-text-2">{onConfigure ? t("To connect: click “Configure” and follow the steps.") : t("To connect: set {vars} in the host's environment, then redeploy.", { vars: missing.map((e) => e.name).join(", ") })}</p> : null}
       {act.isError ? <ErrorState error={act.error} /> : null}
       {result ? <p role="status" className={`text-[13px] ${result.ok ? "text-good" : "text-bad"}`}>{t(result.message, result.vars)}{result.error ? ` · ${result.error}` : ""}</p> : null}
     </li>

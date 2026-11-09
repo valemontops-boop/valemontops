@@ -57,6 +57,8 @@ import { demoSiteFetcher } from "@/server/services/demo-seo";
 import { exportFile, exportSchema } from "@/server/services/export";
 import { STAGE4A_ROUTES } from "@/server/services/stage4a-routes";
 import { integrationHub } from "@/server/services/integrations";
+import { refreshConnectorEnv, vaultAction, vaultActionSchema, vaultOverview } from "@/server/services/vault";
+import { connectorEnvSync } from "@/server/connector-env";
 import { csvExportSchema, exportList } from "@/server/services/csv-lists";
 import { trackerAction, trackerActionSchema, trackerStatus } from "@/server/services/tracker";
 import { createFolder, folderSchema } from "@/server/services/files";
@@ -275,7 +277,10 @@ for (const [k, [s, h]] of Object.entries(FINANCE_ROUTES)) routes[k] = [s, (i, f)
 Object.assign(routes, quoteRoutes(ctx, (f) => (driveGrant ? `preview-grant-${f}` : null)));
 // Stage 4A (D083): CSV export/import and the Integrations Hub (no env in the browser: every variable reads "missing").
 for (const [k, [s, h]] of Object.entries(STAGE4A_ROUTES)) routes[k] = [s, (i, f) => h(ctx, f, i as never)];
-routes["GET /api/integrations"] = [null, async (_, f) => integrationHub(ctx, f, { gmail: gmailGrant[f], drive: driveGrant }, {})];
+routes["GET /api/integrations"] = [null, async (_, f) => { await refreshConnectorEnv(ctx, { env: {} }); return integrationHub(ctx, f, { gmail: gmailGrant[f], drive: driveGrant }, connectorEnvSync({})); }];
+// D087: in-app connector setup. DEMO key in memory only: nothing survives a reload, nothing reaches a real service.
+routes["GET /api/integrations/vault"] = [null, async (_, f) => vaultOverview(ctx, f, "founder", {})];
+routes["POST /api/integrations/vault"] = [vaultActionSchema, async (i, f) => vaultAction(ctx, f, i as never, "founder", {})];
 
 export async function exportCsv(href = "/api/crm/export") {
   if (href.startsWith("/api/csv/export")) return (await exportList(ctx, founder, csvExportSchema.parse(Object.fromEntries(new URL(href, "https://preview.example.com").searchParams)))).csv;

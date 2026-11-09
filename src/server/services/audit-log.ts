@@ -80,6 +80,9 @@ export function inputHash(input: unknown, secret: string): string {
   return createHmac("sha256", `audit:${secret}`).update(stable(input)).digest("hex").slice(0, 16);
 }
 
+/** Connector vault mutations carry secrets in their input: never hashed into the audit row. */
+export const isVaultPath = (path: string) => /^\/api\/integrations\/vault\b/.test(path);
+
 export function auditRow(e: AuditEvent): NewRow<"AuditLog"> {
   const priv = isPrivateMutation(e.path, e.input);
   return {
@@ -92,7 +95,8 @@ export function auditRow(e: AuditEvent): NewRow<"AuditLog"> {
     correlation_id: e.correlationId.slice(0, 40),
     http_status: e.status,
     audit_scope: priv ? "private" : "team",
-    input_hash: priv ? "" : inputHash(e.input, e.secret ?? ""),
+    // Connector vault (D087): field names only, not even a keyed hash of the values.
+    input_hash: priv || isVaultPath(e.path) ? "" : inputHash(e.input, e.secret ?? ""),
     ip_hash: (e.ipHash ?? "").slice(0, 20),
   };
 }

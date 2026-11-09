@@ -9,6 +9,8 @@ export class FakeWiseServer {
   publicKeyPem: string | null = null;
   requireSca = true;
   log: { path: string; status: number }[] = [];
+  /** Bearer token the fake accepts (tests may set a UUID-shaped one, like a real personal token). */
+  token = "wise-test-token";
   private server: http.Server | null = null;
   url = "";
   async start() {
@@ -25,7 +27,7 @@ export class FakeWiseServer {
       res.writeHead(status, { "content-type": "application/json", ...headers });
       res.end(JSON.stringify(body));
     };
-    if (req.headers.authorization !== "Bearer wise-test-token") return send(401, { error: "unauthorized" });
+    if (req.headers.authorization !== `Bearer ${this.token}`) return send(401, { error: "unauthorized" });
     const s = this.store;
     if (url.pathname === "/v2/profiles") return send(200, [{ id: 1, type: "PERSONAL" }, { id: s.profile, type: "BUSINESS" }]);
     let m = /^\/v4\/profiles\/([^/]+)\/balances$/.exec(url.pathname);

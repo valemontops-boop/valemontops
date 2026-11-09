@@ -3,6 +3,7 @@ import { RATE, guardInbound } from "@/server/guard";
 import { verifyJobBearer, verifyJobSignature } from "@/server/job-auth";
 import { logger } from "@/server/log";
 import { getContext } from "@/server/repo";
+import { resolveSecret } from "@/server/connectors";
 import { runBackup } from "@/server/services/backups";
 
 /**
@@ -12,8 +13,9 @@ import { runBackup } from "@/server/services/backups";
  * Nothing configured → refused. Idempotent per day: a repeat answers "skipped".
  */
 async function handle(req: NextRequest) {
-  const secret = process.env.BACKUP_JOB_SECRET;
-  const tokens = [process.env.BACKUP_JOB_TOKEN, process.env.CRON_SECRET].filter((t): t is string => Boolean(t));
+  // Env first, then the value saved in the app (D087); CRON_SECRET is Vercel's own and stays env-only.
+  const secret = await resolveSecret("BACKUP_JOB_SECRET");
+  const tokens = [await resolveSecret("BACKUP_JOB_TOKEN"), process.env.CRON_SECRET].filter((t): t is string => Boolean(t));
   if (!secret && !tokens.length) return NextResponse.json({ error: "not_configured" }, { status: 503 });
   const got = await guardInbound(req, "job-backup", { maxBytes: 10_000, rule: RATE.job });
   if ("refuse" in got) return got.refuse;

@@ -4,6 +4,7 @@ import { childId, newId } from "@/lib/ids";
 import { captureSlot, dueCheckpoints } from "@/domain/content-studio";
 import { addDays, localDate, startOfLocalDay } from "@/domain/time";
 import type { AppContext } from "../context";
+import { connectorEnvSync } from "../connector-env";
 
 /**
  * The one scheduled job (spec 4.11): capture Instagram account days, post checkpoints and live stories, once per
@@ -167,6 +168,6 @@ export async function snapshotStatus(ctx: AppContext, now = new Date()) {
     lastSuccessAt: st?.last_success_at ?? runs.find((r) => r.status === "done")?.finished_at ?? null,
     lastError: st?.status === "error" ? st.last_error : "",
     runs: runs.slice(0, 5).map((r) => ({ slot: r.slot, status: r.status, trigger: r.trigger, finished_at: r.finished_at, daily_rows: r.daily_rows, post_rows: r.post_rows, story_rows: r.story_rows })),
-    schedulerConfigured: typeof process !== "undefined" && Boolean(process.env?.SNAPSHOT_JOB_SECRET || process.env?.SNAPSHOT_JOB_TOKEN),
+    schedulerConfigured: ((e) => Boolean(e.SNAPSHOT_JOB_SECRET || e.SNAPSHOT_JOB_TOKEN))(connectorEnvSync()),
   };
 }

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { RATE, guardInbound } from "@/server/guard";
 import { getContext } from "@/server/repo";
+import { resolveSecret } from "@/server/connectors";
 import { syncStripe } from "@/server/services/bank";
 import { verifyStripeSignature } from "@/server/stripe-webhook";
 
@@ -9,7 +10,7 @@ export async function POST(req: NextRequest) {
   const got = await guardInbound(req, "stripe", { maxBytes: 500_000, rule: RATE.webhook }); // rate limit + streaming size cap (D084)
   if ("refuse" in got) return got.refuse;
   const raw = got.raw;
-  if (!verifyStripeSignature(raw, req.headers.get("stripe-signature"), process.env.STRIPE_WEBHOOK_SECRET ?? null)) return NextResponse.json({ error: "bad_signature" }, { status: 400 });
+  if (!verifyStripeSignature(raw, req.headers.get("stripe-signature"), (await resolveSecret("STRIPE_WEBHOOK_SECRET")) ?? null)) return NextResponse.json({ error: "bad_signature" }, { status: 400 });
   let type = "";
   try { type = String((JSON.parse(raw) as { type?: string }).type ?? ""); } catch { return NextResponse.json({ error: "malformed" }, { status: 400 }); }
   if (!/^(charge|payout|customer\.subscription|invoice|balance|refund|payment_intent)\./.test(type)) return NextResponse.json({ received: true, ignored: true });

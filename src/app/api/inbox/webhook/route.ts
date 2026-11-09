@@ -3,6 +3,7 @@ import { RATE, guardInbound } from "@/server/guard";
 import { webhookBodySchema } from "@/domain/inbox";
 import { verifyHmacSha256 } from "@/server/inbox-webhook";
 import { getContext } from "@/server/repo";
+import { resolveSecret } from "@/server/connectors";
 import { ingestInboxItems } from "@/server/services/inbox";
 
 /**
@@ -11,7 +12,7 @@ import { ingestInboxItems } from "@/server/services/inbox";
  * INBOX_WEBHOOK_SECRET authenticates the caller. Not configured → refused. Idempotent by external_id.
  */
 export async function POST(req: NextRequest) {
-  const secret = process.env.INBOX_WEBHOOK_SECRET;
+  const secret = await resolveSecret("INBOX_WEBHOOK_SECRET"); // env first, then the app's vault (D087)
   if (!secret) return NextResponse.json({ error: "not_configured" }, { status: 503 });
   const got = await guardInbound(req, "inbox", { maxBytes: 200_000, rule: RATE.webhook }); // rate limit + streaming size cap (D084)
   if ("refuse" in got) return got.refuse;

@@ -13,6 +13,7 @@ import { RuleError } from "../errors";
 import { logger } from "../log";
 import type { AppContext } from "../context";
 import { recordIntegration } from "./integration-status";
+import { connectorEnvSync } from "../connector-env";
 
 /**
  * Daily backups (Stage 4B, D084). A backup is a Drive copy of the live spreadsheet in a backups folder, named
@@ -49,8 +50,8 @@ export type BackupResult =
   | { status: "busy"; day: string }
   | { status: "done" | "error"; day: string; file_id: string; file_url: string; tabs: number; rows: number; verify: "ok" | "mismatch" | "not_run"; detail: string; deleted: number; error: string };
 
-/** Reads BACKUP_* from env (LIVE only). Retention 1–365 days, default 30. */
-export function backupSettingsFromEnv(env: Record<string, string | undefined> = process.env) {
+/** Reads BACKUP_* (env first, then the app's settings, D087; LIVE only). Retention 1–365 days, default 30. */
+export function backupSettingsFromEnv(env: Record<string, string | undefined> = connectorEnvSync()) {
   const n = Number(env.BACKUP_RETENTION_DAYS);
   return { folderId: (env.BACKUP_DRIVE_FOLDER_ID ?? "").trim(), retentionDays: Number.isInteger(n) && n >= 1 && n <= 365 ? n : DEFAULT_RETENTION_DAYS };
 }
@@ -159,7 +160,7 @@ export async function backupStatus(ctx: AppContext) {
     configured: backupConfigured(ctx),
     retentionDays: ctx.backup?.retentionDays ?? DEFAULT_RETENTION_DAYS,
     folderUrl: ctx.backup?.folderId ? `https://drive.google.com/drive/folders/${encodeURIComponent(ctx.backup.folderId)}` : "",
-    schedulerConfigured: typeof process !== "undefined" && Boolean(process.env?.BACKUP_JOB_SECRET || process.env?.BACKUP_JOB_TOKEN),
+    schedulerConfigured: ((e) => Boolean(e.BACKUP_JOB_SECRET || e.BACKUP_JOB_TOKEN))(connectorEnvSync()),
     today: localDate(new Date(), BACKUP_TZ),
     lastDone: lastDone ? runView(lastDone) : null,
     runs: results.slice(0, 7).map(runView),

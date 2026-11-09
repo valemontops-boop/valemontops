@@ -20,9 +20,21 @@ The live view of this table is **Settings › Integrations** (Integration Hub, D
 | GA4 / Search Console | Import-only | CSV exports imported in Growth (GA4 traffic) and Growth › SEO (Search Console). No API adapter: optional per spec 7, not built (no credentials). |
 | ECB FX | Dropped (D082) | The founders removed EUR/USD and ECB rates: everything is EUR, nothing is downloaded. |
 
+## In-app connector setup (D087)
+Settings › Integrations › **Configure** (Wise, Stripe, Instagram, inbox, website forms, my tracker, snapshot job, backups): one line of what it does, 3–6 numbered steps with a link to the provider's page, the webhook/job address to copy (APP_BASE_URL + path), the fields to paste (password inputs, light checks: Wise token = uuid, Stripe `rk_`/`sk_` (never `pk_`), `whsec_`, Meta app secret = 32 hex, https tracker URL, Drive folder address → id, PEM → base64), **Generate** for the secrets we create (inbox relay, Meta verify token, website, tracker secret and feed token, snapshot/backup job tokens: 64 hex characters, shown once), then **Save and test** = save + the hub's read-only test, green or red in plain words.
+- **Where values go**: secrets → `IntegrationSecrets` tab as AES-256-GCM ciphertext only; non-secret ids (WISE_PROFILE_ID, INSTAGRAM_BUSINESS_ACCOUNT_ID, INSTAGRAM_TOKEN_EXPIRES_AT, INSTAGRAM_ACCOUNT_KEY, BACKUP_DRIVE_FOLDER_ID, BACKUP_RETENTION_DAYS) → SystemSettings `connector:NAME`. Key: `CONNECTORS_ENCRYPTION_KEY` (`openssl rand -base64 32`), else derived from SESSION_SECRET (see docs/SECURITY.md §12b).
+- **Precedence**: an environment variable always wins (same behaviour as before); the form shows it as "set in Vercel" and refuses to save over it. The hub's variable chips say "set in Vercel" or "saved in the app".
+- **Resolution**: `resolveSecret` / `getSecret(integration, field)` (`src/server/connectors.ts`), cached 60 s per server instance, refreshed immediately on the instance that saved (others within a minute). Webhooks (Stripe, Wise, inbox, Meta, website), jobs (snapshot, backup), the tracker push/feed, the hub and Test connection all use it; Wise/Stripe/Instagram/backup ports are rebuilt when a value changes — no redeploy.
+- **Write-only**: after saving, only "set · ends with 1234", who and when; replace by pasting/generating again; Delete clears the ciphertext. Every change audited (names only). Rotation of the encryption key: docs/SECURITY.md §12b.
+- **Stays in Vercel** (needed before the app can open the Sheet; listed read-only under "Base settings"): APP_MODE, SESSION_SECRET, APP_BASE_URL, FOUNDER_*_EMAIL / _TIMEZONE, GOOGLE_OAUTH_CLIENT_ID/SECRET, SHEETS_SPREADSHEET_ID, GOOGLE_SERVICE_ACCOUNT_KEY_BASE64, PRIVATE_SHEET_ID_*, CONNECTORS_ENCRYPTION_KEY(_PREVIOUS). Also env-only: INSTAGRAM_ACCOUNTS_JSON, *_API_BASE_URL, TRACKER_DAILY_SUMMARY_*, CRON_SECRET.
+- Provider links were written 2026-11-09 without network access to the providers; menu names may differ slightly. Status: VERIFIED_FAKE (fake Sheets, fake Wise, DEMO); not run with real credentials.
+
+## Backups
+Hub row "Backups" (D087): BACKUP_DRIVE_FOLDER_ID (required), BACKUP_RETENTION_DAYS, BACKUP_JOB_TOKEN / BACKUP_JOB_SECRET. Test = list the backups folder (read-only). Details: docs/DEPLOYMENT.md › Backups.
+
 ## Expiring credentials
 `drive.file` access tokens last about an hour and live only in an encrypted cookie; expiry means one more consent click.
-No token is ever stored in Sheets. The builder's Claude account is never used at runtime.
+No token is stored in clear in Sheets (connector keys: ciphertext only, D087). The builder's Claude account is never used at runtime.
 
 ## Instagram and the snapshot job (Stage 3, D079)
 **Credentials (env only, never Sheets).** Preferred path (spec 7): a Meta app with Facebook Login, the Instagram professional account linked to a Facebook Page, and a **System User** token from Business Settings (does not expire) with `instagram_basic`, `instagram_manage_insights`, `pages_show_list`, `pages_read_engagement`. Standard Access on the founders' own accounts needs no App Review; Advanced Access (and Meta business verification) is only needed to read accounts the app's business does not own. Fallback: Instagram Login with `instagram_business_basic` + `instagram_business_manage_insights` (60-day long-lived token, refreshed with `GET graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token` before expiry; set `INSTAGRAM_API_BASE_URL=https://graph.instagram.com/v21.0` and `INSTAGRAM_TOKEN_EXPIRES_AT`).

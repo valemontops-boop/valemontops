@@ -1267,6 +1267,27 @@ export const TABLES = {
       consent_version: text(40),
     },
   },
+  /* ----- D087: in-app connector vault ----- */
+  /**
+   * One row per connector secret (id = UUIDv5("connector-secret", variable name)). ONLY AES-256-GCM ciphertext, its
+   * IV and tag, the id of the key that sealed it, the last 4 characters of a long value and a keyed fingerprint.
+   * The key is never in Sheets (HKDF from CONNECTORS_ENCRYPTION_KEY, else SESSION_SECRET). Deleting clears the
+   * ciphertext and archives the row. Plain (non-secret) connector settings live in SystemSettings ("connector:NAME").
+   */
+  IntegrationSecrets: {
+    domain: "settings",
+    shape: {
+      ...base,
+      integration: reqText(40),
+      field: reqText(80),
+      ciphertext: text(16_000),
+      iv: text(40),
+      tag: text(40),
+      key_version: text(40),
+      last4: text(8),
+      fingerprint: text(40),
+    },
+  },
   /* ----- private founder spreadsheets only (spec 4.7) ----- */
   PrivateTasks: { domain: "private", shape: taskShape() },
 } as const;

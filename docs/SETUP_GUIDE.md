@@ -37,8 +37,8 @@ d'administration sur le compte concerné.
       dépôt GitHub `valemontops-boop/valemontops`, un compte Vercel, l'accès administrateur Wise Business, Stripe,
       Meta Business (Page Facebook + comptes Instagram professionnels), les Pages LinkedIn, GA4, Search Console,
       l'hébergement des sites (Netlify ou autre), et Make, Zapier ou n8n si vous voulez le relais de la boîte.
-- [ ] Un ordinateur avec un terminal et **Node.js 22** installé (https://nodejs.org) pour la Phase 3 (on n'en a
-      besoin qu'une fois, puis à chaque mise à jour qui ajoute des onglets).
+- [ ] Rien à installer : plus besoin de terminal ni de Node.js. La base de données se prépare depuis l'application
+      (Phase 3).
 - [ ] Un gestionnaire de mots de passe partagé (1Password, Bitwarden…) pour garder une copie des secrets générés.
 
 **Débloque :** rien encore, mais évite d'être bloqué au milieu.
@@ -57,15 +57,19 @@ d'administration sur le compte concerné.
 
 ### Phase 2 · Mise en ligne sur Vercel (Théo ou Pablo · 45 min)
 
-- [ ] Importer le dépôt GitHub dans Vercel, plan **Pro**, région Paris.
-- [ ] Remplir les variables obligatoires (liste en §2.4), ajouter le domaine, redéployer.
+- [ ] Cliquer sur le bouton **Deploy with Vercel** du README (ou importer le dépôt dans Vercel), plan **Pro**, région
+      Paris. Le formulaire ne demande que les variables de démarrage.
+- [ ] Ouvrir `https://<votre-app>/setup` : la page liste ce qui manque encore (noms seulement, jamais de valeur), où
+      le trouver, génère `SESSION_SECRET` et affiche les adresses de redirection à coller dans Google Cloud.
+      Ajouter ce qui manque dans Vercel, redéployer, cliquer « Vérifier à nouveau ».
 
 **Débloque :** l'application en ligne en mode LIVE (sans les variables, elle affiche une page de configuration,
 jamais la démo).
 
-### Phase 3 · Premier démarrage (la personne qui a Node · 30 min, puis les deux · 10 min)
+### Phase 3 · Premier démarrage (les deux · 10 min)
 
-- [ ] `npm run setup:sheets` puis `npm run doctor:sheets` sur le vrai Sheet : tout en ✓.
+- [ ] Le premier qui se connecte arrive sur la page **Installation** et clique sur **Préparer la base de données** :
+      l'application crée les onglets et en-têtes du Sheet, puis vérifie tout. Ensuite, Ma journée s'ouvre.
 - [ ] Théo se connecte, Pablo se connecte dans un autre navigateur ; un compte non fondateur est refusé.
 - [ ] Réglages › Calendriers et Réglages › Espace de travail : coller les identifiants d'agendas et du dossier Drive.
 
@@ -135,8 +139,10 @@ et messages arrivent dans Ma journée.
 
 ### 2.1 Générer un secret (utile partout)
 
-Plusieurs variables sont des secrets que **vous inventez** (pas fournis par un service). Génère-les sur ton
-ordinateur, colle-les dans Vercel et dans le gestionnaire de mots de passe :
+Plusieurs variables sont des secrets que **vous inventez** (pas fournis par un service). Pour `SESSION_SECRET`, le
+plus simple : le bouton **Générer un secret** de la page `/setup` de l'application (généré dans ton navigateur,
+envoyé nulle part). Sinon, ou pour les autres secrets, génère-les sur ton ordinateur ou avec le générateur de ton
+gestionnaire de mots de passe, colle-les dans Vercel et dans le gestionnaire de mots de passe :
 
 | Besoin | macOS / Linux (Terminal) | Windows (PowerShell 7) |
 |---|---|---|
@@ -162,12 +168,9 @@ données), lit le dossier Drive partagé, lit les agendas et fait les sauvegarde
    `valemont-os@<projet>.iam.gserviceaccount.com`. (Doc : https://cloud.google.com/iam/docs/service-accounts-create)
 4. Ouvre le compte de service › onglet **Clés › Ajouter une clé › Créer une clé › JSON**. Un fichier se télécharge.
    (Doc : https://cloud.google.com/iam/docs/keys-create-delete)
-5. Encode-le en base64 et copie-le dans le presse-papiers :
-   - macOS : `base64 -i key.json | pbcopy`
-   - Linux : `base64 -w0 key.json`
-   - Windows : `[Convert]::ToBase64String([IO.File]::ReadAllBytes("key.json")) | Set-Clipboard`
-6. Colle la valeur dans Vercel (Phase 2) sous `GOOGLE_SERVICE_ACCOUNT_KEY_BASE64`, puis **supprime le fichier
-   `key.json`** (et vide la corbeille).
+5. Ouvre le fichier avec un éditeur de texte (Bloc-notes, TextEdit), copie **tout** son contenu.
+6. Colle-le tel quel dans Vercel (Phase 2) sous `GOOGLE_SERVICE_ACCOUNT_KEY_BASE64` (le base64 du fichier marche
+   aussi, pour ceux qui ont l'habitude), puis **supprime le fichier `key.json`** (et vide la corbeille).
 
 **Variables :** `GOOGLE_SERVICE_ACCOUNT_KEY_BASE64`.
 
@@ -190,11 +193,11 @@ candidatures de chacun, invisibles pour l'autre.
 4. (Facultatif) **Chacun** crée **depuis son propre compte** un tableur « Valemont OS – privé <prénom> », le partage
    avec le compte de service en **Éditeur** (et avec personne d'autre) → `PRIVATE_SHEET_ID_THEO`,
    `PRIVATE_SHEET_ID_PABLO`.
-5. Les onglets et en-têtes sont créés en Phase 3 par `npm run setup:sheets`.
+5. Les onglets et en-têtes sont créés en Phase 3 par le bouton **Préparer la base de données** de l'application.
 
 **Variables :** `SHEETS_SPREADSHEET_ID` (obligatoire), `PRIVATE_SHEET_ID_THEO`, `PRIVATE_SHEET_ID_PABLO` (facultatives).
 
-**Vérifier :** Réglages › Intégrations › Google Sheets › **Tester la connexion** ; `npm run doctor:sheets` tout en ✓.
+**Vérifier :** Réglages › Diagnostic › Vérification de la base de données › **Vérifier** : tout en « OK ».
 
 **Problèmes fréquents**
 - *Permission refusée* : le partage a été fait avec une autre adresse, ou en Lecteur au lieu d'Éditeur.
@@ -295,9 +298,14 @@ https://support.google.com/cloud/answer/13463073)
 **À quoi ça sert :** héberger l'application, garder les secrets, lancer les deux tâches planifiées.
 
 **Étapes**
-1. https://vercel.com › **Add New › Project** › **Import Git Repository** › autorise l'app GitHub de Vercel sur
-   `valemontops-boop/valemontops` › Framework : Next.js (détecté), build par défaut.
-   (Doc : https://vercel.com/docs/getting-started-with-vercel/import)
+1. Le plus simple : le bouton **Deploy with Vercel** en haut du `README.md` (section « Deploy (LIVE, no terminal) »).
+   Il ouvre Vercel avec un formulaire qui ne demande que les variables de démarrage (`APP_MODE=live`,
+   `SESSION_SECRET`, les deux adresses, l'ID et le secret OAuth, `SHEETS_SPREADSHEET_ID`, la clé du compte de
+   service). Pour `SESSION_SECRET`, si tu n'as pas encore de valeur, mets-en une provisoire : la page `/setup` en
+   génère une vraie après le déploiement. Le bouton copie le dépôt dans ton compte GitHub ; si le projet Vercel existe
+   déjà, ajoute plutôt les variables dans Settings › Environment Variables.
+   Autre voie : https://vercel.com › **Add New › Project** › **Import Git Repository** › `valemontops-boop/valemontops`
+   › Framework : Next.js (détecté), build par défaut. (Doc : https://vercel.com/docs/getting-started-with-vercel/import)
 2. **Plan Pro** : le plan Hobby est réservé à un usage personnel non commercial et ne permet pas une tâche toutes
    les 6 h. Un seul membre payant suffit. (Doc : https://vercel.com/docs/limits/fair-use-guidelines,
    https://vercel.com/docs/cron-jobs/usage-and-pricing)
@@ -305,9 +313,15 @@ https://support.google.com/cloud/answer/13463073)
 4. **Settings › Environment Variables** : ajoute chaque variable, environnement **Production**, et coche
    **Sensitive** pour tout secret (valeur ensuite illisible, même pour vous).
    (Doc : https://vercel.com/docs/environment-variables). Minimum pour démarrer :
-   `APP_MODE=live`, `SESSION_SECRET`, `APP_BASE_URL`, `FOUNDER_THEO_EMAIL`, `FOUNDER_PABLO_EMAIL`,
-   `FOUNDER_THEO_TIMEZONE`, `FOUNDER_PABLO_TIMEZONE`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`,
-   `SHEETS_SPREADSHEET_ID`, `GOOGLE_SERVICE_ACCOUNT_KEY_BASE64`, `CRON_SECRET`, `LOG_LEVEL=info`.
+   `APP_MODE=live`, `SESSION_SECRET`, `FOUNDER_THEO_EMAIL`, `FOUNDER_PABLO_EMAIL`, `GOOGLE_OAUTH_CLIENT_ID`,
+   `GOOGLE_OAUTH_CLIENT_SECRET`, `SHEETS_SPREADSHEET_ID`, `GOOGLE_SERVICE_ACCOUNT_KEY_BASE64`. Facultatives :
+   `APP_BASE_URL` (sans elle, l'adresse Vercel du déploiement est utilisée), `FOUNDER_THEO_TIMEZONE` /
+   `FOUNDER_PABLO_TIMEZONE` (par défaut Europe/Paris / Europe/Madrid). À ajouter ensuite : `CRON_SECRET`,
+   `LOG_LEVEL=info`.
+   **La page `https://<votre-app>/setup`** te guide : elle dit pour chaque variable si elle est définie, manquante
+   ou à corriger (jamais sa valeur), où trouver la valeur, a un bouton **Générer un secret** pour `SESSION_SECRET`
+   (généré dans ton navigateur, envoyé nulle part) et affiche les trois **URI de redirection** exactes à coller dans
+   Google Auth Platform › Clients. Après chaque ajout : Redeploy, puis **Vérifier à nouveau**.
 5. **Settings › Domains** › ajoute `os.<domaine>` › crée chez ton registrar l'enregistrement DNS indiqué (CNAME) ›
    attends le certificat. Mets `APP_BASE_URL=https://os.<domaine>` (sans `/` final).
    (Doc : https://vercel.com/docs/domains/working-with-domains/add-a-domain)
@@ -324,23 +338,29 @@ test et de démo). `INSTAGRAM_API_BASE_URL` seulement dans le cas Instagram Logi
 **Vérifier :** `https://os.<domaine>/api/health` répond `{"status":"ok"}` ou `"degraded"` (`fail` = une variable
 obligatoire manque ou le Sheet est inaccessible).
 
-**Problèmes fréquents :** page « configuration requise » = une variable obligatoire manque (le nom est affiché) ;
+**Problèmes fréquents :** page « configuration requise » (`/setup`) = une variable obligatoire manque (le nom est affiché) ;
 variable ajoutée mais rien ne change = pas redéployé.
 
 ### 2.8 Premier démarrage (Phase 3)
 
-Ces commandes préparent le Sheet. Elles se lancent **une fois** depuis un ordinateur, avec vos propres accès.
+Plus besoin de terminal : la base se prépare depuis l'application.
 
-1. Récupère le code : `git clone https://github.com/valemontops-boop/valemontops.git` puis `cd valemontops` et
-   `npm ci`.
-2. Copie `.env.example` en `.env.local` et remplis au moins `APP_MODE=live`, `SHEETS_SPREADSHEET_ID`,
-   `GOOGLE_SERVICE_ACCOUNT_KEY_BASE64` (les mêmes valeurs que dans Vercel). Ce fichier n'est jamais envoyé sur GitHub.
-3. `npm run setup:sheets` : crée les onglets et en-têtes, fige les en-têtes, ajoute une protection d'avertissement.
-   Sans danger à relancer : il n'efface jamais rien. À relancer après chaque mise à jour qui ajoute des colonnes.
-4. `npm run doctor:sheets` : chaque contrôle doit être ✓ (partage, en-têtes, doublons, schéma).
-5. **Supprime `.env.local`** une fois fini (ou garde-le chiffré) : il contient la clé du compte de service.
-6. Dans l'application : Théo se connecte, Pablo se connecte dans un autre navigateur. Remplissez Réglages ›
-   Calendriers et Réglages › Espace de travail. Ouvrez **Réglages › Diagnostic** : santé « prête ».
+1. Ouvre l'application et clique sur **Se connecter avec Google** (Théo ou Pablo, peu importe qui commence).
+2. Tant que le Sheet n'est pas prêt, tu arrives sur la page **Installation**. Clique sur **Préparer la base de
+   données** : l'application crée les onglets et les en-têtes, fige les en-têtes, ajoute une protection
+   d'avertissement et les réglages de départ, puis lance la vérification. L'avancement s'affiche, avec le résultat
+   onglet par onglet. Sans danger à relancer : elle n'efface et n'écrase jamais rien.
+3. Si le compte de service n'a pas l'accès **Éditeur**, la page le dit et affiche l'adresse exacte du compte de
+   service : Partager › colle l'adresse › Éditeur › décoche la notification › Partager, puis reclique.
+4. Ton Sheet privé (si `PRIVATE_SHEET_ID_<prénom>` est défini) est préparé en même temps ; chacun prépare le sien à
+   sa première connexion (l'application ne touche jamais au Sheet privé de l'autre).
+5. Ensuite, Ma journée s'ouvre. Pablo se connecte dans un autre navigateur ; un compte non fondateur est refusé.
+   Remplissez Réglages › Calendriers et Réglages › Espace de travail. **Réglages › Diagnostic** : santé « prête », et
+   **Vérifier** (vérification de la base de données) quand vous voulez.
+6. Après une mise à jour qui ajoute des onglets ou des colonnes, la page Installation revient une fois : un clic.
+
+Pour les développeurs, les commandes `npm run setup:sheets` et `npm run doctor:sheets` font la même chose depuis un
+terminal (voir `docs/DEPLOYMENT.md` §5).
 
 ### 2.9 Wise (banque, lecture seule)
 
@@ -620,14 +640,14 @@ Intégrations) ; « Envoyer cette période » rattrape un trou sans doublon.
 |---|---|---|---|
 | `APP_MODE` | Obligatoire (`live`) | Vous | Base |
 | `SESSION_SECRET` | Obligatoire | Vous (`openssl rand -base64 48`) | Base |
-| `APP_BASE_URL` | Obligatoire | Votre domaine, `https://…` sans `/` final | Base, Sign-In, webhooks |
+| `APP_BASE_URL` | Facultative sur Vercel (adresse du déploiement par défaut), obligatoire ailleurs | Votre domaine, `https://…` sans `/` final | Base, Sign-In, webhooks |
 | `SYNC_POLL_SECONDS` | Optionnelle (30) | 30 à 60 | Base |
 | `LOG_LEVEL` | Optionnelle (`info`) | `debug` / `info` / `warn` / `error` / `silent` | Journaux |
 | `FOUNDER_THEO_EMAIL`, `FOUNDER_PABLO_EMAIL` | Obligatoires | Vos adresses Google | Sign-In |
-| `FOUNDER_THEO_TIMEZONE`, `FOUNDER_PABLO_TIMEZONE` | Obligatoires | `Europe/Paris`, `Europe/Madrid` | Base |
+| `FOUNDER_THEO_TIMEZONE`, `FOUNDER_PABLO_TIMEZONE` | Facultatives (défaut `Europe/Paris`, `Europe/Madrid`) | `Europe/Paris`, `Europe/Madrid` | Base |
 | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | Obligatoires | Google Auth Platform › Clients | Sign-In, Drive, Gmail |
 | `SHEETS_SPREADSHEET_ID` | Obligatoire | URL du Sheet | Google Sheets |
-| `GOOGLE_SERVICE_ACCOUNT_KEY_BASE64` | Obligatoire | Clé JSON du compte de service, en base64 | Sheets, Drive, Calendar, sauvegardes |
+| `GOOGLE_SERVICE_ACCOUNT_KEY_BASE64` | Obligatoire | Clé JSON du compte de service, collée telle quelle ou en base64 | Sheets, Drive, Calendar, sauvegardes |
 | `PRIVATE_SHEET_ID_THEO`, `PRIVATE_SHEET_ID_PABLO` | Optionnelles | URL du Sheet privé de chacun | Google Sheets (privé) |
 | `WISE_API_TOKEN` | Optionnelle (oblig. pour Wise) | Wise › Paramètres › API tokens (Read only) | Wise |
 | `WISE_PROFILE_ID` | Optionnelle | `GET /v2/profiles` (profil BUSINESS) | Wise |

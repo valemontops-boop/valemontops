@@ -3,11 +3,12 @@ import { RATE, guardInbound } from "@/server/guard";
 import { metaToItems } from "@/domain/inbox";
 import { metaChallenge, verifyHmacSha256 } from "@/server/inbox-webhook";
 import { getContext } from "@/server/repo";
+import { resolveSecret } from "@/server/connectors";
 import { ingestInboxItems, instagramLabels } from "@/server/services/inbox";
 
 /** Meta subscription check: echoes hub.challenge when hub.verify_token equals META_VERIFY_TOKEN. */
 export async function GET(req: NextRequest) {
-  const challenge = metaChallenge(req.nextUrl.searchParams, process.env.META_VERIFY_TOKEN);
+  const challenge = metaChallenge(req.nextUrl.searchParams, await resolveSecret("META_VERIFY_TOKEN"));
   return challenge === null ? NextResponse.json({ error: "forbidden" }, { status: 403 }) : new NextResponse(challenge, { status: 200, headers: { "content-type": "text/plain" } });
 }
 
@@ -16,7 +17,7 @@ export async function GET(req: NextRequest) {
  * raw body with META_APP_SECRET), turned into "to reply" items. Nothing is ever answered automatically.
  */
 export async function POST(req: NextRequest) {
-  const secret = process.env.META_APP_SECRET;
+  const secret = await resolveSecret("META_APP_SECRET"); // env first, then the app's vault (D087)
   if (!secret) return NextResponse.json({ error: "not_configured" }, { status: 503 });
   const got = await guardInbound(req, "meta", { maxBytes: 500_000, rule: RATE.webhook }); // rate limit + streaming size cap (D084)
   if ("refuse" in got) return got.refuse;

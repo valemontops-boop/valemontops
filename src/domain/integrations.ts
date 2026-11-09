@@ -4,7 +4,7 @@
  */
 
 export const INTEGRATION_KEYS = [
-  "sheets", "signin", "drive", "calendar", "gmail", "wise", "stripe", "instagram", "linkedin", "ga4", "search_console", "website", "inbox", "tracker", "snapshot",
+  "sheets", "signin", "drive", "calendar", "gmail", "wise", "stripe", "instagram", "linkedin", "ga4", "search_console", "website", "inbox", "tracker", "snapshot", "backup",
 ] as const;
 export type IntegrationKey = (typeof INTEGRATION_KEYS)[number];
 
@@ -55,6 +55,7 @@ export const INTEGRATIONS: readonly IntegrationSpec[] = [
   { key: "inbox", name: "To reply inbox", does: "Comments and messages pushed by a relay (Make, Zapier, n8n) or by Meta, to reply by hand.", mode: "webhook_in", kind: "credential", env: env(["INBOX_WEBHOOK_SECRET"], ["META_APP_SECRET", "META_VERIFY_TOKEN"]), scopes: [], actions: ["test"], docs: "inbox", href: "/my-day", note: "Nothing is ever sent automatically." },
   { key: "tracker", name: "My tracker", does: "Sends each of your activities to your personal tracker (signed), and a pull feed.", mode: "webhook_out", kind: "credential", env: env(["TRACKER_WEBHOOK_URL_{F}", "TRACKER_WEBHOOK_SECRET_{F}"], ["TRACKER_FEED_TOKEN_{F}", "TRACKER_DAILY_SUMMARY_{F}"]), scopes: [], actions: ["test"], docs: "my-tracker", href: null, note: "" },
   { key: "snapshot", name: "Snapshot job", does: "Captures Instagram numbers every 6 hours when an external scheduler calls the job.", mode: "scheduler", kind: "credential", env: env([], ["SNAPSHOT_JOB_SECRET", "SNAPSHOT_JOB_TOKEN"]), scopes: [], actions: ["sync"], docs: "instagram-and-the-snapshot-job", href: "/marketing/content", note: "Without a scheduler, the first visit of each 6-hour slot starts the capture." },
+  { key: "backup", name: "Backups", does: "Copies the spreadsheet every day into a Drive folder and checks the copy.", mode: "scheduler", kind: "credential", env: env(["BACKUP_DRIVE_FOLDER_ID"], ["BACKUP_RETENTION_DAYS", "BACKUP_JOB_TOKEN", "BACKUP_JOB_SECRET"]), scopes: ["drive (service account, backups folder only)"], actions: ["test"], docs: "backups", href: null, note: "Without a scheduler, the first visit of the day starts the copy." },
 ];
 
 export const RENEW_BEFORE_DAYS = 14;

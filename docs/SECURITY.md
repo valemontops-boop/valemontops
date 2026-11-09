@@ -69,7 +69,9 @@ before the signature is verified.
 | `/api/jobs/backup` | timestamp + HMAC (`BACKUP_JOB_SECRET`) or bearer `BACKUP_JOB_TOKEN` / Vercel `CRON_SECRET` | idempotent per day | 10 kB |
 | `/api/tracker/feed` | bearer per founder, constant-time, all founders checked (`src/server/tracker-auth.ts`) | read-only | — |
 
-Unconfigured secret → the endpoint refuses everything (503). Residual: rate limits are per instance (several
+Secrets are resolved env first, then the connector vault (D087, §12b); the vault read is cached 60 s per instance,
+so an unauthenticated flood causes at most one `IntegrationSecrets`/`SystemSettings` read per minute per instance
+before verification (no business tab is touched before the signature). Unconfigured secret → the endpoint refuses everything (503). Residual: rate limits are per instance (several
 Vercel instances each keep a window; a restart resets it) — an abuse brake, not a guarantee; the client IP comes
 from `x-forwarded-for`, trustworthy on Vercel, spoofable on a host without a proxy that overwrites it.
 
@@ -132,9 +134,30 @@ delivery target (spec 3.15).
 
 ## 12. Secrets
 
-Environment variables only (`.env.example` lists names, never values). Never in Sheets, logs (redaction), the
+Environment variables, or the encrypted connector vault for integration keys (§12b, D087: ciphertext only in the
+Sheet, key in the environment). `.env.example` lists names, never values. Never in clear in Sheets, logs (redaction), the
 browser, the preview or the repository (scan test). Rotation: `docs/INTEGRATIONS.md` (tokens), `docs/DEPLOYMENT.md`
 (session secret, job tokens). The building Claude account and its connectors are never used on Valemont's resources.
+
+## 12b. Connector vault (D087: in-app connector setup)
+
+Keys pasted in Settings › Integrations › Configure are stored in the `IntegrationSecrets` tab as AES-256-GCM
+ciphertext only (`src/server/vault-crypto.ts`, `src/server/services/vault.ts`). This deliberately amends spec §4 "no
+secrets in Sheets": only ciphertext, the key stays in the environment, env variables still win.
+
+| | Threat | Mitigation |
+|---|---|---|
+| I | The Sheet (or a backup copy / JSON download) leaks | Only ciphertext + 12-byte IV + 128-bit tag + key id + last 4 characters of long values + keyed fingerprint. The key is HKDF-SHA256 from `CONNECTORS_ENCRYPTION_KEY` (32+ random bytes) and never written anywhere but the host env. Non-secret ids (Wise profile, Instagram account, Drive folder, retention) are plain in SystemSettings by design. |
+| T | A Sheet editor edits or swaps a ciphertext | GCM authentication with associated data = row id + integration + field + key version: a changed or moved cell fails to decrypt and is shown "unreadable, paste again"; it is never used. Wise's webhook public key is stored encrypted for the same integrity reason. |
+| I | The encryption key leaks | Rotate: new key in `CONNECTORS_ENCRYPTION_KEY`, old one in `CONNECTORS_ENCRYPTION_KEY_PREVIOUS`, "Re-encrypt with the new key" (rows carry `key_version`), then rotate the provider keys themselves (a leaked key + a Sheet copy reveals them). Without a dedicated key the key derives from `SESSION_SECRET` (distinct HKDF label): weaker separation, and rotating SESSION_SECRET makes saved keys unreadable (documented trade-off; the hub recommends the dedicated key). An invalid dedicated key blocks writes instead of downgrading. |
+| I | A saved value is read back through the app | Write-only API: `GET /api/integrations/vault` returns source, last 4 (values ≥ 16 chars only), who, when, version — never a value; generated secrets are returned once in the generate response. Conflicts (409) carry metadata only. Logs: no bodies + redaction; AuditLog: field names only and no input hash for this path (`isVaultPath`). |
+| S/E | Someone else changes connectors | `route()`: founder session, `role === "founder"`, same-origin, Zod; tracker fields always resolve to the signed-in founder's own variables; bootstrap values (APP_MODE, SESSION_SECRET, OAuth client, Sheet id, service account, encryption key…) cannot be stored in the vault. |
+| D | Flood of changes | 20 vault changes per founder per minute per instance → 429. |
+| R | Who changed a key | AuditLog row per change (actor, action, field names, status) + `updated_by`/`updated_at` on the row. |
+| — | DEMO / preview | Random in-memory key per process, never an env key; banner "nothing is really saved"; demo ports never reach a real provider. |
+
+Residual: the decrypted values live in server memory (like env variables) for up to 60 s per cache period; a founder
+with the encryption key and the Sheet can read every connector key (they own them anyway).
 
 ## Health endpoint exposure
 

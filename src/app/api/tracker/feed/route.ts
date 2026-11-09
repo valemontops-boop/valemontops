@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { RATE, clientIp, ipHash, rateLimit } from "@/server/guard";
 import { ZodError } from "zod";
 import { getContext } from "@/server/repo";
+import { connectorEnv } from "@/server/connectors";
 import { RuleError } from "@/server/errors";
 import { founderForFeedToken } from "@/server/tracker-auth";
 import { feedSchema, trackerFeed } from "@/server/services/tracker";
@@ -13,7 +14,7 @@ import { feedSchema, trackerFeed } from "@/server/services/tracker";
 export async function GET(req: NextRequest) {
   const wait = rateLimit("tracker-feed", ipHash(clientIp(req)), RATE.feed);
   if (wait) return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: { "retry-after": String(wait) } });
-  const founder = founderForFeedToken(req.headers.get("authorization"));
+  const founder = founderForFeedToken(req.headers.get("authorization"), await connectorEnv()); // env first, then the app (D087)
   if (!founder) return NextResponse.json({ error: "unauthenticated" }, { status: 401, headers: { "www-authenticate": "Bearer", "cache-control": "no-store" } });
   try {
     const input = feedSchema.parse(Object.fromEntries(req.nextUrl.searchParams.entries()));

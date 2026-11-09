@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { RATE, guardInbound } from "@/server/guard";
 import { verifyJobBearer, verifyJobSignature } from "@/server/job-auth";
 import { getContext } from "@/server/repo";
+import { resolveSecret } from "@/server/connectors";
 import { runSnapshot } from "@/server/services/snapshot";
 
 /**
@@ -10,9 +11,9 @@ import { runSnapshot } from "@/server/services/snapshot";
  * Idempotent per capture slot: a repeat returns "skipped". docs/INTEGRATIONS.md › Instagram.
  */
 export async function POST(req: NextRequest) {
-  const secret = process.env.SNAPSHOT_JOB_SECRET;
-  // Vercel Cron sends `Authorization: Bearer <CRON_SECRET>` on a GET (D084, docs/DEPLOYMENT.md).
-  const tokens = [process.env.SNAPSHOT_JOB_TOKEN, process.env.CRON_SECRET].filter((t): t is string => Boolean(t));
+  // Env first, then the value saved in the app (D087). Vercel Cron sends `Authorization: Bearer <CRON_SECRET>` on a GET (D084).
+  const secret = await resolveSecret("SNAPSHOT_JOB_SECRET");
+  const tokens = [await resolveSecret("SNAPSHOT_JOB_TOKEN"), process.env.CRON_SECRET].filter((t): t is string => Boolean(t));
   if (!secret && !tokens.length) return NextResponse.json({ error: "not_configured" }, { status: 503 });
   const got = await guardInbound(req, "job-snapshot", { maxBytes: 10_000, rule: RATE.job }); // rate limit + streaming size cap (D084)
   if ("refuse" in got) return got.refuse;

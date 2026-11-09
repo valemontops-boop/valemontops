@@ -6,6 +6,31 @@ Stages 1A + 1B: sign-in, LIVE/DEMO modes, simple CRM board, CSV import/export, o
 and reports, notifications, Agenda and Founder Points (shared calendars), Idea Box, Files (Drive), Audience with LinkedIn
 import, private job search, opt-out hard block, WhatsApp daily report.
 
+## Deploy (LIVE, no terminal)
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvalemontops-boop%2Fvalemontops&project-name=valemont-os&repository-name=valemont-os&env=APP_MODE,SESSION_SECRET,FOUNDER_THEO_EMAIL,FOUNDER_PABLO_EMAIL,GOOGLE_OAUTH_CLIENT_ID,GOOGLE_OAUTH_CLIENT_SECRET,SHEETS_SPREADSHEET_ID,GOOGLE_SERVICE_ACCOUNT_KEY_BASE64&envDescription=Only%20the%20variables%20needed%20before%20the%20first%20sign-in.%20APP_MODE%3A%20live.%20SESSION_SECRET%3A%2032%2B%20random%20characters%20%28the%20%2Fsetup%20page%20of%20the%20deployed%20app%20can%20generate%20one%29.%20GOOGLE_SERVICE_ACCOUNT_KEY_BASE64%3A%20the%20JSON%20key%20file%20content%2C%20as-is%20or%20base64.%20After%20deploying%2C%20open%20%2Fsetup%20on%20the%20app%20to%20see%20what%20is%20still%20missing.&envLink=https%3A%2F%2Fgithub.com%2Fvalemontops-boop%2Fvalemontops%2Fblob%2Fmain%2Fdocs%2FSETUP_GUIDE.md)
+
+The button asks only for the variables needed before the first sign-in (D086): `APP_MODE` (`live`), `SESSION_SECRET`,
+`FOUNDER_THEO_EMAIL`, `FOUNDER_PABLO_EMAIL`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`,
+`SHEETS_SPREADSHEET_ID`, `GOOGLE_SERVICE_ACCOUNT_KEY_BASE64` (the JSON key file, pasted as-is or in base64).
+`APP_BASE_URL` defaults to the Vercel address of the deployment, and the time zones to `Europe/Paris` /
+`Europe/Madrid`. Vercel's clone flow copies the repository into your Git account; for an existing Vercel project,
+add the same variables in Settings › Environment Variables instead.
+
+After deploying:
+
+1. Open `https://<your-app>/setup`: it lists which of these variables are still missing or invalid (names only,
+   never a value), where to find each one, generates a `SESSION_SECRET` in the browser, and shows the exact Google
+   sign-in redirect URIs to paste in Google Cloud. Add what is missing in Vercel, redeploy, click "Check again".
+2. Sign in with Google. The first founder lands on **Installation** and clicks **Prepare the database**: the app
+   creates the tabs and headers of the Sheet (the same idempotent logic as `npm run setup:sheets`, then
+   `npm run doctor:sheets`), and the founder's private Sheet if `PRIVATE_SHEET_ID_*` is set. If the service account
+   is not an Editor of the Sheet, the page says so and shows the address to share it with. Then My Day opens.
+3. Later: Settings › Diagnostics › **Check** runs the doctor again. After an update that adds tabs or columns, the
+   Installation page comes back once.
+
+The CLI scripts below keep working for local use.
+
 ## Try it now (DEMO, no credentials)
 
 ```bash
@@ -69,7 +94,8 @@ Use Valemont's Google accounts for all of this, never a personal or builder acco
    base64 -i service-account.json | tr -d '\n'
    ```
 
-8. **Prepare the tabs** (idempotent, never overwrites data), then check everything:
+8. **Prepare the tabs** (idempotent, never overwrites data), then check everything. Deployed in LIVE, the app does
+   this itself from the Installation page after the first sign-in (D086); locally:
 
    ```bash
    npm run setup:sheets

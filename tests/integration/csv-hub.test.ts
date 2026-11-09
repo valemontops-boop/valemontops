@@ -148,7 +148,7 @@ describe("Integrations Hub status mapping (spec 7, 4.12)", () => {
     expect(JSON.stringify(e)).not.toContain("tracker.example.com");
   });
   it("lists every integration of spec 7 once", () => {
-    expect(INTEGRATIONS.map((i) => i.key)).toEqual(["sheets", "signin", "drive", "calendar", "gmail", "wise", "stripe", "instagram", "linkedin", "ga4", "search_console", "website", "inbox", "tracker", "snapshot"]);
+    expect(INTEGRATIONS.map((i) => i.key)).toEqual(["sheets", "signin", "drive", "calendar", "gmail", "wise", "stripe", "instagram", "linkedin", "ga4", "search_console", "website", "inbox", "tracker", "snapshot", "backup"]);
   });
   it("DEMO: no integration claims a real connection; LinkedIn is awaiting approval; actions never sync", async () => {
     const h = await integrationHub(ctx, "theo", { gmail: true, drive: false }, { WEBSITE_WEBHOOK_SECRET: "s".repeat(40) });

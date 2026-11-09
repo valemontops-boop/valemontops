@@ -10,9 +10,11 @@ import { syncBank, syncStripe } from "./bank";
 import { runSnapshot } from "./snapshot";
 import { trackerAction } from "./tracker";
 import { integrationStatusId, recordIntegration } from "./integration-status";
+import { connectorEnvSync, connectorSource } from "../connector-env";
 
 type Env = Record<string, string | undefined>;
-const processEnv = (): Env => (typeof process !== "undefined" && process.env ? process.env : {});
+/** Env first, then the values saved in the app (D087). */
+const processEnv = (): Env => connectorEnvSync();
 /** Grants held in this browser's encrypted cookies (never server-side). */
 export interface Grants { gmail: boolean; drive: boolean }
 
@@ -28,6 +30,7 @@ const STATUS_IDS: Partial<Record<IntegrationKey, (f: FounderKey) => string>> = {
   inbox: () => integrationStatusId("inbox"),
   tracker: (f) => childId("integration", "tracker", f),
   snapshot: () => childId("integration", "instagram"),
+  backup: () => integrationStatusId("backup"),
 };
 const SUFFIX: Record<FounderKey, string> = { theo: "THEO", pablo: "PABLO" };
 const NO_TEST = new Set(["import_only", "pending_approval", "not_configured"]);
@@ -39,7 +42,7 @@ const maxIso = (xs: (string | null | undefined)[]) => xs.reduce<string | null>((
  * names it needs (presence only, never values), last sync/import, last error and its time, expiry, and actions.
  */
 export async function integrationHub(ctx: AppContext, founder: FounderKey, grants: Grants, env: Env = processEnv(), now = new Date()) {
-  const t = await ctx.repo.listMany(["IntegrationStatuses", "SystemSettings", "CalendarSources", "SnapshotRuns", "SocialAccounts", "SocialAccountDaily", "TrafficDaily", "SearchConsoleRows", "WebsiteSubmissions", "InboxItems"]);
+  const t = await ctx.repo.listMany(["IntegrationStatuses", "SystemSettings", "CalendarSources", "SnapshotRuns", "SocialAccounts", "SocialAccountDaily", "TrafficDaily", "SearchConsoleRows", "WebsiteSubmissions", "InboxItems", "BackupRuns"]);
   const statusById = new Map(t.IntegrationStatuses.rows.map((r) => [r.id, r]));
   const setting = (k: string) => t.SystemSettings.rows.find((r) => r.key === k && !r.is_archived)?.value ?? "";
   const live = ctx.mode === "live";
@@ -66,6 +69,7 @@ export async function integrationHub(ctx: AppContext, founder: FounderKey, grant
     website: { configured: has("WEBSITE_WEBHOOK_SECRET"), lastSync: maxIso(t.WebsiteSubmissions.rows.map((r) => r.created_at)), detail: "{n} forms in 30 days · {s} blocked by the suppression list.", detailVars: { n: String(subs30.length), s: String(subs30.filter((r) => r.outcome === "suppressed").length) } },
     inbox: { configured: has("INBOX_WEBHOOK_SECRET") || (has("META_APP_SECRET") && has("META_VERIFY_TOKEN")), lastSync: maxIso(t.InboxItems.rows.filter((r) => r.source !== "website_form").map((r) => r.created_at)) },
     tracker: { configured: has(`TRACKER_WEBHOOK_URL_${SUFFIX[founder]}`) && has(`TRACKER_WEBHOOK_SECRET_${SUFFIX[founder]}`), detail: "Yours only. Settings › My tracker." },
+    backup: { configured: live ? Boolean(ctx.backup?.drive && ctx.backup.folderId) : has("BACKUP_DRIVE_FOLDER_ID"), lastSync: maxIso(t.BackupRuns.rows.filter((r) => r.status === "done").map((r) => r.finished_at ?? r.started_at)) },
     snapshot: { configured: has("SNAPSHOT_JOB_SECRET") || has("SNAPSHOT_JOB_TOKEN"), lastSync: runs.find((r) => r.status === "done")?.finished_at ?? null, row: runs[0]?.status === "error" ? { status: "error", last_success_at: null, last_error: runs[0].error, updated_at: runs[0].finished_at } : null },
   };
 
@@ -76,7 +80,8 @@ export async function integrationHub(ctx: AppContext, founder: FounderKey, grant
     const { status, daysLeft } = hubStatus({ mode: ctx.mode, kind: spec.kind, configured: f.configured, row, expiresAt: f.expiresAt, now });
     return {
       key: spec.key, name: spec.name, does: spec.does, mode: spec.mode, status, scopes: spec.scopes, note: spec.note, docs: `docs/INTEGRATIONS.md#${spec.docs}`, href: spec.href,
-      env: envPresence(spec.env, env, SUFFIX[founder]),
+      // Where each value comes from (D087): "env" = host environment (wins), "app" = saved in Settings › Integrations.
+      env: envPresence(spec.env, env, SUFFIX[founder]).map((e) => ({ ...e, source: e.set ? (connectorSource(e.name) ?? "env") : null })),
       lastSync: f.lastSync !== undefined ? f.lastSync : row?.last_success_at ?? null,
       lastError: status === "error" && row ? row.last_error : "",
       lastErrorAt: status === "error" && row ? row.updated_at : null,
@@ -148,15 +153,22 @@ export async function testIntegration(ctx: AppContext, founder: FounderKey, inpu
     case "website": case "inbox": return run(async () => {
       // Self-check of the signature setup: signs a sample with the configured secret and verifies it. Nothing is stored.
       const secret = input.key === "website" ? env.WEBSITE_WEBHOOK_SECRET : env.INBOX_WEBHOOK_SECRET;
-      if (!secret) throw new RuleError("The secret is not set in the host's environment yet.");
+      if (!secret) throw new RuleError("The secret is not set yet: Configure › Generate.");
       if (secret.length < 32) throw new RuleError("The secret is too short: use 32+ random characters (openssl rand -hex 32).");
-      if (input.key === "website") {
+      // LIVE only: the browser preview (DEMO) has no real HMAC; DEMO's own webhook still verifies on the server.
+      if (input.key === "website" && ctx.mode === "live") {
         const sample = JSON.stringify({ event_id: "selftest-0001" });
         const s = signJob(sample, secret);
         if (!verifyJobSignature(sample, s.ts, s.sig, secret)) throw new Error("signature self-check failed");
       }
       return ok("Ready: the endpoint accepts correctly signed calls and refuses the rest.");
     }, null);
+    case "backup": return run(async () => {
+      if (ctx.mode === "demo") return ok(`Backups folder saved${demo}.`);
+      if (!ctx.backup?.drive || !ctx.backup.folderId) throw new RuleError("Set the backups folder first.");
+      const files = await ctx.backup.drive.list(ctx.backup.folderId);
+      return ok("Drive answers: {n} files in the backups folder.", { n: String(files.length) });
+    }, "backup");
     case "tracker": return run(async () => {
       await trackerAction(ctx, founder, { action: "test" }, env);
       return ok("Test event delivered to your tracker.");

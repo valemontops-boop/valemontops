@@ -22,6 +22,7 @@ import { TrackerPanel } from "./tracker-panel";
 import { CommercialSettings } from "./commercial-settings";
 import { AuditPanel, BackupsPanel, HealthPanel } from "./ops-panel";
 import { IntegrationsHub } from "./integrations-hub";
+import { InstallCheckPanel } from "./install-view";
 
 type Tab = "profile" | "targets" | "calendars" | "sprint" | "workspace" | "playbook" | "rules" | "suppression" | "diagnostics" | "integrations" | "tracker" | "commercial" | "roadmap";
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -218,6 +219,8 @@ function Diagnostics() {
           <dt className="text-text-3">{tr("Poll interval")}</dt><dd>{tr("{n} s (reads one small revision range)", { n: me.config.pollSeconds })}</dd>
         </dl>
       </Panel>
+      {/* D086: doctor:sheets from the app (LIVE). */}
+      {me.config.mode === "live" ? <InstallCheckPanel /> : null}
       {/* Stage 4B (D084): health, backups with restore, audit log. */}
       <HealthPanel />
       <BackupsPanel />

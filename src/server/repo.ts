@@ -14,8 +14,7 @@ import type { AppContext } from "./context";
 import { GoogleHttp } from "@/data/google/http";
 import { GmailSender, GoogleCalendarAdapter, GoogleDriveAdapter, GoogleDriveUploader } from "@/data/google/adapters";
 import { MemoryBank, demoWiseStore } from "@/fake-wise/store";
-import { WiseAdapter } from "@/data/bank/wise";
-import { StripeAdapter } from "@/data/bank/stripe";
+import { stripeFromEnv, wiseFromEnv } from "./connector-ports";
 import { instagramFromEnv } from "@/data/instagram/graph";
 import { MemoryStripe, demoStripeStore } from "@/fake-stripe";
 import { MemoryCalendar, MemoryDrive, MemoryDriveUploader, MemoryMailer } from "@/fake-google/store";
@@ -25,6 +24,14 @@ import { setActivitySink } from "./activity-hooks";
 import { trackerSink } from "./services/tracker";
 import { backupSettingsFromEnv, type BackupEnv } from "./services/backups";
 import { GoogleBackupDrive } from "@/data/google/backup-drive";
+import { connectorEnvSync } from "./connector-env";
+import { refreshConnectorEnv } from "./services/vault";
+
+type Env = Record<string, string | undefined>;
+/** LIVE: how to rebuild the connector ports when an in-app value changes (D087), and the values they were built with. */
+const rebuilders = new WeakMap<AppContext, { sig: string; build: (env: Env) => Partial<AppContext> }>();
+const PORT_VARS = ["WISE_API_TOKEN", "WISE_API_BASE_URL", "WISE_PROFILE_ID", "WISE_SCA_PRIVATE_KEY_BASE64", "STRIPE_API_KEY", "STRIPE_API_BASE_URL", "INSTAGRAM_API_BASE_URL", "INSTAGRAM_ACCOUNTS_JSON", "INSTAGRAM_ACCESS_TOKEN", "INSTAGRAM_BUSINESS_ACCOUNT_ID", "INSTAGRAM_ACCOUNT_KEY", "INSTAGRAM_TOKEN_EXPIRES_AT", "BACKUP_DRIVE_FOLDER_ID", "BACKUP_RETENTION_DAYS"];
+const portSig = (env: Env) => PORT_VARS.map((k) => env[k] ?? "").join("\u0000");
 
 export class SetupRequiredError extends Error {
   readonly code = "setup_required";
@@ -136,7 +143,16 @@ async function buildContext(cfg: AppConfig): Promise<AppContext> {
   const sheetsToken = sheetsTokenFor(cfg, key);
   const googleToken = serviceAccountTokenProvider(key, GOOGLE_SCOPES);
   const api = (process.env.GOOGLE_API_BASE_URL || "https://www.googleapis.com").replace(/\/$/, "");
-  return {
+  // Connector ports from the environment first, then the in-app values (D087); rebuilt by getContext() on change.
+  const ports = (env: Env): Partial<AppContext> => ({
+    bank: wiseFromEnv(env),
+    payments: stripeFromEnv(env),
+    // Instagram Graph (read-only) only in LIVE with credentials; otherwise manual entry (D079).
+    instagram: instagramFromEnv(env),
+    backup: backupFromEnv(cfg, (id) => new SheetsClient({ baseUrl: cfg.sheets.baseUrl, spreadsheetId: id, getToken: sheetsToken }), new GoogleHttp(api, serviceAccountTokenProvider(key, BACKUP_SCOPES), { maxRetries: 2 }), env),
+  });
+  const env0 = connectorEnvSync();
+  const ctx: AppContext = {
     repo,
     privateRepo: (f) => {
       if (!privateIds[f]) return null;
@@ -147,17 +163,19 @@ async function buildContext(cfg: AppConfig): Promise<AppContext> {
     drive: new GoogleDriveAdapter(new GoogleHttp(api, googleToken)),
     uploaderFor: (_f, grant) => (grant ? new GoogleDriveUploader(new GoogleHttp(api, async () => grant)) : null),
     mailerFor: (_f, grant) => (grant ? new GmailSender(new GoogleHttp(api, async () => grant)) : null),
-    bank: wiseFromEnv(),
-    payments: process.env.STRIPE_API_KEY ? new StripeAdapter(process.env.STRIPE_API_BASE_URL || "https://api.stripe.com", process.env.STRIPE_API_KEY) : null,
-    // Instagram Graph (read-only) only in LIVE with credentials in env; otherwise manual entry (D079).
-    instagram: instagramFromEnv(),
-    backup: backupFromEnv(cfg, (id) => new SheetsClient({ baseUrl: cfg.sheets.baseUrl, spreadsheetId: id, getToken: sheetsToken }), new GoogleHttp(api, serviceAccountTokenProvider(key, BACKUP_SCOPES), { maxRetries: 2 })),
+    ...ports(env0),
     baseUrl: cfg.baseUrl,
     mode: "live",
   };
+  rebuilders.set(ctx, { sig: portSig(env0), build: ports });
+  return ctx;
 }
 
-/** Process-wide service context (repositories + Google ports). */
+/**
+ * Process-wide service context (repositories + Google ports). Each call also refreshes the connector values saved in
+ * the app (cached CONNECTOR_TTL_MS, D087) and, in LIVE, rebuilds the Wise / Stripe / Instagram / backup ports when
+ * one of their values changed. Environment variables always win.
+ */
 export async function getContext(): Promise<AppContext> {
   const cfg = getConfig();
   if (!cfg.ok || !cfg.mode) throw new SetupRequiredError(cfg.errors);
@@ -169,20 +187,25 @@ export async function getContext(): Promise<AppContext> {
       if (g.__valemontCtx?.ctx === ctx) g.__valemontCtx = undefined;
     });
   }
-  return g.__valemontCtx.ctx;
+  const ctx = await g.__valemontCtx.ctx;
+  await refreshConnectorEnv(ctx); // never throws: a vault problem leaves the environment-only behaviour
+  const r = rebuilders.get(ctx);
+  if (r) {
+    const env = connectorEnvSync();
+    const sig = portSig(env);
+    if (sig !== r.sig) {
+      Object.assign(ctx, r.build(env));
+      r.sig = sig;
+    }
+  }
+  return ctx;
 }
 
 /** Backups (D084): the service account copies the live Sheet into BACKUP_DRIVE_FOLDER_ID (shared with it as Editor). */
 const BACKUP_SCOPES = ["https://www.googleapis.com/auth/drive"];
-function backupFromEnv(cfg: AppConfig, clientFor: (id: string) => SheetsClient, http: GoogleHttp): BackupEnv {
-  const s = backupSettingsFromEnv();
+function backupFromEnv(cfg: AppConfig, clientFor: (id: string) => SheetsClient, http: GoogleHttp, env: Env): BackupEnv {
+  const s = backupSettingsFromEnv(env);
   return { sourceId: cfg.sheets.spreadsheetId, clientFor, drive: s.folderId ? new GoogleBackupDrive(http) : null, folderId: s.folderId, retentionDays: s.retentionDays };
 }
 
-/** Wise read access from env (never in Sheets): WISE_API_TOKEN, optional WISE_PROFILE_ID and WISE_SCA_PRIVATE_KEY_BASE64. */
-function wiseFromEnv() {
-  const token = process.env.WISE_API_TOKEN;
-  if (!token) return null;
-  const key = process.env.WISE_SCA_PRIVATE_KEY_BASE64 ? Buffer.from(process.env.WISE_SCA_PRIVATE_KEY_BASE64, "base64").toString("utf8") : null;
-  return new WiseAdapter(process.env.WISE_API_BASE_URL || "https://api.wise.com", token, key, process.env.WISE_PROFILE_ID || null);
-}
+

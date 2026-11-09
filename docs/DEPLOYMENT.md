@@ -21,6 +21,13 @@ host's settings, never in the repository or a chat). The Claude account that bui
   `Authorization: Bearer <CRON_SECRET>`: set `CRON_SECRET` (24+ random characters) and both endpoints accept it.
 * **Domain.** Add the domain in Vercel › Domains (e.g. `os.example.com`), wait for the certificate, then set
   `APP_BASE_URL=https://os.example.com` (no trailing slash). HSTS is sent by the app; only use HTTPS URLs.
+  When `APP_BASE_URL` is unset on Vercel, the app uses the deployment's own address (D086): production
+  `VERCEL_PROJECT_PRODUCTION_URL` (the custom domain once one is assigned), previews `VERCEL_BRANCH_URL` / `VERCEL_URL`.
+  An explicit `APP_BASE_URL` always wins; elsewhere it stays required.
+* **Deploy button.** README.md › "Deploy (LIVE, no terminal)" opens Vercel's clone flow asking only for the
+  bootstrap variables. After the deploy, `/setup` (public, read-only, names and states only, never a value) lists what
+  is still missing with where to find it, generates a `SESSION_SECRET` in the browser and shows the exact OAuth
+  redirect URIs computed from the host.
 
 ## 2. Google Cloud setup (once, by a founder, with a founder's Google account)
 
@@ -78,6 +85,19 @@ headers: {Authorization: "Bearer " + token}})`), or host cron. If none is set, t
 backup and the first request of a 6-hour slot the snapshot (spec 4.6) — reliable only while someone uses the app.
 
 ## 5. First run (LIVE)
+
+**From the app (D086, no terminal).** When the bootstrap variables are set but the Sheet is not prepared (missing tabs
+or header columns, or the service account cannot open it), the first founder who signs in lands on `/install`. **Prepare
+the database** runs, server-side, the same `setupSpreadsheet` + `seedBaseline` as `npm run setup:sheets` on the shared
+Sheet, then on the founder's own private Sheet (`PRIVATE_SHEET_ID_*`, each founder prepares only theirs), then the
+doctor (`runDoctor`). Founder-only, same-origin, audited by `route()`, idempotent (safe to click twice), with a
+per-tab result. A 403 is reported as "no Editor access" (or "read-only" when reads work but writes are refused) with
+the service account email from the key to share the Sheet with. Settings › Diagnostics › **Check** re-runs the
+doctor. Once ready, the check is cached per server process; after an upgrade that adds tabs or columns, the
+Installation page comes back once. A Google outage never blocks the app (unknown state is not "needs install").
+`GOOGLE_SERVICE_ACCOUNT_KEY_BASE64` also accepts the JSON key pasted as-is.
+
+**From a terminal** (still supported):
 
 ```bash
 cp .env.example .env.local        # fill the LIVE values locally (never commit it)

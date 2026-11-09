@@ -12,13 +12,14 @@ import type { ActivitySink } from "../activity-hooks";
 import type { AppContext } from "../context";
 import { RuleError } from "../errors";
 import { userRow } from "./common";
+import { connectorEnvSync } from "../connector-env";
 
 /**
  * Founder's personal performance tracker (iteration 8), generic both ways:
  * PUSH — every new ActivityEvent of a founder is POSTed to TRACKER_WEBHOOK_URL_<FOUNDER>, signed with
  *        HMAC-SHA256 (TRACKER_WEBHOOK_SECRET_<FOUNDER>), idempotency key = event id, 5 s timeout, https only.
  * PULL — GET /api/tracker/feed returns the same events, authenticated by TRACKER_FEED_TOKEN_<FOUNDER>.
- * Secrets live only in env vars; nothing secret is stored in Sheets or shown on screen. See docs/TRACKER.md.
+ * Secrets come from env vars or the app's encrypted vault (ciphertext only in Sheets, D087); never shown again. See docs/TRACKER.md.
  */
 
 export const TRACKER_VERSION = 1;
@@ -27,7 +28,8 @@ export const FEED_PATH = "/api/tracker/feed";
 const MAX_BACKFILL = 5_000;
 
 type Env = Record<string, string | undefined>;
-const processEnv = (): Env => (typeof process !== "undefined" && process.env ? process.env : {});
+/** Env first, then the values saved in the app (D087). */
+const processEnv = (): Env => connectorEnvSync();
 const suffix = (f: FounderKey) => f.toUpperCase();
 
 export interface TrackerConfig { url: string | null; secret: string | null; problem: string | null; feedToken: boolean; dailySummary: boolean }
@@ -158,16 +160,18 @@ export async function dailySummaryPayload(repo: DataRepository, founder: Founder
 
 /* ---------------- live sink (registered by the LIVE context only) ---------------- */
 
-export function trackerSink(env: Env = processEnv(), fetchImpl: FetchLike = fetch): ActivitySink {
+export function trackerSink(fixedEnv?: Env, fetchImpl: FetchLike = fetch): ActivitySink {
+  // Read at each event (not once at start-up) so a tracker saved in the app is used without a redeploy (D087).
+  const envNow = () => fixedEnv ?? processEnv();
   return {
     async activity(repo, founder, event, accountName) {
-      const cfg = trackerConfig(founder, env);
+      const cfg = trackerConfig(founder, envNow());
       if (!cfg.url || !cfg.secret) return;
       const d = await post({ url: cfg.url, secret: cfg.secret }, eventPayload(founder, toTrackerEvent(event, accountName)), event.id, fetchImpl);
       await recordDelivery(repo, founder, d).catch(() => undefined);
     },
     async dailyReview(repo, founder, date) {
-      const cfg = trackerConfig(founder, env);
+      const cfg = trackerConfig(founder, envNow());
       if (!cfg.url || !cfg.secret || !cfg.dailySummary) return;
       const d = await post({ url: cfg.url, secret: cfg.secret }, await dailySummaryPayload(repo, founder, date), `summary-${founder}-${date}`, fetchImpl);
       await recordDelivery(repo, founder, d).catch(() => undefined);

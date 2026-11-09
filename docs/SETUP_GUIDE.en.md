@@ -39,8 +39,7 @@ on the account concerned.
       GitHub repository `valemontops-boop/valemontops`, a Vercel account, admin access to Wise Business, Stripe,
       Meta Business (Facebook Page + Instagram professional accounts), the LinkedIn Pages, GA4, Search Console,
       the website hosting (Netlify or other), and Make, Zapier or n8n if you want the inbox relay.
-- [ ] A computer with a terminal and **Node.js 22** installed (https://nodejs.org) for Phase 3 (you only
-      need it once, then again for each update that adds tabs).
+- [ ] Nothing to install: no terminal or Node.js needed. The database is prepared from the app (Phase 3).
 - [ ] A shared password manager (1Password, Bitwarden…) to keep a copy of the generated secrets.
 
 **Unlocks:** nothing yet, but it saves you from getting stuck halfway.
@@ -59,15 +58,19 @@ on the account concerned.
 
 ### Phase 2 · Going live on Vercel (Théo or Pablo · 45 min)
 
-- [ ] Import the GitHub repository into Vercel, **Pro** plan, Paris region.
-- [ ] Fill in the required variables (list in §2.4), add the domain, redeploy.
+- [ ] Click the README's **Deploy with Vercel** button (or import the repository into Vercel), **Pro** plan, Paris
+      region. The form asks only for the bootstrap variables.
+- [ ] Open `https://<your-app>/setup`: it lists what is still missing (names only, never a value), where to find it,
+      generates `SESSION_SECRET` and shows the redirect URIs to paste in Google Cloud. Add what is missing in Vercel,
+      redeploy, click « Vérifier à nouveau » (Check again).
 
 **Unlocks:** the application online in LIVE mode (without the variables, it shows a configuration page,
 never the demo).
 
-### Phase 3 · First start (the person with Node · 30 min, then both of you · 10 min)
+### Phase 3 · First start (both of you · 10 min)
 
-- [ ] `npm run setup:sheets` then `npm run doctor:sheets` on the real Sheet: everything ✓.
+- [ ] The first one to sign in lands on the **Installation** page and clicks « Préparer la base de données »
+      (Prepare the database): the app creates the Sheet's tabs and headers, then checks everything; My Day opens.
 - [ ] Théo signs in, Pablo signs in from another browser; a non-founder account is refused.
 - [ ] Réglages › Calendriers (Settings › Calendars) and Réglages › Espace de travail (Settings › Workspace): paste the calendar IDs and the Drive folder ID.
 
@@ -192,11 +195,11 @@ tasks and applications, invisible to the other.
 4. (Optional) **Each of you** creates, **from your own account**, a spreadsheet "Valemont OS – privé <first name>", shares it
    with the service account as **Editor** (and with no one else) → `PRIVATE_SHEET_ID_THEO`,
    `PRIVATE_SHEET_ID_PABLO`.
-5. The tabs and headers are created in Phase 3 by `npm run setup:sheets`.
+5. The tabs and headers are created in Phase 3 by the app's « Préparer la base de données » button.
 
 **Variables:** `SHEETS_SPREADSHEET_ID` (required), `PRIVATE_SHEET_ID_THEO`, `PRIVATE_SHEET_ID_PABLO` (optional).
 
-**Check:** Réglages › Intégrations › Google Sheets › **Tester la connexion**; `npm run doctor:sheets` all ✓.
+**Check:** Réglages › Diagnostic › « Vérifier » (database check): everything « OK ».
 
 **Common problems**
 - *Permission denied*: the share was made with a different address, or as Viewer instead of Editor.
@@ -331,18 +334,23 @@ variable added but nothing changes = not redeployed.
 
 ### 2.8 First start (Phase 3)
 
-These commands prepare the Sheet. You run them **once** from a computer, with your own access.
+No terminal needed: the database is prepared from the app (D086).
 
-1. Get the code: `git clone https://github.com/valemontops-boop/valemontops.git` then `cd valemontops` and
-   `npm ci`.
-2. Copy `.env.example` to `.env.local` and fill in at least `APP_MODE=live`, `SHEETS_SPREADSHEET_ID`,
-   `GOOGLE_SERVICE_ACCOUNT_KEY_BASE64` (the same values as in Vercel). This file is never pushed to GitHub.
-3. `npm run setup:sheets`: creates the tabs and headers, freezes the headers, adds a warning-only protection.
-   Safe to run again: it never deletes anything. Run it again after each update that adds columns.
-4. `npm run doctor:sheets`: every check must be ✓ (sharing, headers, duplicates, schema).
-5. **Delete `.env.local`** when you're done (or keep it encrypted): it contains the service account key.
-6. In the application: Théo signs in, Pablo signs in from another browser. Fill in Réglages ›
-   Calendriers and Réglages › Espace de travail. Open **Réglages › Diagnostic**: health « prête ».
+1. Open the app and click « Se connecter avec Google » (Théo or Pablo, whoever starts).
+2. While the Sheet is not ready, you land on the **Installation** page. Click « Préparer la base de données »
+   (Prepare the database): the app creates tabs and headers, freezes headers, adds a warning-only protection and the
+   starting settings, then runs the check. Progress and a per-tab result are shown. Safe to click again: it never
+   deletes or overwrites anything.
+3. If the service account lacks **Editor** access, the page says so and shows the exact service account address:
+   Share › paste the address › Editor › untick notification › Share, then click again.
+4. Your private Sheet (if `PRIVATE_SHEET_ID_<name>` is set) is prepared at the same time; each founder prepares
+   their own at first sign-in (the app never touches the other founder's private Sheet).
+5. Then My Day opens. Pablo signs in from another browser; a non-founder account is refused. Fill in Réglages ›
+   Calendriers and Réglages › Espace de travail. **Réglages › Diagnostic**: health « prête », and « Vérifier » (the
+   database check) whenever you want.
+6. After an update that adds tabs or columns, the Installation page comes back once: one click.
+
+For developers, `npm run setup:sheets` and `npm run doctor:sheets` do the same from a terminal (`docs/DEPLOYMENT.md` §5).
 
 ### 2.9 Wise (bank, read-only)
 
