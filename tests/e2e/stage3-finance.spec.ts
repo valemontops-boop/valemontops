@@ -57,3 +57,35 @@ test("Stage 3 finance: Pablo sees Money in Spanish", async ({ page }) => {
   await expect(page.getByText("Tipos de cambio")).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test("D091: the whole Wise history is imported once by the page, Movements filter since the start, P&L by year (FR then ES)", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await signIn(page, "theo");
+  await page.getByRole("link", { name: fr("Money") }).first().click();
+  await page.getByRole("radio", { name: fr("Movements") }).click();
+  await expect(page.getByText(fr("History since the account was opened"))).toBeVisible();
+  // Started automatically after the first sync (the demo Wise holds ~2 years); the status line ends with "Terminé."
+  await expect(page.getByRole("status").filter({ hasText: "Terminé" })).toBeVisible({ timeout: 20_000 });
+  const period = page.getByLabel(fr("Period"));
+  await expect(period.locator("option").first()).toHaveText(/Depuis le début/);
+  expect(await period.locator("option").count()).toBeGreaterThanOrEqual(4); // all, 12 months, ≥ 2 years
+  await expect(page.getByText(fr("Expenses by category over the period"))).toBeVisible();
+  await page.getByLabel(fr("Category")).first().selectOption("software");
+  await expect(page.getByText(fr("Expenses"), { exact: true })).toBeVisible();
+  await page.getByRole("radio", { name: fr("P&L") }).click();
+  await page.getByRole("radio", { name: fr("By year") }).click();
+  await expect(page.getByText(fr("Managerial P&L by year"))).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: fr("Since the start") })).toBeVisible();
+
+  await signIn(page, "pablo");
+  await page.getByRole("link", { name: es("Money") }).first().click();
+  await page.getByRole("radio", { name: es("Movements") }).click();
+  await expect(page.getByText(es("History since the account was opened"))).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Terminado" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByLabel(es("Period")).locator("option").first()).toHaveText(/Desde el principio/);
+  await page.getByRole("radio", { name: es("P&L") }).click();
+  await page.getByRole("radio", { name: es("By year") }).click();
+  await expect(page.getByRole("columnheader", { name: es("Since the start") })).toBeVisible();
+  expect(errors).toEqual([]);
+});

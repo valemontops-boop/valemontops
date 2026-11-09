@@ -84,7 +84,7 @@ async function walk(ctx: AppContext, actor: Actor, opts: BackfillOptions) {
   for (const b of balances) {
     if (s.balances[b.id]) continue;
     const earliest = t.BankTransactions.rows.filter((r) => r.balance_id === b.id && r.bank === "wise" && !r.is_archived).map((r) => r.occurred_at).sort()[0];
-    s.balances[b.id] = { ...startProgress(earliest, iso()), currency: b.currency };
+    s.balances[b.id] = { ...startProgress(earliest, iso()), currency: b.currency, first: earliest ?? "" };
   }
   const lease = () => new Date(clock() + budget + 60_000).toISOString();
   Object.assign(s, { status: "running", lease_until: lease(), updated_at: iso(), error: "" });
@@ -109,7 +109,8 @@ async function walk(ctx: AppContext, actor: Actor, opts: BackfillOptions) {
         const n = await mergeStatement(ctx, actor, b, txs, rows, known, tz);
         addedNow += n;
         s.added += n;
-        s.balances[b.id] = { ...afterWindow(s.balances[b.id], w, txs.length, floor), currency: b.currency };
+        const oldest = [s.balances[b.id].first, ...txs.map((x) => x.occurred_at)].filter(Boolean).sort()[0] ?? "";
+        s.balances[b.id] = { ...afterWindow(s.balances[b.id], w, txs.length, floor), currency: b.currency, first: oldest };
         if (clock() - lastSave > checkpoint) {
           Object.assign(s, { lease_until: lease(), updated_at: iso() });
           cur = await saveState(ctx, cur, s, actor);

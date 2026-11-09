@@ -191,26 +191,36 @@ function useBackfill(d: Money | undefined) {
     mutationFn: async () => {
       let added = 0;
       let r: BackfillRun | null = null;
-      for (let i = 0; i < 30; i++) {
+      for (let i = 0; i < 200; i++) {
+        if (r?.running) {
+          // Another click or another device is walking: follow its progress, then take over if it paused.
+          await new Promise((ok) => setTimeout(ok, 3_000));
+          r = { ...(await api<BackfillSummary>("/api/money/backfill")), added_now: 0 };
+          setLast(r);
+          if (r.running) continue;
+          if (r.status !== "partial") break;
+        }
         r = await api<BackfillRun>("/api/money/backfill", { body: {} });
         added += r.added_now;
         setLast(r);
-        if (r.status !== "partial" || r.running) break;
+        if (r.running) continue;
+        if (r.status !== "partial") break;
         qc.invalidateQueries({ queryKey: ["money"] });
       }
       return { added, r };
     },
-    onSuccess: ({ added, r }) => {
-      if (r?.done) toast(t("Wise history imported: {n} movements added.", { n: added }));
-      qc.invalidateQueries({ queryKey: ["money"] });
-      qc.invalidateQueries({ queryKey: ["finance"] });
+    onSuccess: async ({ added, r }) => {
+      if (r?.done && added) toast(t("Wise history imported: {n} movements added.", { n: added }));
+      await Promise.all([qc.invalidateQueries({ queryKey: ["money"] }), qc.invalidateQueries({ queryKey: ["finance"] })]);
+      setLast(null);
     },
-    onError: (e) => { toast((e as Error).message); qc.invalidateQueries({ queryKey: ["money"] }); },
+    onError: async (e) => { toast((e as Error).message); await qc.invalidateQueries({ queryKey: ["money"] }); setLast(null); },
   });
   const started = React.useRef(false);
   const { mutate } = run;
   React.useEffect(() => {
-    if (started.current || !d?.connected || d.status !== "ok" || !d.lastSync || d.backfill.started) return;
+    // Once after the first successful sync; or follow a walk already running (another tab, the other founder).
+    if (started.current || !d?.connected || !d.lastSync || !(d.backfill.running || (!d.backfill.started && d.status === "ok"))) return;
     started.current = true;
     mutate();
   }, [d, mutate]);
@@ -221,7 +231,9 @@ function HistoryPanel({ money: d, run }: { money: Money; run: ReturnType<typeof 
   const t = useT();
   const dt = useDateTag();
   const s = run.state;
-  const until = s?.reached ? new Date(s.reached).toLocaleDateString(dt, { month: "2-digit", year: "numeric" }) : null;
+  const month = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString(dt, { month: "2-digit", year: "numeric" }) : null);
+  // While walking: the window reached; once done: the oldest movement found (the walk checks 2 empty years beyond it).
+  const until = month(s?.done ? s.first ?? s.reached : s?.reached);
   const line = !d.connected ? null
     : run.pending || s?.running ? (until ? t("Importing the Wise history… back to {d}", { d: until }) : t("Importing the Wise history…"))
     : !s?.started ? t("Only the last 90 days come from Wise for now.")

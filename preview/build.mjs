@@ -17,7 +17,8 @@ const js = await build({
   format: "iife",
   target: "es2020",
   jsx: "automatic",
-  define: { "process.env.NODE_ENV": '"production"' },
+  // No Node in the browser: environment reads (e.g. settings from env at seed time) see an empty environment.
+  define: { "process.env.NODE_ENV": '"production"', "process.env": "{}" },
   alias: {
     "next/link": shim("link.tsx"),
     "next/navigation": shim("navigation.ts"),

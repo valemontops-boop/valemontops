@@ -51,7 +51,8 @@ export const BACKFILL_STATUSES = ["running", "partial", "done", "sca_required", 
 export const backfillStateSchema = z.object({
   v: z.literal(1),
   status: z.enum(BACKFILL_STATUSES),
-  balances: z.record(z.string(), z.object({ reached: z.string(), empty: z.number().int().min(0), done: z.boolean(), currency: z.string().default("") })),
+  /** Per Wise balance: window boundary reached, empty windows in a row, done, and the oldest movement seen ("" = none). */
+  balances: z.record(z.string(), z.object({ reached: z.string(), empty: z.number().int().min(0), done: z.boolean(), currency: z.string().default(""), first: z.string().default("") })),
   added: z.number().int().min(0),
   started_at: z.string(),
   updated_at: z.string(),
@@ -73,10 +74,12 @@ export function parseBackfillState(raw: string | null | undefined): BackfillStat
 
 /** What the UI shows: started or not, done, the earliest date reached across balances, rows added so far. */
 export function backfillSummary(s: BackfillState | null, nowIso = new Date().toISOString()) {
-  if (!s) return { started: false, status: null, done: false, reached: null, added: 0, updated_at: null, running: false, error: "" };
+  if (!s) return { started: false, status: null, done: false, reached: null, first: null, added: 0, updated_at: null, running: false, error: "" };
   const reached = Object.values(s.balances).map((b) => b.reached).sort()[0] ?? null;
+  /** The oldest movement found: what "since the account was opened" means once done (the walk itself goes 2 empty windows further). */
+  const first = Object.values(s.balances).map((b) => b.first).filter(Boolean).sort()[0] ?? null;
   const running = s.status === "running" && Boolean(s.lease_until && s.lease_until > nowIso);
-  return { started: true, status: s.status, done: s.status === "done", reached, added: s.added, updated_at: s.updated_at, running, error: s.error };
+  return { started: true, status: s.status, done: s.status === "done", reached, first, added: s.added, updated_at: s.updated_at, running, error: s.error };
 }
 export type BackfillSummary = ReturnType<typeof backfillSummary>;
 
