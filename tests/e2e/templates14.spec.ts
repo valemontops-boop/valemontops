@@ -77,3 +77,28 @@ test("Templates in Spanish for Pablo: Spanish texts by default, no English", asy
   await expect(page.getByRole("form", { name: es("Answer to a price question") }).getByLabel(es("Preview"))).toContainText("Hola Julien");
   for (const english of ["Templates", "Search templates", "Your own templates", "Back to the original text"]) await expect(page.getByText(english, { exact: true })).toHaveCount(0);
 });
+
+test("Missed call: W opens the WhatsApp card with the typed number, then Sent?", async ({ page, context }) => {
+  await context.route(/web\.whatsapp\.com|wa\.me/, (r) => r.fulfill({ status: 200, contentType: "text/html", body: "<html><body>wa</body></html>" }));
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await signIn(page, "theo");
+  await page.goto("/call");
+  await page.getByRole("button", { name: fr("Start free session") }).click();
+  await expect(page.getByRole("button", { name: new RegExp(`^${fr("New call")}`) })).toBeVisible();
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Digit2");
+  const after = page.getByRole("region", { name: fr("After the call") });
+  await expect(after.getByRole("heading", { name: re(fr("Missed call — {name}", { name: "" })) })).toBeVisible();
+  await page.keyboard.press("w");
+  const wa = after.getByRole("group", { name: fr("WhatsApp message") });
+  await expect(wa.getByLabel(fr("Message"))).toHaveValue(/J'ai essayé de vous appeler/);
+  await wa.getByLabel(fr("Business name")).fill("Garage WhatsApp (e2e)");
+  await wa.getByLabel(fr("WhatsApp number")).fill("0033 6 11 22 33 44");
+  await expect(wa.getByText(fr("WhatsApp opens a new chat with {number}", { number: "+33 6 11 22 33 44" }))).toBeVisible();
+  const [popup] = await Promise.all([page.waitForEvent("popup"), wa.getByRole("button", { name: fr("Open WhatsApp") }).click()]);
+  await expect.poll(() => popup.url()).toMatch(/phone=33611223344/);
+  await popup.close();
+  await expect(after.getByRole("status").filter({ hasText: re(fr("WhatsApp opened for {to}: confirm once sent", { to: "+33611223344" })) })).toBeVisible();
+  await page.getByRole("button", { name: fr("Yes, sent") }).click();
+  await expect(page.getByText(fr("WhatsApp logged"))).toBeVisible();
+});
