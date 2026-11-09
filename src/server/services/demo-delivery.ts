@@ -52,8 +52,7 @@ export async function seedDemoDelivery(repo: DataRepository) {
 
   const runFr = childId("workflow", "won_to_project", childId("demo-won-opp", "3"));
   const projectFr = childId(runFr, "project");
-  await repo.insert("ProjectAssignments", [{ id: childId("demo-assign", "0"), project_id: projectFr, vendor_id: childId("demo-vendor", "0"), role: "Automatisations", rate_minor: 4500, rate_unit: "hour", currency: "EUR", planned_hours: 16, start_date: addDays(today, -14), end_date: addDays(today, 13), status: "active", note: "" },
-    { id: childId("demo-assign", "1"), project_id: projectFr, vendor_id: childId("demo-vendor", "2"), role: "Connexion API du standard", rate_minor: 4000, rate_unit: "hour", currency: "USD", planned_hours: 10, start_date: addDays(today, -7), end_date: addDays(today, 20), status: "active", note: "" }], sys);
+  await repo.insert("ProjectAssignments", [{ id: childId("demo-assign", "0"), project_id: projectFr, vendor_id: childId("demo-vendor", "0"), role: "Automatisations", rate_minor: 4500, rate_unit: "hour", currency: "EUR", planned_hours: 16, start_date: addDays(today, -14), end_date: addDays(today, 13), status: "active", note: "" }], sys);
   await repo.insert("TimeEntries", [
     { id: childId("demo-time", "0"), project_id: projectFr, person_kind: "founder", founder_key: "theo", vendor_id: "", date: addDays(today, -18), minutes: 240, note: "Kick-off" },
     { id: childId("demo-time", "1"), project_id: projectFr, person_kind: "founder", founder_key: "theo", vendor_id: "", date: addDays(today, -9), minutes: 180, note: "" },
@@ -61,8 +60,6 @@ export async function seedDemoDelivery(repo: DataRepository) {
   ], sys);
   await repo.insert("ProjectCosts", [
     { id: childId("demo-cost", "0"), project_id: projectFr, date: addDays(today, -6), kind: "api", label: "Appels API (démo)", amount_minor: 1800, currency: "EUR", tool_id: childId("demo-tool", "0"), wise_tx_id: "" },
-    // D085: a USD invoice paid through Wise (demo movement DEMO-1010): its real rate converts it once the bank is synced.
-    { id: childId("demo-cost", "1"), project_id: projectFr, date: addDays(today, -12), kind: "contractor", label: "Maquettes (démo)", amount_minor: 32600, currency: "USD", tool_id: "", wise_tx_id: childId("wise-tx", "DEMO-1010") },
   ], sys);
   const kickFr = (await repo.list("Milestones")).rows.find((m) => m.project_id === projectFr && m.sort === 0);
   if (kickFr) await repo.update("Milestones", kickFr.id, kickFr.version, { done_at: new Date(Date.parse(`${addDays(today, -17)}T10:00:00Z`)).toISOString() }, sys);
@@ -78,6 +75,12 @@ export async function seedDemoDelivery(repo: DataRepository) {
   const pEs = await repo.get("Projects", childId(runEs, "project"));
   if (pEs) await repo.update("Projects", pEs.id, pEs.version, { status: "delivered", checklist: pEs.checklist.map((c) => ({ ...c, done: true })) }, sys);
   for (const m of (await repo.list("Milestones")).rows.filter((x) => x.project_id === pEs?.id && x.due_date && x.due_date < today)) await repo.update("Milestones", m.id, m.version, { done_at: `${m.due_date}T16:00:00.000Z` }, sys);
+  if (pEs) {
+    // D085: the USD contractor on the Local project: an hourly assignment in USD and a USD invoice paid through Wise
+    // (demo movement DEMO-1010, 326 $ for 300 €): its real rate converts it once the bank is synced.
+    await repo.insert("ProjectAssignments", [{ id: childId("demo-assign", "1"), project_id: pEs.id, vendor_id: childId("demo-vendor", "2"), role: "Conexión API del formulario", rate_minor: 4000, rate_unit: "hour", currency: "USD", planned_hours: 4, start_date: addDays(today, -20), end_date: addDays(today, -10), status: "done", note: "" }], sys);
+    await repo.insert("ProjectCosts", [{ id: childId("demo-cost", "1"), project_id: pEs.id, date: addDays(today, -12), kind: "contractor", label: "Integración API (demo)", amount_minor: 32600, currency: "USD", tool_id: "", wise_tx_id: childId("wise-tx", "DEMO-1010") }], sys);
+  }
   const clientEs = childId("client", childId("demo-account", "6"));
   const c = await repo.get("Clients", clientEs);
   if (c) await repo.update("Clients", c.id, c.version, { status: "active" }, sys);

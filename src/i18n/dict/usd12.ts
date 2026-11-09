@@ -14,7 +14,6 @@ export const entries: Record<string, readonly [string, string]> = {
   "Amounts in US dollars, ex VAT: converted to euros at the rate shown, locked at entry.": ["Montants en dollars US, hors TVA : convertis en euros au taux affiché, figé à la saisie.", "Importes en dólares EE. UU., sin IVA: convertidos a euros al tipo indicado, fijado al registrar."],
   "Euro (€)": ["Euro (€)", "Euro (€)"],
   "US dollar ($)": ["Dollar US ($)", "Dólar EE. UU. ($)"],
-  "US dollar ($) — supplier paid in USD": ["Dollar US ($) — prestataire payé en USD", "Dólar EE. UU. ($) — proveedor pagado en USD"],
   "Wise payment (real rate)": ["Paiement Wise (taux réel)", "Pago Wise (tipo real)"],
   "None: rate of the day": ["Aucun : taux du jour", "Ninguno: tipo del día"],
   "No USD rate: the entry is kept in USD, marked \"rate missing\" and left out of EUR totals. Enter a manual rate first to convert it.": ["Aucun taux dollar : l'écriture reste en USD, marquée « taux manquant » et hors totaux en €. Saisis d'abord un taux manuel pour la convertir.", "Ningún tipo de cambio: el apunte queda en USD, marcado «tipo pendiente» y fuera de los totales en €. Introduce antes un tipo manual para convertirlo."],

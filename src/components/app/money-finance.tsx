@@ -222,7 +222,7 @@ export function EntriesPanel({ fin }: { fin: Fin }) {
                 <span className="block text-[12px] text-text-3">{t(CATEGORY_LABELS[r.category])} · {t(COST_CENTER_LABELS[r.cost_center])}{r.kind === "adjustment" ? ` · ${t("reversing entry")}` : ""}{r.reversed ? ` · ${t("reversed")}` : ""}{r.reference ? ` · ${r.reference}` : ""}{r.receipt_url ? <> · <a className="underline" href={r.receipt_url} target="_blank" rel="noreferrer">{t("receipt")}</a></> : null}</span>
               </span>
               <span className="num text-right text-sm">
-                {r.currency === "USD" ? <UsdAmount usd={Math.abs(r.gross_minor)} eur={r.eur_gross === null ? null : Math.abs(r.eur_gross)} rate={r.fx} className="block text-[13px]" /> : formatMoney(r.gross_minor, r.currency)}
+                {r.currency === "USD" ? <UsdAmount usd={r.gross_minor} eur={r.eur_gross} rate={r.fx} className="block text-[13px]" /> : formatMoney(r.gross_minor, r.currency)}
                 {r.currency !== "EUR" && r.currency !== "USD" ? <span className="block text-[11px] text-text-3">{t("not in EUR, not converted")}</span> : null}
               </span>
               {r.kind !== "adjustment" && !r.reversed ? <Button size="sm" variant="ghost" disabled={rev.isPending} onClick={() => rev.mutate(r.id)}>{t("Reverse")}</Button> : <span />}
@@ -256,7 +256,7 @@ function EntryForm({ fin, onClose }: { fin: Fin; onClose: () => void }) {
     <Modal open onOpenChange={(o) => !o && onClose()} title={t("Add an entry")} description={usd ? t("Amounts in US dollars, ex VAT: converted to euros at the rate shown, locked at entry.") : t("Amounts in euros, ex VAT.")}>
       <form className="grid grid-cols-2 gap-3" onSubmit={(e) => { e.preventDefault(); setErr(null); save.mutate(); }}>
         <Field label={t("Type")} htmlFor="en-kind"><Select id="en-kind" value={f.kind} onChange={(e) => { const kind = e.target.value as "income" | "expense"; setF({ ...f, kind, category: kind === "income" ? "revenue" : "software", cost_center: kind === "income" ? "consulting" : "shared", currency: kind === "income" ? "EUR" : f.currency }); }}><option value="expense">{t("Expense")}</option><option value="income">{t("Income")}</option></Select></Field>
-        {f.kind === "expense" ? <Field label={t("Currency")} htmlFor="en-cur"><Select id="en-cur" value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value as "EUR" | "USD", category: e.target.value === "USD" ? "contractors" : f.category })}><option value="EUR">{t("Euro (€)")}</option><option value="USD">{t("US dollar ($) — supplier paid in USD")}</option></Select></Field> : null}
+        {f.kind === "expense" ? <Field label={t("Currency")} htmlFor="en-cur"><Select id="en-cur" value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value as "EUR" | "USD", category: e.target.value === "USD" ? "contractors" : f.category })}><option value="EUR">{t("Euro (€)")}</option><option value="USD">{t("US dollar ($)")}</option></Select></Field> : null}
         {usd ? (
           <Field label={t("Wise payment (real rate)")} htmlFor="en-wtx"><Select id="en-wtx" value={f.wise_tx_id} onChange={(e) => setF({ ...f, wise_tx_id: e.target.value })}><option value="">{t("None: rate of the day")}</option>{fin.usd.payments.map((p) => <option key={p.id} value={p.id}>{`${p.date} · ${p.label} · ${formatMoney(p.usd_minor, "USD")} → ${formatMoney(p.eur_minor)}`}</option>)}</Select></Field>
         ) : null}
