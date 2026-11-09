@@ -19,8 +19,9 @@ import Link from "next/link";
 import { FOUNDERS, FOUNDER_NAMES } from "@/domain/constants";
 import { addDays } from "@/domain/time";
 import { TrackerPanel } from "./tracker-panel";
+import { CommercialSettings } from "./commercial-settings";
 
-type Tab = "profile" | "targets" | "calendars" | "sprint" | "workspace" | "playbook" | "rules" | "suppression" | "diagnostics" | "tracker" | "roadmap";
+type Tab = "profile" | "targets" | "calendars" | "sprint" | "workspace" | "playbook" | "rules" | "suppression" | "diagnostics" | "tracker" | "commercial" | "roadmap";
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export function SettingsView() {
@@ -37,10 +38,10 @@ export function SettingsView() {
       <div className="overflow-x-auto">
         <SegmentedSwitch label={t("Settings section")} value={tab} onChange={setTab} options={[
           { value: "profile", label: t("Profile") }, { value: "targets", label: t("Mode & targets") }, { value: "calendars", label: t("Calendars") }, { value: "sprint", label: t("Sprint") }, { value: "workspace", label: t("Workspace") }, { value: "playbook", label: t("Playbook") }, { value: "rules", label: t("Channel rules") },
-          { value: "suppression", label: t("Suppression") }, { value: "diagnostics", label: t("Diagnostics") }, { value: "tracker", label: t("My tracker") }, { value: "roadmap", label: t("Roadmap") },
+          { value: "suppression", label: t("Suppression") }, { value: "diagnostics", label: t("Diagnostics") }, { value: "tracker", label: t("My tracker") }, { value: "commercial", label: t("Commercial") }, { value: "roadmap", label: t("Roadmap") },
         ]} />
       </div>
-      {tab === "profile" ? <Profile /> : tab === "targets" ? <TargetsTab /> : tab === "calendars" ? <Calendars /> : tab === "sprint" ? <SprintTab /> : tab === "workspace" ? <Workspace /> : tab === "playbook" ? <PlaybookTab /> : tab === "rules" ? <Rules /> : tab === "suppression" ? <Suppression /> : tab === "diagnostics" ? <Diagnostics /> : tab === "tracker" ? <TrackerPanel /> : <Roadmap />}
+      {tab === "profile" ? <Profile /> : tab === "targets" ? <TargetsTab /> : tab === "calendars" ? <Calendars /> : tab === "sprint" ? <SprintTab /> : tab === "workspace" ? <Workspace /> : tab === "playbook" ? <PlaybookTab /> : tab === "rules" ? <Rules /> : tab === "suppression" ? <Suppression /> : tab === "diagnostics" ? <Diagnostics /> : tab === "tracker" ? <TrackerPanel /> : tab === "commercial" ? <CommercialSettings /> : <Roadmap />}
     </div>
   );
 }
@@ -229,8 +230,6 @@ function Diagnostics() {
 }
 
 const ROADMAP: [string, string][] = [
-  ["Stage 1B", "Tasks (P0–P3, views, Kanban), private task spreadsheets, daily scoring and streaks, sprints, Command Center, Next Best Action queue, weekly review, reports, notifications, Agenda and Founder Points (shared calendars), Idea Box, Files (Drive), Audience tracking with LinkedIn import."],
-  ["Stage 2", "Audit questionnaires by sector, price book, PDF quotes with commercial policy, Won → Client & Project workflow, supplier bench, capacity, Local subscription usage and per-client margin."],
   ["Stage 3", "Managerial P&L, MRR/ARR, EBITDA estimate, EUR/USD with ECB rates, content planning FR/ES, Instagram adapter and snapshot job."],
   ["Stage 4", "Integration Hub, website webhooks, optional Calendar/Gmail OAuth, backups with tested restore, security hardening, deployment."],
 ];

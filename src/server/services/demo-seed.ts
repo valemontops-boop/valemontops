@@ -1,6 +1,8 @@
 import { childId } from "@/lib/ids";
 import type { DataRepository } from "@/data/repository";
 import { localDate, addDays } from "@/domain/time";
+import { seedDemoDelivery } from "./demo-delivery";
+import { seedDemoCommercial } from "./demo-quotes";
 
 /**
  * Synthetic DEMO fixtures only: invented names, reserved example.com domains and fictional numbers.
@@ -72,6 +74,8 @@ export async function seedDemo(repo: DataRepository) {
     })),
     sys,
   );
+  await seedDemoCommercial(repo); // Stage 2A (D074): demo legal details for the quote PDF
+  await seedDemoDelivery(repo); // Stage 2B (D075): won deals → clients and projects, contractor, tool, template, Local usage
   return true;
 }
 

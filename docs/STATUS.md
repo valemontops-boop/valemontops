@@ -1,6 +1,16 @@
 # Status
 
-Updated: 2026-11-09 · Stage: **1B complete + founder feedback round 9 (fake-verified)** · Next: Stage 2 (revenue operations).
+Updated: 2026-11-09 · Stage: **1B complete + Stage 2 (revenue operations) + founder feedback round 9 (fake-verified)** · Next: Stage 3 (finance and marketing).
+
+## Stage 2A · audits, price book, quotes (D074)
+| Feature | Status |
+|---|---|
+| Sheets tabs PriceBookItems, AuditTemplates, AuditSessions, Quotes, QuoteLines, CommercialPolicy (setup/doctor via schema) | VERIFIED_FAKE (quotes.test.ts on fake Sheets) |
+| Audit from any opportunity (sector × depth, FR/ES templates, editable, resumable) and deterministic Opportunity Summary with drafts to validate | VERIFIED_FAKE (unit, integration, e2e, preview FR/ES) |
+| Quote builder: price book, one-off vs MRR, first-year only with term ≥ 12 (scenario 6: 1 678 €), delivery cost and margin, discount bands and margin guardrail (other founder + trade), taxes by jurisdiction with cross-border block | VERIFIED_FAKE |
+| Draft → Approved → Sent (proposal_sent once) → Accepted/Declined, Expired on read, versions; acceptance books no cash | VERIFIED_FAKE |
+| Quote PDF (pdf-lib, FR/ES, legal fields required and named when missing), preview + download, Save to Drive with the founder's drive.file grant | VERIFIED_FAKE — real legal details and Drive grant needed for VERIFIED_LIVE |
+| Settings › Commercial (legal details, policy, taxes, price book versions) | VERIFIED_FAKE (preview) |
 
 ## Feedback round 9 (2026-11-09)
 | Change | Status |

@@ -1,5 +1,5 @@
 "use client";
-import { PhoneCall, Bell, CalendarDays, ChevronDown, Command, FileText, Gauge, Lightbulb, LayoutList, ListChecks, Megaphone, Plus, RefreshCw, Settings, Sun, Users, AlertCircle, Check, Loader2, BarChart3, X, Wallet } from "lucide-react";
+import { PhoneCall, Bell, CalendarDays, ChevronDown, Command, FileText, Gauge, Lightbulb, LayoutList, ListChecks, Megaphone, Plus, RefreshCw, Settings, Sun, Users, AlertCircle, Check, Loader2, BarChart3, X, Wallet, Briefcase } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { IdeaCapture } from "./idea-capture";
@@ -24,6 +24,7 @@ const NAV = [
   { href: "/crm", label: "Sales CRM", icon: Users },
   { href: "/marketing", label: "Growth", icon: Megaphone },
   { href: "/money", label: "Money", icon: Wallet },
+  { href: "/clients", label: "Clients", icon: Briefcase },
 ];
 const WORKSPACE = [
   { href: "/tasks", label: "Tasks", icon: ListChecks },

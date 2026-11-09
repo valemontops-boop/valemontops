@@ -10,6 +10,8 @@ import { WORK_MODES, RULE_STATUSES, type FounderKey } from "@/domain/constants";
 import { isValidTimeZone } from "@/domain/time";
 import { seedBaseline } from "@/server/services/baseline";
 import { seedDemo } from "@/server/services/demo-seed";
+import { DELIVERY_ROUTES } from "@/server/services/delivery-routes";
+import { quoteRoutes } from "./quote-routes";
 import { logActivity, logActivitySchema } from "@/server/services/activities";
 import { getMyDay, getTargetsForEdit, profileSchema, setMode, setModeSchema, setTargets, setTargetsSchema, whatsappReport } from "@/server/services/myday";
 import {
@@ -240,6 +242,11 @@ const routes: Record<string, [z.ZodTypeAny | null, Handler]> = {
   "GET /api/tracker": [null, async (_, f) => trackerStatus(ctx, f, {})],
   "POST /api/tracker": [trackerActionSchema, async (i, f) => trackerAction(ctx, f, i as never, {})],
 };
+
+// Stage 2B (D075): Clients & delivery routes, same table as the Next route handlers.
+for (const [k, [s, h]] of Object.entries(DELIVERY_ROUTES)) routes[k] = [s, (i, f) => h(ctx, f, i as never)];
+// Stage 2A (D074): audits, quotes, price book, commercial policy.
+Object.assign(routes, quoteRoutes(ctx, (f) => (driveGrant ? `preview-grant-${f}` : null)));
 
 export function exportCsv(href = "/api/crm/export") {
   if (href.startsWith("/api/reports/scorecard")) return scorecardCsv(ctx, founder);

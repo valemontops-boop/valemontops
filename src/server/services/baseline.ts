@@ -8,6 +8,7 @@ import type { WorkMode } from "@/domain/constants";
 import { PREVIOUS_SEED_TITLES, TASK_SEEDS } from "@/domain/task-seeds";
 import { nextDue } from "@/domain/tasks";
 import { addDays, localDate, weekday } from "@/domain/time";
+import { seedCommercial } from "./commercial";
 
 const SYSTEM: Actor = { founder: "system" };
 const SEED_DATE = "2000-01-01"; // seeds are effective from the beginning of time; edits supersede them
@@ -98,6 +99,8 @@ export async function seedBaseline(repo: DataRepository, timezones: Record<Found
     );
     added.SchemaMigrations = 1;
   }
+  // Stage 2A (D074): price book, audit templates and commercial policy seeds (legal details are never seeded).
+  Object.assign(added, await seedCommercial(repo));
   return added;
 }
 

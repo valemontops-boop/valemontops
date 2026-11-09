@@ -21,6 +21,7 @@ import { activeSprint, sprintProgress } from "./sprints";
 import { planFor } from "./results";
 import { listTasks } from "./tasks";
 import { upcomingEvents } from "./agenda";
+import { deliveryAttention } from "./delivery";
 
 const today = async (ctx: AppContext, f: FounderKey, now = new Date()) => localDate(now, (await userRow(ctx.repo, f)).timezone);
 
@@ -49,10 +50,14 @@ export async function nba(ctx: AppContext, founder: FounderKey, now = new Date()
 export async function notifications(ctx: AppContext, founder: FounderKey, now = new Date()) {
   const t = await ctx.repo.listMany(["Opportunities", "Accounts", "IntegrationStatuses", "NotificationStates"]);
   const tasks = await listTasks(ctx, founder);
-  return deriveNotifications({
+  const dismissed = new Set(t.NotificationStates.rows.filter((n) => n.founder_key === founder).map((n) => n.dedupe_key));
+  const base = deriveNotifications({
     founder, today: await today(ctx, founder, now), opps: t.Opportunities.rows, accountName: new Map(t.Accounts.rows.map((a) => [a.id, a.name])),
-    tasks, integrations: t.IntegrationStatuses.rows, dismissed: new Set(t.NotificationStates.rows.filter((n) => n.founder_key === founder).map((n) => n.dedupe_key)),
+    tasks, integrations: t.IntegrationStatuses.rows, dismissed,
   });
+  // Delivery alerts (Stage 2B) for the projects this founder owns (or nobody owns).
+  const delivery = (await deliveryAttention(ctx, founder, now)).filter((a) => (!a.owner || a.owner === founder) && !dismissed.has(a.key)).map((a) => ({ key: a.key, kind: "task" as const, title: a.title, detail: a.detail, href: a.href }));
+  return [...base, ...delivery];
 }
 
 export const dismissSchema = z.object({ key: z.string().min(1).max(200) });
@@ -107,6 +112,8 @@ export async function commandCenter(ctx: AppContext, founder: FounderKey, now = 
   const noNext = open.filter((o) => hygieneFlags(o, td).includes("No next action with a date"));
   if (noNext.length) attention.push({ title: `${noNext.length} deal(s) without a dated next step`, detail: "Every open deal needs one", href: "/crm" });
   for (const s of t.IntegrationStatuses.rows.filter((s) => s.status === "error")) attention.push({ title: `${s.integration} sync failed`, detail: s.last_error, href: "/settings" });
+  // Delivery (Stage 2B): overdue milestones, unassigned project tasks, potential negative margin, contractor over capacity.
+  for (const a of await deliveryAttention(ctx, founder, now)) attention.push({ title: a.title, detail: a.detail, href: a.href });
 
   const sevenDays = addDays(td, -6);
   const perFounder = Object.fromEntries(FOUNDERS.map((f) => {

@@ -16,12 +16,15 @@ import { IdeasView } from "@/components/app/ideas-view";
 import { FilesView } from "@/components/app/files-view";
 import { MarketingView } from "@/components/app/marketing-view";
 import { MoneyView } from "@/components/app/money-view";
+import { ClientsView } from "@/components/app/clients-view";
 import { ReportsView } from "@/components/app/reports-view";
 import { CallMode } from "@/components/app/call-mode";
+import { DealView } from "@/components/app/deal-view";
 
 function Page() {
   const path = usePathname();
   if (path.startsWith("/crm/import")) return <ImportView />;
+  if (path.startsWith("/crm/deal")) return <DealView />;
   if (path.startsWith("/crm")) return <CrmView />;
   if (path.startsWith("/settings")) return <SettingsView />;
   if (path.startsWith("/command-center")) return <CommandCenterView />;
@@ -32,6 +35,7 @@ function Page() {
   if (path.startsWith("/marketing")) return <MarketingView />;
   if (path.startsWith("/reports")) return <ReportsView />;
   if (path.startsWith("/money")) return <MoneyView />;
+  if (path.startsWith("/clients")) return <ClientsView />;
   if (path.startsWith("/call")) return <CallMode />;
   return <MyDayView />;
 }

@@ -25,6 +25,7 @@ import type { T } from "@/i18n";
 import { useDateTag, useT } from "@/i18n/react";
 import { ExportButton } from "./export-dialog";
 import { dealValue } from "@/domain/conversion";
+import { WonToProject } from "./won-project";
 
 /** Default deal values per offer from Settings › Workspace (Consulting value, Local monthly price), in cents. */
 function useOfferDefaults() {
@@ -334,6 +335,13 @@ function AccountPanel({ account, data, onClose }: { account: CrmAccount; data: C
       <div className="flex flex-col gap-6">
         {account.blocked_reason ? <p className="flex items-center gap-2 rounded-[12px] bg-[#fbeceb] p-3 text-sm text-bad"><Ban className="size-4" />{t(account.blocked_reason)}</p> : null}
         {main ? <NextStepEditor key={main.id + main.version} opp={main} /> : <NewOpportunityForm account={account} />}
+        {main ? (
+          <div className="flex flex-wrap gap-2">
+            <Button asChild size="sm" variant="outline"><Link href={`/crm/deal?opp=${main.id}`}>{t("Start the audit")}</Link></Button>
+            <Button asChild size="sm" variant="ghost"><Link href={`/crm/deal?opp=${main.id}&tab=quote`}>{t("Quote")}</Link></Button>
+          </div>
+        ) : null}
+        {opps.filter((o) => o.stage === "won" && !o.is_archived).map((o) => <WonToProject key={o.id} opportunityId={o.id} name={o.name} />)}
 
         <a className="self-start text-sm underline underline-offset-2" target="_blank" rel="noreferrer noopener"
           href={`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(t("Meeting · {name}", { name: account.name }))}&details=${encodeURIComponent(t("Valemont meeting. Add the guests and send the invitation yourself."))}`}>
