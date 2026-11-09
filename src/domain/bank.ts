@@ -31,6 +31,8 @@ export function autoCategory(t: { direction: "credit" | "debit"; bank_type: stri
   const text = `${t.description} ${t.counterparty} ${t.merchant_category}`;
   if (["CONVERSION", "INCOMING_CROSS_BALANCE", "OUTGOING_CROSS_BALANCE", "BALANCE_CASHBACK_TRANSFER"].includes(type) || /\b(converted|conversion|between your balances|jar)\b/i.test(text)) return "internal_transfer";
   if (t.direction === "credit") {
+    // A Stripe payout landing in Wise is our own money moving, not new revenue (Stripe already counted the sale).
+    if (/\bstripe\b/i.test(text)) return "internal_transfer";
     if (type === "MONEY_ADDED" || /\b(top[- ]?up|money added|apport|aportaci[oó]n|capital)\b/i.test(text)) return "founder_contribution";
     if (type === "BALANCE_INTEREST" || /\b(interest|cashback|refund|rembours|reembolso)\b/i.test(text)) return "other_income";
     return "revenue";
@@ -40,7 +42,7 @@ export function autoCategory(t: { direction: "credit" | "debit"; bank_type: stri
   return "other_expense";
 }
 
-interface Tx { amount_minor: number; currency: string; category: BankCategory; date: string; direction: "credit" | "debit"; category_source: "auto" | "manual"; is_archived?: boolean }
+interface Tx { amount_minor: number; currency: string; category: BankCategory; date: string; direction: "credit" | "debit"; category_source: "auto" | "manual"; counterparty?: string; bank?: string; is_archived?: boolean }
 
 /** Income, expenses and net per month (in one currency), excluding founder contributions and internal transfers. */
 export function moneySummary(rows: Tx[], currency: string, today: string, months = 6) {
@@ -58,12 +60,24 @@ export function moneySummary(rows: Tx[], currency: string, today: string, months
   const thisMonth = tx.filter((r) => r.date.startsWith(cur));
   const byCategory = new Map<BankCategory, number>();
   for (const r of thisMonth.filter((x) => x.direction === "debit" && !NEUTRAL.includes(x.category))) byCategory.set(r.category, (byCategory.get(r.category) ?? 0) - r.amount_minor);
+  const prevKey = monthKeys.at(-2) ?? "";
+  const prevCat = new Map<BankCategory, number>();
+  for (const r of tx.filter((x) => x.date.startsWith(prevKey) && x.direction === "debit" && !NEUTRAL.includes(x.category))) prevCat.set(r.category, (prevCat.get(r.category) ?? 0) - r.amount_minor);
+  // Revenue concentration over the last 3 months (who pays us).
+  const recent = tx.filter((r) => r.category === "revenue" && monthKeys.slice(-3).some((k) => r.date.startsWith(k)));
+  const byClient = new Map<string, number>();
+  for (const r of recent) byClient.set(r.counterparty || "?", (byClient.get(r.counterparty || "?") ?? 0) + r.amount_minor);
+  const totalRev = [...byClient.values()].reduce((a, b) => a + b, 0);
+  const top = [...byClient.entries()].sort((a, b) => b[1] - a[1])[0];
   return {
     months: byMonth,
     current: byMonth.at(-1)!,
+    previousExpensesByCategory: [...prevCat.entries()].map(([category, amount]) => ({ category, amount })),
+    topClientShare: top && totalRev > 0 && byClient.size >= 1 && recent.length >= 3 ? { name: top[0], share: top[1] / totalRev } : null,
     expensesByCategory: [...byCategory.entries()].sort((a, b) => b[1] - a[1]).map(([category, amount]) => ({ category, amount })),
     contributions: thisMonth.filter((r) => r.category === "founder_contribution").reduce((a, r) => a + r.amount_minor, 0),
-    toReview: tx.filter((r) => r.category_source === "auto" && r.direction === "credit" && (r.category === "revenue" || r.category === "other_income")).length,
+    // Stripe sales are revenue for sure; only bank credits auto-tagged as income need a founder's check.
+    toReview: tx.filter((r) => r.bank !== "stripe" && r.category_source === "auto" && r.direction === "credit" && (r.category === "revenue" || r.category === "other_income")).length,
   };
 }
 
@@ -91,4 +105,12 @@ export function parseWiseCsv(rows: Record<string, string>[]) {
     });
   });
   return { rows: out, errors };
+}
+
+/** Stripe balance transaction → category (sales are revenue; payouts to the bank are internal; fees are bank fees). */
+export function stripeCategory(type: string, amount: number): BankCategory {
+  if (["charge", "payment", "refund", "payment_refund", "payment_failure_refund"].includes(type)) return "revenue";
+  if (["payout", "payout_cancel", "payout_failure", "transfer", "topup"].includes(type)) return "internal_transfer";
+  if (["stripe_fee", "application_fee", "tax_fee"].includes(type) || type.endsWith("_fee")) return "bank_fees";
+  return amount >= 0 ? "other_income" : "other_expense";
 }

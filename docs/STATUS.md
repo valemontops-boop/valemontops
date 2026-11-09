@@ -1,6 +1,15 @@
 # Status
 
-Updated: 2026-11-09 · Stage: **1B complete + founder feedback round 5 (fake-verified)** · Next: Stage 2 (revenue operations).
+Updated: 2026-11-09 · Stage: **1B complete + founder feedback round 6 (fake-verified)** · Next: Stage 2 (revenue operations).
+
+## Feedback round 6 (2026-11-09)
+| Change | Status |
+|---|---|
+| Call session error after a reload fixed (session recreated, no lost tap) | VERIFIED_FAKE (calls.test.ts, preview reload check) |
+| Live call: big reply card, big buttons, message bar on top; scripts only in the founder's language | VERIFIED_FAKE (e2e, preview) |
+| Stripe: balance, sales, fees, payouts, MRR, signed webhook; Wise payouts from Stripe not counted twice | VERIFIED_FAKE (stripe.test.ts) — needs the real key for VERIFIED_LIVE |
+| Verdicts (what works / to watch / to improve + next step) on Reports, Growth, Money, Command Center | VERIFIED_FAKE (verdicts.test.ts) |
+| Growth (renamed Marketing); six social accounts with an overview | VERIFIED_FAKE |
 
 ## Feedback round 5 (2026-11-09)
 | Change | Status |

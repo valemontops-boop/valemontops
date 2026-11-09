@@ -3,6 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import * as React from "react";
 import { ErrorState, Panel, PanelTitle, SegmentedSwitch, Skeleton } from "@/components/ui/form";
 import { CHANNEL_LABELS, type Funnels } from "@/domain/funnels";
+import { growthVerdicts } from "@/domain/verdicts";
+import { VerdictPanel } from "./verdicts";
 import { useT } from "@/i18n/react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -33,6 +35,7 @@ function Body({ d }: { d: Data }) {
   if (!rows.length) return <Panel><p className="text-sm text-text-2">{t("Nothing logged in this period yet. Calls, emails, WhatsApp, LinkedIn and visits all show up here.")}</p></Panel>;
   return (
     <>
+      <VerdictPanel verdicts={growthVerdicts(d, (k) => t(CHANNEL_LABELS[k as keyof typeof CHANNEL_LABELS] ?? k))} />
       <Panel>
         <PanelTitle action={<span className="num text-[13px] text-text-2">{t("{n} meetings in total", { n: d.totalMeetings })}</span>}>{t("Channels compared")}</PanelTitle>
         <div className="overflow-x-auto">

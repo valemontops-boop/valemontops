@@ -138,3 +138,25 @@ export async function audienceSeries(ctx: AppContext, viewer: FounderKey, input:
   const latest = [...rows].reverse().find((r) => r[metric] !== null);
   return { account: a, metric, allowedMetrics: allowed, points, gaps: points.filter((p) => p.value === null).length, latest: latest ? { date: latest.date, value: latest[metric] as number, source: latest.source } : null };
 }
+
+/** All accounts at a glance: latest followers, change over 30 days, latest views or impressions, last capture date. */
+export async function audienceOverview(ctx: AppContext, viewer: FounderKey) {
+  const accounts = await listAccounts(ctx, viewer);
+  const all = (await ctx.repo.list("SocialAccountDaily")).rows.filter((r) => !r.is_archived);
+  const to = localDate(new Date(), "Europe/Paris");
+  const from = addDays(to, -30);
+  return accounts.map((a) => {
+    const rows = bestPerDay(all.filter((r) => r.account_id === a.id));
+    const withF = rows.filter((r) => r.followers !== null);
+    const last = withF.at(-1) ?? null;
+    const base = [...withF].reverse().find((r) => r.date <= from) ?? withF.find((r) => r.date >= from) ?? null;
+    const reachMetric = a.platform === "instagram" ? "views" : "impressions";
+    const recent = rows.filter((r) => r.date > from).map((r) => r[reachMetric] as number | null).filter((v): v is number => v !== null);
+    return {
+      account: a, followers: last?.followers ?? null, lastDate: rows.at(-1)?.date ?? null,
+      change30: last && base && last.date !== base.date ? (last.followers ?? 0) - (base.followers ?? 0) : null,
+      reach30: recent.length ? recent.reduce((x, y) => x + y, 0) : null, reachMetric,
+      spark: withF.slice(-20).map((r) => r.followers ?? 0),
+    };
+  });
+}

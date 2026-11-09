@@ -13,6 +13,8 @@ import { GoogleHttp } from "@/data/google/http";
 import { GmailSender, GoogleCalendarAdapter, GoogleDriveAdapter, GoogleDriveUploader } from "@/data/google/adapters";
 import { MemoryBank, demoWiseStore } from "@/fake-wise/store";
 import { WiseAdapter } from "@/data/bank/wise";
+import { StripeAdapter } from "@/data/bank/stripe";
+import { MemoryStripe, demoStripeStore } from "@/fake-stripe";
 import { MemoryCalendar, MemoryDrive, MemoryDriveUploader, MemoryMailer } from "@/fake-google/store";
 import { demoGoogleStore } from "./services/demo-google";
 import { seedDemoWork } from "./services/demo-seed";
@@ -102,6 +104,7 @@ async function buildContext(cfg: AppConfig): Promise<AppContext> {
       uploaderFor: (f, grant) => (grant ? new MemoryDriveUploader(store, f) : null),
       mailerFor: (f, grant) => (grant ? new MemoryMailer(store, f) : null),
       bank: new MemoryBank(demoWiseStore()),
+      payments: new MemoryStripe(demoStripeStore()),
       baseUrl: cfg.baseUrl,
       mode: "demo",
     };
@@ -124,6 +127,7 @@ async function buildContext(cfg: AppConfig): Promise<AppContext> {
     uploaderFor: (_f, grant) => (grant ? new GoogleDriveUploader(new GoogleHttp(api, async () => grant)) : null),
     mailerFor: (_f, grant) => (grant ? new GmailSender(new GoogleHttp(api, async () => grant)) : null),
     bank: wiseFromEnv(),
+    payments: process.env.STRIPE_API_KEY ? new StripeAdapter(process.env.STRIPE_API_BASE_URL || "https://api.stripe.com", process.env.STRIPE_API_KEY) : null,
     baseUrl: cfg.baseUrl,
     mode: "live",
   };

@@ -9,6 +9,11 @@ import { formatEur } from "@/lib/utils";
 import type { commandCenter } from "@/server/services/insights";
 import { BigNumber, ProgressBar, fmtDateTime } from "./bits";
 import { Bars, Funnel } from "./charts";
+import { VerdictPanel } from "./verdicts";
+import { growthVerdicts, moneyVerdicts, salesVerdicts, type Verdict } from "@/domain/verdicts";
+import { CHANNEL_LABELS } from "@/domain/funnels";
+import { CATEGORY_LABELS } from "@/domain/bank";
+import { OBJECTION_LABELS } from "@/domain/constants";
 import { cn } from "@/lib/utils";
 import { useMe } from "./providers";
 import { AudienceSummary } from "./marketing-view";
@@ -101,6 +106,7 @@ function Now({ d }: { d: CC }) {
       ) : (
         <Panel><p className="text-sm text-text-2">{t("No active sprint.")} <Link className="underline" href="/settings">{t("Start one in Settings › Sprint")}</Link>.</p></Panel>
       )}
+      <Priorities />
     </>
   );
 }
@@ -183,4 +189,20 @@ function Money({ d }: { d: CC }) {
       </Panel>
     </>
   );
+}
+
+/** The few things to improve first, read from sales, growth and money (fix first, then watch). */
+function Priorities() {
+  const t = useT();
+  const sales = useQuery({ queryKey: ["dashboard", "30", "team"], queryFn: () => api<Parameters<typeof salesVerdicts>[0]>("/api/reports/dashboard?days=30&scope=team") });
+  const growth = useQuery({ queryKey: ["funnels", "30", "team"], queryFn: () => api<Parameters<typeof growthVerdicts>[0]>("/api/marketing/funnels?days=30&scope=team") });
+  const money = useQuery({ queryKey: ["money"], queryFn: () => api<{ connected: boolean; balances: { bank: string; currency: string; amount_minor: number }[]; stripe: { mrr: number | null; mrrPrevious: number | null }; summary: Omit<Parameters<typeof moneyVerdicts>[0], "balance" | "mrr" | "mrrPrevious"> }>("/api/money") });
+  const all: Verdict[] = [
+    ...(sales.data ? salesVerdicts(sales.data, (k) => t(OBJECTION_LABELS[k as keyof typeof OBJECTION_LABELS] ?? k)) : []),
+    ...(growth.data ? growthVerdicts(growth.data, (k) => t(CHANNEL_LABELS[k as keyof typeof CHANNEL_LABELS] ?? k)) : []),
+    ...(money.data ? moneyVerdicts({ ...money.data.summary, balance: money.data.balances.filter((b) => b.bank === "wise" && b.currency === "EUR").reduce((a, b) => a + b.amount_minor, 0) || null, mrr: money.data.stripe.mrr, mrrPrevious: money.data.stripe.mrrPrevious }, (m) => formatEur(m), (k) => t(CATEGORY_LABELS[k as keyof typeof CATEGORY_LABELS] ?? k)) : []),
+  ];
+  const top = [...all.filter((v) => v.kind === "fix"), ...all.filter((v) => v.kind === "watch")].slice(0, 4).concat(all.filter((v) => v.kind === "good").slice(0, 2));
+  if (!sales.data && !growth.data && !money.data) return null;
+  return <VerdictPanel verdicts={top} title="Priorities" />;
 }

@@ -1,10 +1,12 @@
 "use client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
+import { cn } from "@/lib/utils";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmailTab } from "./email-tab";
+import { Spark } from "./charts";
 import { FunnelsTab } from "./marketing-funnels";
 import { useDateTag, useT } from "@/i18n/react";
 import { EmptyState, ErrorState, Field, Input, Panel, PanelTitle, SegmentedSwitch, Select, Skeleton } from "@/components/ui/form";
@@ -27,7 +29,7 @@ export function MarketingView() {
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{t("Marketing")}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{t("Growth")}</h1>
           <p className="text-sm text-text-2">{t("Which channel brings meetings, for how much work.")}</p>
         </div>
         <SegmentedSwitch label={t("Section")} value={tab} onChange={setTab} options={[{ value: "funnels", label: t("Funnels") }, { value: "email", label: t("Email") }, { value: "website", label: t("Website") }, { value: "social", label: t("Social") }, { value: "content", label: t("Content") }]} />
@@ -62,6 +64,7 @@ function AudienceTab() {
         <EmptyState title={t("No social account yet")} action={<Button size="sm" variant="primary" onClick={() => setAdding(true)}>{t("Add your first account")}</Button>}>{t("Add the Valemont and 30/30 pages, then import LinkedIn exports or enter numbers manually.")}</EmptyState>
       ) : (
         <>
+          <SocialOverview selected={current?.id ?? null} onSelect={setAccountId} />
           <div className="flex flex-wrap items-center gap-2">
             <Select aria-label={t("Account")} value={current?.id} onChange={(e) => setAccountId(e.target.value)} className="h-9 w-72">
               {accounts.data.map((a) => <option key={a.id} value={a.id}>{a.handle} · {t(PLATFORM[a.platform])}{a.visibility === "owner" ? ` ${t("(private to you)")}` : ""}</option>)}
@@ -71,6 +74,35 @@ function AudienceTab() {
         </>
       )}
       <AddAccountModal open={adding} onOpenChange={setAdding} />
+    </div>
+  );
+}
+
+type Overview = { account: Account; followers: number | null; lastDate: string | null; change30: number | null; reach30: number | null; reachMetric: "views" | "impressions"; spark: number[] }[];
+/** The six accounts side by side: followers, 30-day change, reach; click one to see its curve. */
+function SocialOverview({ selected, onSelect }: { selected: string | null; onSelect: (id: string) => void }) {
+  const t = useT();
+  const q = useQuery({ queryKey: ["audience-overview"], queryFn: () => api<Overview>("/api/audience/overview") });
+  if (!q.data) return null;
+  return (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {q.data.map((o) => (
+        <button key={o.account.id} type="button" onClick={() => onSelect(o.account.id)} aria-pressed={selected === o.account.id}
+          className={cn("flex flex-col gap-1 rounded-[16px] border bg-panel p-4 text-left transition-colors hover:border-control", selected === o.account.id ? "border-ink" : "border-transparent")}>
+          <span className="text-[13px] text-text-2">{t(PLATFORM[o.account.platform])}</span>
+          <span className="font-semibold">{o.account.handle}</span>
+          {o.followers === null ? <span className="text-[13px] text-text-3">{t("No data yet: import or enter the numbers")}</span> : (
+            <>
+              <span className="num text-[26px] font-semibold leading-none">{o.followers.toLocaleString()}</span>
+              <span className="text-[12px] text-text-3">
+                {t("followers")}{o.change30 !== null ? <> · <b className={cn("font-medium", o.change30 >= 0 ? "text-win" : "text-bad")}>{o.change30 >= 0 ? "+" : ""}{o.change30}</b> {t("in 30 days")}</> : null}
+                {o.reach30 !== null ? ` · ${o.reach30.toLocaleString()} ${t(o.reachMetric === "views" ? "views" : "impressions")}` : ""}
+              </span>
+              <Spark values={o.spark} tone="sales" className="mt-1" />
+            </>
+          )}
+        </button>
+      ))}
     </div>
   );
 }

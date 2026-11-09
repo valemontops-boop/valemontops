@@ -3,9 +3,10 @@ import { z } from "zod";
 import type { Row } from "@/data/repository";
 import { ScaRequiredError, type BankTx } from "@/data/bank/wise";
 import { childId } from "@/lib/ids";
-import { BANK_CATEGORIES, autoCategory, moneySummary, parseWiseCsv } from "@/domain/bank";
+import { BANK_CATEGORIES, autoCategory, moneySummary, parseWiseCsv, stripeCategory, type BankCategory } from "@/domain/bank";
+import { mrrOf } from "@/data/bank/stripe";
 import type { FounderKey } from "@/domain/constants";
-import { localDate } from "@/domain/time";
+import { addDays, localDate } from "@/domain/time";
 import { RuleError } from "../errors";
 import type { AppContext } from "../context";
 import { userRow } from "./common";
@@ -13,19 +14,22 @@ import { userRow } from "./common";
 const SYSTEM = { founder: "system" };
 type Actor = { founder: string };
 const STATUS_ID = childId("integration", "wise");
+const STRIPE_STATUS_ID = childId("integration", "stripe");
 
-async function setStatus(ctx: AppContext, status: string, error = "", actor: Actor = SYSTEM) {
-  const cur = await ctx.repo.get("IntegrationStatuses", STATUS_ID, { fresh: true });
+async function setStatus(ctx: AppContext, status: string, error = "", actor: Actor = SYSTEM, integration: "wise" | "stripe" = "wise") {
+  const id = integration === "wise" ? STATUS_ID : STRIPE_STATUS_ID;
+  const cur = await ctx.repo.get("IntegrationStatuses", id, { fresh: true });
   const patch = { status, last_error: error.slice(0, 500), ...(status === "ok" ? { last_success_at: new Date().toISOString() } : {}) };
-  if (cur) await ctx.repo.update("IntegrationStatuses", STATUS_ID, cur.version, patch, actor);
-  else await ctx.repo.insert("IntegrationStatuses", [{ id: STATUS_ID, integration: "wise", last_success_at: null, ...patch }], actor);
+  if (cur) await ctx.repo.update("IntegrationStatuses", id, cur.version, patch, actor);
+  else await ctx.repo.insert("IntegrationStatuses", [{ id, integration, last_success_at: null, ...patch }], actor);
 }
 
-const txRow = (src: { source_id: string; origin: "api" | "webhook" | "csv" | "demo"; balance_id: string; currency: string; amount_minor: number; fee_minor: number | null; occurred_at: string; description: string; counterparty: string; bank_type: string; merchant_category: string; running_balance_minor: number | null }, tz: string) => {
+const txRow = (src: { bank?: "wise" | "stripe"; category?: BankCategory; source_id: string; origin: "api" | "webhook" | "csv" | "demo"; balance_id: string; currency: string; amount_minor: number; fee_minor: number | null; occurred_at: string; description: string; counterparty: string; bank_type: string; merchant_category: string; running_balance_minor: number | null }, tz: string) => {
   const direction = src.amount_minor >= 0 ? ("credit" as const) : ("debit" as const);
+  const { bank = "wise", category, ...rest } = src;
   return {
-    id: childId("wise-tx", src.source_id), bank: "wise" as const, ...src, direction, date: localDate(new Date(src.occurred_at), tz), note: "",
-    category: autoCategory({ direction, bank_type: src.bank_type, description: src.description, counterparty: src.counterparty, merchant_category: src.merchant_category }), category_source: "auto" as const,
+    id: childId(bank === "wise" ? "wise-tx" : "stripe-tx", src.source_id), bank, ...rest, direction, date: localDate(new Date(src.occurred_at), tz), note: "",
+    category: category ?? autoCategory({ direction, bank_type: src.bank_type, description: src.description, counterparty: src.counterparty, merchant_category: src.merchant_category }), category_source: "auto" as const,
   };
 };
 const signed = (t: BankTx) => (t.direction === "credit" ? Math.abs(t.amount_minor) : -Math.abs(t.amount_minor));
@@ -82,6 +86,45 @@ export async function syncBank(ctx: AppContext, actor: Actor = SYSTEM, days = 90
   }
   await setStatus(ctx, sca ? "sca_required" : "ok", sca ? "Statements need strong authentication" : "", actor);
   return { balances: balances.length, added, sca };
+}
+
+/**
+ * Stripe → Sheets: balance, balance transactions (sales as revenue with their fee as a separate bank fee, payouts as
+ * internal transfers) and today's MRR snapshot from active subscriptions. Idempotent by Stripe transaction id.
+ */
+export async function syncStripe(ctx: AppContext, actor: Actor = SYSTEM, days = 90) {
+  if (!ctx.payments) throw new RuleError("Stripe is not connected. Add STRIPE_API_KEY (see docs/INTEGRATIONS.md).");
+  const tz = (await userRow(ctx.repo, "theo").catch(() => null))?.timezone ?? "Europe/Paris";
+  const t = await ctx.repo.listMany(["BankTransactions", "BankBalances", "RevenueSnapshots"], { fresh: true });
+  const now = new Date();
+  for (const b of await ctx.payments.balance()) {
+    const id = childId("stripe-balance", b.currency);
+    const cur = t.BankBalances.rows.find((x) => x.id === id);
+    const v = { bank: "stripe" as const, balance_id: `stripe-${b.currency}`, currency: b.currency, name: "Stripe", amount_minor: b.amount_minor, as_of: now.toISOString() };
+    if (cur) { if (cur.amount_minor !== b.amount_minor) await ctx.repo.update("BankBalances", id, cur.version, v, actor); }
+    else await ctx.repo.insert("BankBalances", [{ id, ...v }], actor);
+  }
+  const mine = t.BankTransactions.rows.filter((r) => r.bank === "stripe");
+  const last = mine.map((r) => r.occurred_at).sort().at(-1);
+  const since = Math.floor((last ? Date.parse(last) - 86_400_000 : now.getTime() - days * 86_400_000) / 1000);
+  const fresh: ReturnType<typeof txRow>[] = [];
+  const known = new Set(t.BankTransactions.rows.map((r) => r.id));
+  for (const x of await ctx.payments.balanceTransactions(since)) {
+    const base = { bank: "stripe" as const, origin: "api" as const, balance_id: `stripe-${x.currency}`, currency: x.currency, fee_minor: x.fee || null, occurred_at: new Date(x.created * 1000).toISOString(), description: x.description, counterparty: "", bank_type: x.type, merchant_category: "", running_balance_minor: null };
+    const rows = [txRow({ ...base, source_id: x.id, amount_minor: x.amount, category: stripeCategory(x.type, x.amount) }, tz)];
+    if (x.fee > 0 && stripeCategory(x.type, x.amount) === "revenue") rows.push(txRow({ ...base, source_id: `${x.id}:fee`, amount_minor: -x.fee, fee_minor: null, description: `Stripe fee · ${x.description}`, category: "bank_fees" }, tz));
+    for (const r of rows) if (!known.has(r.id) && !fresh.some((y) => y.id === r.id)) fresh.push(r);
+  }
+  if (fresh.length) await ctx.repo.insert("BankTransactions", fresh, actor);
+  const subs = await ctx.payments.activeSubscriptions();
+  const today = localDate(now, tz);
+  const snapId = childId("mrr", "stripe", today);
+  const snap = { source: "stripe" as const, date: today, currency: "EUR", mrr_minor: mrrOf(subs, "EUR"), active_subscriptions: subs.length };
+  const cur = t.RevenueSnapshots.rows.find((x) => x.id === snapId);
+  if (cur) { if (cur.mrr_minor !== snap.mrr_minor || cur.active_subscriptions !== snap.active_subscriptions) await ctx.repo.update("RevenueSnapshots", snapId, cur.version, snap, actor); }
+  else await ctx.repo.insert("RevenueSnapshots", [{ id: snapId, ...snap }], actor);
+  await setStatus(ctx, "ok", "", actor, "stripe");
+  return { added: fresh.length, mrr_minor: snap.mrr_minor, subscriptions: subs.length };
 }
 
 /** Wise webhook `balances#update` / `balances#credit`: one movement, recorded at once (live view). */
@@ -142,20 +185,23 @@ export async function setCategory(ctx: AppContext, founder: FounderKey, input: z
 /** The Money page: balances now, this month and 6 months of income vs expenses, latest movements. Syncs if stale. */
 export async function moneyOverview(ctx: AppContext, founder: FounderKey) {
   let syncError: string | null = null;
-  if (ctx.bank) {
-    const st = await ctx.repo.get("IntegrationStatuses", STATUS_ID);
-    const stale = !st?.last_success_at || Date.now() - Date.parse(st.last_success_at) > 15 * 60_000;
-    if (stale) { try { await syncBank(ctx, { founder }); } catch (e) { syncError = (e as Error).message; } }
-  }
-  const t = await ctx.repo.listMany(["BankTransactions", "BankBalances", "IntegrationStatuses"]);
+  const stale = async (id: string) => { const st = await ctx.repo.get("IntegrationStatuses", id); return !st?.last_success_at || Date.now() - Date.parse(st.last_success_at) > 15 * 60_000; };
+  if (ctx.bank && (await stale(STATUS_ID))) { try { await syncBank(ctx, { founder }); } catch (e) { syncError = (e as Error).message; } }
+  if (ctx.payments && (await stale(STRIPE_STATUS_ID))) { try { await syncStripe(ctx, { founder }); } catch (e) { syncError = (e as Error).message; } }
+  const t = await ctx.repo.listMany(["BankTransactions", "BankBalances", "IntegrationStatuses", "RevenueSnapshots"]);
   const u = await userRow(ctx.repo, founder);
   const today = localDate(new Date(), u.timezone);
   const balances = t.BankBalances.rows.filter((b) => !b.is_archived).sort((a, b) => b.amount_minor - a.amount_minor);
   const status = t.IntegrationStatuses.rows.find((r) => r.id === STATUS_ID) ?? null;
   const rows = t.BankTransactions.rows.filter((r) => !r.is_archived);
+  const snaps = t.RevenueSnapshots.rows.filter((r) => !r.is_archived && r.currency === "EUR").sort((a, b) => a.date.localeCompare(b.date));
+  const mrr = snaps.at(-1) ?? null;
+  const monthAgo = [...snaps].reverse().find((r) => r.date <= addDays(today, -28)) ?? null;
+  const stripeStatus = t.IntegrationStatuses.rows.find((r) => r.id === STRIPE_STATUS_ID) ?? null;
   return {
     connected: Boolean(ctx.bank), status: status?.status ?? null, lastSync: status?.last_success_at ?? null, syncError,
-    balances: balances.map((b) => ({ currency: b.currency, amount_minor: b.amount_minor, name: b.name, as_of: b.as_of })),
+    stripe: { connected: Boolean(ctx.payments), lastSync: stripeStatus?.last_success_at ?? null, mrr: mrr?.mrr_minor ?? null, mrrPrevious: monthAgo?.mrr_minor ?? null, subscriptions: mrr?.active_subscriptions ?? null },
+    balances: balances.map((b) => ({ bank: b.bank, currency: b.currency, amount_minor: b.amount_minor, name: b.name, as_of: b.as_of })),
     summary: moneySummary(rows, "EUR", today),
     transactions: rows.sort((a, b) => b.occurred_at.localeCompare(a.occurred_at)).slice(0, 80) as Row<"BankTransactions">[],
   };

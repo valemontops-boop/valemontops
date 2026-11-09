@@ -100,3 +100,16 @@ export const SETTINGS_SEEDS: { key: string; value: string; description: string }
   { key: "hot_lead_stale_days", value: "5", description: "Hot leads with no touch for N days enter the Next Best Action queue." },
   { key: "company_name", value: "", description: "Legal company name (entered by a founder; never invented)." },
 ];
+
+/**
+ * The six social accounts Valemont tracks (founders, round 6). Personal LinkedIn profiles are shown to both founders
+ * at their request (D055, overrides the owner-only default of spec 2.3); data comes from imports or manual entry.
+ */
+export const SOCIAL_SEEDS: { key: string; platform: "instagram" | "linkedin_page" | "linkedin_personal"; handle: string; brand: "consulting" | "local" | "thirty" | null; owner_founder: "theo" | "pablo" | null; connection_mode: "manual" | "import" }[] = [
+  { key: "li-theo", platform: "linkedin_personal", handle: "Théo", brand: null, owner_founder: "theo", connection_mode: "import" },
+  { key: "li-pablo", platform: "linkedin_personal", handle: "Pablo", brand: null, owner_founder: "pablo", connection_mode: "import" },
+  { key: "li-valemont", platform: "linkedin_page", handle: "Valemont", brand: "consulting", owner_founder: null, connection_mode: "import" },
+  { key: "li-thirty", platform: "linkedin_page", handle: "30/30 AI", brand: "thirty", owner_founder: null, connection_mode: "import" },
+  { key: "ig-valemont", platform: "instagram", handle: "Valemont", brand: "local", owner_founder: null, connection_mode: "manual" },
+  { key: "ig-thirty", platform: "instagram", handle: "30/30 AI", brand: "thirty", owner_founder: null, connection_mode: "manual" },
+];

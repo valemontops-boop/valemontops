@@ -85,3 +85,13 @@ describe("Call mode", () => {
     expect((await callQueue(ctx, "theo", listId)).queue.map((x) => x.name)).not.toContain("Garage Un (test)");
   });
 });
+
+describe("Call mode: session unknown to the server", () => {
+  it("recreates the session instead of losing the tap (after a reload or a server restart)", async () => {
+    const sid = randomUUID();
+    const r = await call(sid, { outcome: "no_answer", phone: "+33100000999", market: "FR" });
+    expect(r.duplicate).toBe(false);
+    const s = await sessionSummary(ctx, "theo", sid);
+    expect(s.stats.dials).toBe(1);
+  });
+});

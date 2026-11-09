@@ -180,7 +180,7 @@ function ObjectionDrill() {
   const loc = useLocale();
   const pb = useQuery({ queryKey: ["playbook"], queryFn: () => api<Playbook>("/api/playbook") });
   const rep = useQuery({ queryKey: ["call-objections"], queryFn: () => api<ObjectionReport>("/api/calls/objections") });
-  const [lang, setLang] = React.useState<"FR" | "ES">(loc === "es" ? "ES" : "FR");
+  const lang: "FR" | "ES" = loc === "es" ? "ES" : "FR";
   const [i, setI] = React.useState(0);
   const [shown, setShown] = React.useState(false);
   const [score, setScore] = React.useState({ good: 0, total: 0 });
@@ -196,7 +196,7 @@ function ObjectionDrill() {
   const next = (good: boolean) => { setScore((s) => ({ good: s.good + (good ? 1 : 0), total: s.total + 1 })); setShown(false); setI((x) => x + 1); };
   return (
     <Panel className="flex flex-col gap-3">
-      <PanelTitle action={<SegmentedSwitch size="sm" label={t("Language")} value={lang} onChange={setLang} options={[{ value: "FR", label: "FR" }, { value: "ES", label: "ES" }]} />}>{t("Practice")}</PanelTitle>
+      <PanelTitle>{t("Practice")}</PanelTitle>
       <p className="text-xl font-semibold">« {g.say[lang]} »</p>
       {shown && item ? (
         <ol className="flex flex-col gap-1.5 text-[15px] leading-snug">{replySteps(fill(item.body, vars)).map((line, k) => <li key={k} className={cn(k === 2 && "font-medium")}>{line}</li>)}</ol>
@@ -223,6 +223,7 @@ const REASON: Record<QItem["reason"], string> = { talked: "Talked on the phone",
  */
 function MessageQueue() {
   const t = useT();
+  const lang: "FR" | "ES" = useLocale() === "es" ? "ES" : "FR";
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["email-queue"], queryFn: () => api<{ items: QItem[]; sentToday: number }>("/api/email/queue") });
   const pb = useQuery({ queryKey: ["playbook"], queryFn: () => api<Playbook>("/api/playbook") });
@@ -231,14 +232,14 @@ function MessageQueue() {
   const [open, setOpen] = React.useState<{ item: QItem; channel: "email" | "whatsapp" } | null>(null);
   const idemFor = (k: string) => { if (!keys.has(k)) keys.set(k, crypto.randomUUID()); return keys.get(k)!; };
   const textFor = (it: QItem) => {
-    const tp = pb.data ? findItem(pb.data.items, "email", it.template, it.market) : null;
-    const v = { business: it.name, contact: it.contact, founder: pb.data?.founderName, calendly: pb.data?.links.calendly, deck: it.market === "ES" ? pb.data?.links.deckES : pb.data?.links.deckFR };
+    const tp = pb.data ? findItem(pb.data.items, "email", it.template, lang) : null;
+    const v = { business: it.name, contact: it.contact, founder: pb.data?.founderName, calendly: pb.data?.links.calendly, deck: lang === "ES" ? pb.data?.links.deckES : pb.data?.links.deckFR };
     return { subject: fill(tp?.subject ?? "", v), body: fill(tp?.body ?? "", v) };
   };
   const emailable = (q.data?.items ?? []).filter((it) => it.email);
   const batch = useMutation({
     mutationFn: () => api<{ sent: number; failed: number; results: { idempotency_key: string; ok: boolean; message?: string }[] }>("/api/email/batch", {
-      body: { items: emailable.map((it) => ({ idempotency_key: idemFor(it.key), channel: "email", via: "gmail", context: it.context, account_id: it.accountId, to: it.email, ...textFor(it), template_key: it.template, language: it.market, market: it.market })) },
+      body: { items: emailable.map((it) => ({ idempotency_key: idemFor(it.key), channel: "email", via: "gmail", context: it.context, account_id: it.accountId, to: it.email, ...textFor(it), template_key: it.template, language: lang, market: it.market })) },
     }),
     onSuccess: (r) => { toast(r.failed ? t("{sent} emails sent, {failed} skipped (see why on each line)", { sent: r.sent, failed: r.failed }) : t("{sent} emails sent", { sent: r.sent })); qc.invalidateQueries({ queryKey: ["email-queue"] }); qc.invalidateQueries({ queryKey: ["my-day"] }); qc.invalidateQueries({ queryKey: ["email-benchmarks"] }); },
     onError: (e) => toast(e instanceof ApiError && e.body.error === "consent_required" ? t("Connect Gmail first") : (e as Error).message),

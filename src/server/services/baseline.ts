@@ -3,7 +3,7 @@ import type { Actor, DataRepository } from "@/data/repository";
 import { SCHEMA_VERSION } from "@/data/schema/tables";
 import { schemaHash } from "@/data/sheets/setup";
 import { FOUNDERS, FOUNDER_NAMES, type FounderKey } from "@/domain/constants";
-import { CAPACITY_SEED_MINUTES, MINUTES_PER_ACTION_SEED, SETTINGS_SEEDS, TARGET_SEEDS, channelRuleSeeds, seedTargetsFor } from "@/domain/seeds";
+import { CAPACITY_SEED_MINUTES, MINUTES_PER_ACTION_SEED, SETTINGS_SEEDS, SOCIAL_SEEDS, TARGET_SEEDS, channelRuleSeeds, seedTargetsFor } from "@/domain/seeds";
 import type { WorkMode } from "@/domain/constants";
 
 const SYSTEM: Actor = { founder: "system" };
@@ -14,7 +14,7 @@ const SEED_DATE = "2000-01-01"; // seeds are effective from the beginning of tim
  * channel rules, target seeds, schema migration record. Never overwrites edited values.
  */
 export async function seedBaseline(repo: DataRepository, timezones: Record<FounderKey, string>) {
-  const t = await repo.listMany(["Users", "SystemSettings", "ChannelRules", "DailyTargets", "SchemaMigrations"], { fresh: true });
+  const t = await repo.listMany(["Users", "SystemSettings", "ChannelRules", "DailyTargets", "SchemaMigrations", "SocialAccounts"], { fresh: true });
   const has = (rows: { id: string }[], id: string) => rows.some((r) => r.id === id);
   const added: Record<string, number> = {};
 
@@ -49,6 +49,9 @@ export async function seedBaseline(repo: DataRepository, timezones: Record<Found
         targets.push({ id, founder_key: f, mode, metric, target, weight: 1, minutes_per_action: MINUTES_PER_ACTION_SEED[metric], effective_from: SEED_DATE });
       }
   if (targets.length) added.DailyTargets = (await repo.insert("DailyTargets", targets, SYSTEM)).length;
+
+  const social = SOCIAL_SEEDS.map(({ key, ...a }) => ({ id: childId("social", key), ...a, market: null, visibility: "team" as const })).filter((a) => !has(t.SocialAccounts.rows, a.id));
+  if (social.length) added.SocialAccounts = (await repo.insert("SocialAccounts", social, SYSTEM)).length;
 
   const migId = childId("schema", String(SCHEMA_VERSION), schemaHash());
   if (!has(t.SchemaMigrations.rows, migId)) {

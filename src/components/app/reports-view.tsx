@@ -12,6 +12,9 @@ import type { streakSummary } from "@/server/services/results";
 import { DayDots } from "./bits";
 import { Bars, Funnel, Kpi } from "./charts";
 import { ObjectionRows } from "./call-mode";
+import { VerdictPanel } from "./verdicts";
+import { salesVerdicts } from "@/domain/verdicts";
+import { OBJECTION_LABELS } from "@/domain/constants";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { reportsDashboard as dashboard } from "@/server/services/dashboard";
 import { useT } from "@/i18n/react";
@@ -61,6 +64,7 @@ function DashboardBody({ d }: { d: Dash }) {
   const t = useT();
   const k = d.kpis;
   const best = d.byHour.filter((h) => h.dials >= 3).sort((a, b) => (b.pickupRate ?? 0) - (a.pickupRate ?? 0))[0];
+  const verdicts = salesVerdicts(d as never, (k) => t(OBJECTION_LABELS[k as keyof typeof OBJECTION_LABELS] ?? k));
   return (
     <>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
@@ -70,6 +74,7 @@ function DashboardBody({ d }: { d: Dash }) {
         <Kpi label={t("Meetings booked")} value={String(k.meetings.value ?? 0)} delta={k.meetings.delta} dark />
         <Kpi tone="win" label={t("Deals won")} value={String(k.won.value ?? 0)} delta={k.won.delta} note={t("{n} content published", { n: k.content.value ?? 0 })} />
       </div>
+      <VerdictPanel verdicts={verdicts} />
       <Panel>
         <PanelTitle>{t("Dials and yes per day")}</PanelTitle>
         <div className="h-56" role="img" aria-label={t("Dials and yes per day")}>

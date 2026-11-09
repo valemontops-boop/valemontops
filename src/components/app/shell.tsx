@@ -21,7 +21,7 @@ const NAV = [
   { href: "/my-day", label: "My Day", icon: Sun },
   { href: "/call", label: "Call mode", icon: PhoneCall },
   { href: "/crm", label: "Sales CRM", icon: Users },
-  { href: "/marketing", label: "Marketing", icon: Megaphone },
+  { href: "/marketing", label: "Growth", icon: Megaphone },
   { href: "/money", label: "Money", icon: Wallet },
 ];
 const WORKSPACE = [

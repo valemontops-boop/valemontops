@@ -71,6 +71,8 @@ export const callSchema = z.object({
   objections: z.array(z.enum(OBJECTIONS)).max(12).default([]),
   /** Reply variant shown for each objection when the outcome was tapped ("too_expensive#2"). */
   replies: z.array(z.string().regex(/^[a-z_]+#\d{1,2}$/)).max(12).default([]),
+  /** The list being called, so a session unknown to the server can be recreated as it was. */
+  list_id: z.string().max(40).default(""),
   /** Seconds from "Dial" to the outcome tap, when the timer ran. */
   duration_sec: z.number().int().min(0).max(4 * 3600).nullable().default(null),
   follow_up_date: z.union([z.literal(""), z.string().regex(/^\d{4}-\d{2}-\d{2}$/)]).default(""),
@@ -88,8 +90,8 @@ function forward(cur: Stage, to: Stage): Stage {
 
 /** One tap = one event. A "yes" (call back / interested / meeting) creates or advances the deal with a dated next step. */
 export async function logCall(ctx: AppContext, founder: FounderKey, input: z.infer<typeof callSchema>) {
-  const session = await ctx.repo.get("CallSessions", input.session_id);
-  if (!session) throw new RuleError("Start a calling session first.");
+  // A session can be unknown to the server after a reload or a restart: recreate it instead of losing the tap.
+  const session = (await ctx.repo.get("CallSessions", input.session_id, { fresh: true })) ?? (await startSession(ctx, founder, { id: input.session_id, list_id: input.list_id }));
   if (isPositive(input.outcome) && !input.account_id && !input.business_name.trim()) throw new RuleError("Name the business that said yes so it lands in your pipeline.");
   const ev = eventFor(input.outcome);
   const u = await userRow(ctx.repo, founder);

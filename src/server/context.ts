@@ -1,5 +1,6 @@
 import type { DataRepository } from "@/data/repository";
 import type { BankPort } from "@/data/bank/wise";
+import type { StripePort } from "@/data/bank/stripe";
 import type { CalendarPort, DrivePort, DriveUploader, MailSender } from "@/data/google/ports";
 
 /** Everything a service needs, independent of mode (LIVE, DEMO memory, DEMO fake Sheets, browser preview). */
@@ -15,6 +16,8 @@ export interface AppContext {
   mailerFor: (founder: string, grantToken: string | null) => MailSender | null;
   /** Wise (read-only) when configured; null otherwise. */
   bank?: BankPort | null;
+  /** Stripe (read-only) when configured; null otherwise. */
+  payments?: StripePort | null;
   baseUrl: string;
   mode: "live" | "demo";
 }

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { ErrorState, Field, Input, Panel, PanelTitle, SegmentedSwitch, Select, Skeleton, Textarea } from "@/components/ui/form";
 import { DEFAULT_PLAYBOOK, EMAIL_TEMPLATE_LABELS, objectionLabel, type Lang, type PlaybookItem } from "@/domain/playbook";
 import { CONTACT_TYPE_LABELS, RULE_STATUSES } from "@/domain/constants";
-import { useT } from "@/i18n/react";
+import { useLocale, useT } from "@/i18n/react";
 import { ApiError, api } from "@/lib/api";
 import { relTime } from "@/lib/utils";
 import { useMe } from "./providers";
@@ -26,7 +26,7 @@ export function SettingsView() {
   return (
     <div className="flex max-w-5xl flex-col gap-5">
       <nav aria-label={t("More")} className="grid grid-cols-3 gap-2 md:hidden">
-        {[["/marketing", "Marketing"], ["/agenda", "Agenda"], ["/ideas", "Ideas"], ["/files", "Files"], ["/reports", "Reports"], ["/tasks", "Tasks"]].map(([h, l]) => (
+        {[["/marketing", "Growth"], ["/money", "Money"], ["/agenda", "Agenda"], ["/ideas", "Ideas"], ["/files", "Files"], ["/reports", "Reports"], ["/tasks", "Tasks"]].map(([h, l]) => (
           <Link key={h} href={h} className="flex h-12 items-center justify-center rounded-[12px] bg-panel text-sm font-medium">{t(l)}</Link>
         ))}
       </nav>
@@ -331,7 +331,8 @@ const KIND_TITLES: Record<PlaybookItem["kind"], string> = { opener: "Call opener
 function PlaybookTab() {
   const t = useT();
   const qc = useQueryClient();
-  const [lang, setLang] = React.useState<Lang>("FR");
+  // Each founder edits the scripts in their own language (Théo FR, Pablo ES).
+  const lang: Lang = useLocale() === "es" ? "ES" : "FR";
   const q = useQuery({ queryKey: ["playbook"], queryFn: () => api<{ items: PlaybookItem[] }>("/api/playbook") });
   const save = useMutation({ mutationFn: (b: PlaybookItem) => api("/api/playbook", { body: b }), onSuccess: () => { qc.invalidateQueries({ queryKey: ["playbook"] }); toast(t("Saved")); } });
   if (q.isPending) return <Skeleton className="h-64" />;
@@ -341,7 +342,6 @@ function PlaybookTab() {
     <div className="flex flex-col gap-4">
       <Panel className="flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-xl text-sm text-text-2">{t("Scripts and templates used live in call mode. Placeholders:")} <code>{"{business}"}</code> <code>{"{contact}"}</code> <code>{"{founder}"}</code> <code>{"{calendly}"}</code> <code>{"{deck}"}</code>. {t("Links are set in Workspace. Nothing is ever sent without your click.")}</p>
-        <SegmentedSwitch label={t("Language")} value={lang} onChange={setLang} options={[{ value: "FR", label: "Français" }, { value: "ES", label: "Español" }]} />
       </Panel>
       {(["opener", "objection", "email", "whatsapp"] as const).map((kind) => (
         <Panel key={kind}>

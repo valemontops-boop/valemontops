@@ -558,7 +558,7 @@ export const TABLES = {
     domain: "finance",
     shape: {
       ...base,
-      bank: oneOf(["wise"] as const),
+      bank: oneOf(["wise", "stripe"] as const),
       source_id: reqText(120),
       origin: oneOf(["api", "webhook", "csv", "demo"] as const),
       balance_id: text(40),
@@ -582,13 +582,18 @@ export const TABLES = {
     domain: "finance",
     shape: {
       ...base,
-      bank: oneOf(["wise"] as const),
+      bank: oneOf(["wise", "stripe"] as const),
       balance_id: reqText(40),
       currency: reqText(3),
       name: text(120),
       amount_minor: int(),
       as_of: iso(),
     },
+  },
+  /** Recurring revenue measured each day from Stripe subscriptions (one row per day, the latest wins). */
+  RevenueSnapshots: {
+    domain: "finance",
+    shape: { ...base, source: oneOf(["stripe"] as const), date: day(), currency: reqText(3), mrr_minor: int(), active_subscriptions: int() },
   },
   /* ----- private founder spreadsheets only (spec 4.7) ----- */
   PrivateTasks: { domain: "private", shape: taskShape() },

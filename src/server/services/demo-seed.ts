@@ -114,22 +114,23 @@ export async function seedDemoWork(repo: DataRepository, privateRepo: (f: string
     { id: childId("demo-idea", "2"), text: "Reel court : les appels manqués coûtent de l'argent", note: "", brand: "local", category: "content", status: "testing", votes: {}, reason: "", created_by_founder: "pablo", converted_type: null, converted_id: "" },
     { id: childId("demo-idea", "3"), text: "Aliarse con una red de gestorías en Madrid", note: "", brand: "consulting", category: "partner", status: "discuss", votes: { pablo: "yes", theo: "maybe" }, reason: "", created_by_founder: "pablo", converted_type: null, converted_id: "" },
   ] as never, sys);
-  const accId = childId("demo-social", "li-page-valemont");
-  const igId = childId("demo-social", "ig-thirty");
-  const personal = childId("demo-social", "li-theo");
-  await repo.insert("SocialAccounts", [
-    { id: accId, platform: "linkedin_page", handle: "Valemont (demo page)", brand: "consulting", market: null, owner_founder: null, connection_mode: "import", visibility: "team" },
-    { id: igId, platform: "instagram", handle: "@thirtythirty.demo", brand: "thirty", market: "FR", owner_founder: null, connection_mode: "manual", visibility: "team" },
-    { id: personal, platform: "linkedin_personal", handle: "Théo (personal, demo)", brand: null, market: null, owner_founder: "theo", connection_mode: "import", visibility: "owner" },
-  ] as never, sys);
+  // Daily figures for the six accounts created by the baseline (seeds.ts SOCIAL_SEEDS).
+  const sid = (k: string) => childId("social", k);
+  const accId = sid("li-valemont");
+  const igId = sid("ig-thirty");
+  const profile: [string, number, number, "impressions" | "views", number][] = [
+    ["li-theo", 820, 5, "impressions", 500], ["li-pablo", 640, 4, "impressions", 420], ["li-valemont", 300, 3, "impressions", 150],
+    ["li-thirty", 180, 2, "impressions", 90], ["ig-valemont", 260, 2, "views", 300], ["ig-thirty", 120, 2, "views", 400],
+  ];
   const rows = [];
   for (let d = -20; d <= -1; d++) {
     if (d === -9 || d === -8) continue; // a visible gap: missed captures are never interpolated
     const date = addDays(today, d);
     const k = d + 21;
-    rows.push({ id: childId("demo-daily", accId, date), account_id: accId, date, followers: 300 + k * 3, views: null, impressions: 150 + ((k * 37) % 120), reach: 90 + ((k * 23) % 70), profile_visits: 10 + (k % 7), interactions: 6 + (k % 9), link_clicks: 2 + (k % 4), source: "import", captured_at: new Date().toISOString(), import_file: "demo.xls" });
-    rows.push({ id: childId("demo-daily", igId, date), account_id: igId, date, followers: 120 + k * 2, views: 400 + ((k * 91) % 600), impressions: null, reach: 200 + ((k * 41) % 200), profile_visits: 15 + (k % 10), interactions: 20 + (k % 15), link_clicks: 1 + (k % 3), source: "manual", captured_at: new Date().toISOString(), import_file: "" });
-    rows.push({ id: childId("demo-daily", personal, date), account_id: personal, date, followers: 800 + k * 5, views: null, impressions: 500 + ((k * 53) % 400), reach: null, profile_visits: null, interactions: 30 + (k % 20), link_clicks: null, source: "import", captured_at: new Date().toISOString(), import_file: "demo.xlsx" });
+    for (const [key, base, step, metric, vbase] of profile) {
+      const ig = key.startsWith("ig-");
+      rows.push({ id: childId("demo-daily", sid(key), date), account_id: sid(key), date, followers: base + k * step, views: metric === "views" ? vbase + ((k * 91) % 500) : null, impressions: metric === "impressions" ? vbase + ((k * 53) % 300) : null, reach: 90 + ((k * 23) % 70), profile_visits: 10 + (k % 7), interactions: 6 + (k % 9), link_clicks: ig ? 1 + (k % 3) : 2 + (k % 4), source: ig ? "manual" : "import", captured_at: new Date().toISOString(), import_file: ig ? "" : "demo.xls" });
+    }
   }
   await repo.insert("SocialAccountDaily", rows as never, sys);
   void privateRepo;

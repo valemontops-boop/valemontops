@@ -32,10 +32,11 @@ import { commandCenter, dismissNotification, dismissSchema, nba, notifications, 
 import { addCalendarSource, addPointItem, itemToggleSchema, listCalendarSources, listPoints, pointItemSchema, pointSchema, pointUpdateSchema, proposeSlots, removeCalendarSource, schedulePoint, slotsSchema, sourceSchema, toggleItem, updatePoint, upcomingEvents } from "@/server/services/agenda";
 import { addIdea, convertIdea, convertSchema, ideaSchema, ideaUpdateSchema, listIdeas, updateIdea } from "@/server/services/ideas";
 import { filesFor, linkFile, linkSchema, listFolder, uploadFile, uploadSchema } from "@/server/services/files";
-import { addManualEntry, addSocialAccount, audienceSeries, importLinkedIn, importSchema, listAccounts, manualEntrySchema, seriesSchema, socialAccountSchema } from "@/server/services/audience";
+import { addManualEntry, addSocialAccount, audienceOverview, audienceSeries, importLinkedIn, importSchema, listAccounts, manualEntrySchema, seriesSchema, socialAccountSchema } from "@/server/services/audience";
 import { childId } from "@/lib/ids";
 import { MemoryBank, demoWiseStore } from "@/fake-wise/store";
-import { categorySchema, csvSchema, importBankCsv, moneyOverview, setCategory, syncBank } from "@/server/services/bank";
+import { categorySchema, csvSchema, importBankCsv, moneyOverview, setCategory, syncBank, syncStripe } from "@/server/services/bank";
+import { MemoryStripe, demoStripeStore } from "@/fake-stripe";
 import { LOCALE_OF, translate } from "@/i18n";
 import { callQueue, callSchema, callLists, endSession, endSessionSchema, listSessions, logCall, objectionReport, sessionSummary, startSession, startSessionSchema } from "@/server/services/calls";
 import { contentLogSchema, logContent, marketingWeek } from "@/server/services/marketing-week";
@@ -65,6 +66,7 @@ export const ctx: AppContext = {
   uploaderFor: (f, grant) => (grant ? new MemoryDriveUploader(store, f) : null),
   mailerFor: (f, grant) => (grant ? new MemoryMailer(store, f) : null),
   bank: new MemoryBank(demoWiseStore()),
+  payments: new MemoryStripe(demoStripeStore()),
   baseUrl: "https://preview.example.com",
   mode: "demo",
 };
@@ -143,6 +145,7 @@ const routes: Record<string, [z.ZodTypeAny | null, Handler]> = {
   "POST /api/audience/accounts": [socialAccountSchema, async (i, f) => addSocialAccount(ctx, f, i as never)],
   "POST /api/audience/manual": [manualEntrySchema, async (i, f) => addManualEntry(ctx, f, i as never)],
   "POST /api/audience/import": [importSchema, async (i, f) => importLinkedIn(ctx, f, i as never)],
+  "GET /api/audience/overview": [null, async (_, f) => audienceOverview(ctx, f)],
   "GET /api/audience/series": [seriesSchema, async (i, f) => audienceSeries(ctx, f, i as never)],
   "GET /api/settings/system": [null, async () => {
     const rows = (await repo.list("SystemSettings")).rows;
@@ -166,6 +169,7 @@ const routes: Record<string, [z.ZodTypeAny | null, Handler]> = {
   "GET /api/email/benchmarks": [null, async (_, f) => emailBenchmarksFor(ctx, f)],
   "GET /api/money": [null, async (_, f) => moneyOverview(ctx, f)],
   "POST /api/money/sync": [null, async (_, f) => syncBank(ctx, { founder: f })],
+  "POST /api/money/stripe-sync": [null, async (_, f) => syncStripe(ctx, { founder: f })],
   "PATCH /api/money/category": [categorySchema, async (i, f) => setCategory(ctx, f, i as never)],
   "POST /api/money/import": [csvSchema, async (i, f) => importBankCsv(ctx, f, i as never)],
   "GET /api/marketing/funnels": [funnelsSchema, async (i, f) => marketingFunnels(ctx, f, i as never)],
