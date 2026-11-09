@@ -1,10 +1,10 @@
 "use client";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Field, Input, Panel, PanelTitle, SegmentedSwitch, Select } from "@/components/ui/form";
+import { ErrorState, Field, Input, Panel, PanelTitle, SegmentedSwitch, Select, Skeleton } from "@/components/ui/form";
 import { DetailPanel, Modal } from "@/components/ui/overlay";
 import { BANK_CATEGORIES, CATEGORY_LABELS, type BankCategory } from "@/domain/bank";
 import { COST_CENTERS, COST_CENTER_LABELS, COST_CLASSES, COST_CLASS_LABELS, type CostCenter } from "@/domain/finance-constants";
@@ -40,15 +40,25 @@ function useOnError() {
 /* ---------------- P&L ---------------- */
 type Line = { key: string; label: string; value: (m: PnlMonth) => number | null; strong?: boolean; pct?: boolean; drill?: string[]; muted?: boolean };
 
+type Col = { key: string; label: string; m: PnlMonth; months: string[] };
+
 export function PnlTab({ fin }: { fin: Fin }) {
   const t = useT();
   const dt = useDateTag();
   const fmt = useFmt();
-  const [span, setSpan] = React.useState<"6" | "12" | "ytd">("6");
-  const [cell, setCell] = React.useState<{ month: string | null; lines: string[]; label: string } | null>(null);
+  const [span, setSpan] = React.useState<"6" | "12" | "ytd" | "years">("6");
+  const [cell, setCell] = React.useState<{ months: string[]; lines: string[]; label: string; src: Fin } | null>(null);
+  // D091: "By year" reads every month since the first movement (a separate request, only when asked).
+  const all = useQuery({ queryKey: ["finance", "all"], queryFn: () => api<Fin>("/api/finance?span=all"), enabled: span === "years" });
+  const src = span === "years" ? all.data : fin;
   const year = fin.today.slice(0, 4);
-  const months = span === "ytd" ? fin.pnl.filter((m) => m.month.startsWith(year)) : fin.pnl.slice(-Number(span));
+  const label = new Intl.DateTimeFormat(dt, { month: "short", year: "2-digit" });
+  const months = !src ? [] : span === "ytd" ? src.pnl.filter((m) => m.month.startsWith(year)) : span === "years" ? src.pnl : src.pnl.slice(-Number(span));
+  const cols: Col[] = span === "years"
+    ? [...new Set(months.map((m) => m.month.slice(0, 4)))].map((y) => { const ms = months.filter((m) => m.month.startsWith(y)); return { key: y, label: y, m: sum(ms), months: ms.map((m) => m.month) }; })
+    : months.map((m) => ({ key: m.month, label: label.format(new Date(`${m.month}-15T12:00:00Z`)), m, months: [m.month] }));
   const total = sum(months);
+  const totalLabel = span === "years" ? t("Since the start") : t("Total");
   const opexCats = [...new Set(months.flatMap((m) => Object.keys(m.opex_by_category)))].sort((a, b) => (total.opex_by_category[b] ?? 0) - (total.opex_by_category[a] ?? 0));
   const ebitdaLabel = months.some((m) => m.provisional) ? t("Provisional EBITDA (invoice-based estimate)") : t("Estimated EBITDA");
   const lines: (Line | { heading: string })[] = [
@@ -70,47 +80,49 @@ export function PnlTab({ fin }: { fin: Fin }) {
     { key: "excluded", label: t("Outside EBITDA (taxes, VAT, interest)"), value: (m) => m.excluded, drill: ["excluded"], muted: true },
     { key: "neutral", label: t("Contributions, transfers, loans"), value: (m) => m.neutral, drill: ["neutral"], muted: true },
   ];
-  const label = new Intl.DateTimeFormat(dt, { month: "short", year: "2-digit" });
   const show = (l: Line, m: PnlMonth) => { const v = l.value(m); return l.pct ? (v === null ? "—" : `${Math.round(v * 1000) / 10} %`) : v ? fmt(v) : "—"; };
+  const allCols: Col[] = [...cols, { key: "total", label: totalLabel, m: total, months: months.map((m) => m.month) }];
   return (
     <div className="flex flex-col gap-5 lg:flex-row lg:items-start">
       <Panel className="min-w-0 flex-1">
-        <PanelTitle action={<SegmentedSwitch size="sm" label={t("Period")} value={span} onChange={setSpan} options={[{ value: "6", label: t("6 months") }, { value: "12", label: t("12 months") }, { value: "ytd", label: t("Year to date") }]} />}>{t("Managerial P&L by month")}</PanelTitle>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-[13px]">
-            <thead>
-              <tr className="text-left text-text-3">
-                <th className="py-2 pr-3 font-medium">{t("Line")}</th>
-                {months.map((m) => <th key={m.month} className="num px-2 py-2 text-right font-medium">{label.format(new Date(`${m.month}-15T12:00:00Z`))}{m.provisional ? <span title={t("provisional")}> *</span> : null}</th>)}
-                <th className="num py-2 pl-2 text-right font-medium">{t("Total")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lines.map((l, i) => "heading" in l ? (
-                <tr key={`h${i}`}><td colSpan={months.length + 2} className="pb-1 pt-4 text-[12px] font-semibold text-text-2">{l.heading}</td></tr>
-              ) : (
-                <tr key={l.key} className={cn("border-t border-hairline", l.strong && "font-semibold", l.muted && "text-text-2")}>
-                  <td className="py-1.5 pr-3">{l.label}</td>
-                  {[...months, total].map((m, j) => {
-                    const isTotal = j === months.length;
-                    const v = l.value(m);
-                    const neg = !l.pct && typeof v === "number" && v < 0;
-                    return (
-                      <td key={j} className={cn("num px-2 py-1.5 text-right", isTotal && "pl-2", neg && "text-bad")}>
-                        {l.drill && v ? (
-                          <button type="button" className="rounded px-1 hover:bg-subtle" onClick={() => setCell({ month: isTotal ? null : m.month, lines: l.drill!, label: `${l.label} · ${isTotal ? t("Total") : label.format(new Date(`${m.month}-15T12:00:00Z`))}` })}>{show(l, m)}</button>
-                        ) : show(l, m)}
-                      </td>
-                    );
-                  })}
+        <PanelTitle action={<SegmentedSwitch size="sm" label={t("Period")} value={span} onChange={(v) => { setSpan(v); setCell(null); }} options={[{ value: "6", label: t("6 months") }, { value: "12", label: t("12 months") }, { value: "ytd", label: t("Year to date") }, { value: "years", label: t("By year") }]} />}>{span === "years" ? t("Managerial P&L by year") : t("Managerial P&L by month")}</PanelTitle>
+        {span === "years" && all.isError ? <ErrorState error={all.error} onRetry={() => all.refetch()} /> : null}
+        {!src ? <Skeleton className="h-64" /> : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-[13px]">
+              <thead>
+                <tr className="text-left text-text-3">
+                  <th className="py-2 pr-3 font-medium">{t("Line")}</th>
+                  {cols.map((c) => <th key={c.key} className="num px-2 py-2 text-right font-medium">{c.label}{c.m.provisional ? <span title={t("provisional")}> *</span> : null}</th>)}
+                  <th className="num py-2 pl-2 text-right font-medium">{totalLabel}</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {lines.map((l, i) => "heading" in l ? (
+                  <tr key={`h${i}`}><td colSpan={cols.length + 2} className="pb-1 pt-4 text-[12px] font-semibold text-text-2">{l.heading}</td></tr>
+                ) : (
+                  <tr key={l.key} className={cn("border-t border-hairline", l.strong && "font-semibold", l.muted && "text-text-2")}>
+                    <td className="py-1.5 pr-3">{l.label}</td>
+                    {allCols.map((c) => {
+                      const v = l.value(c.m);
+                      const neg = !l.pct && typeof v === "number" && v < 0;
+                      return (
+                        <td key={c.key} className={cn("num px-2 py-1.5 text-right", c.key === "total" && "pl-2", neg && "text-bad")}>
+                          {l.drill && v ? (
+                            <button type="button" className="rounded px-1 hover:bg-subtle" onClick={() => setCell({ months: c.months, lines: l.drill!, label: `${l.label} · ${c.label}`, src })}>{show(l, c.m)}</button>
+                          ) : show(l, c.m)}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
         <p className="mt-4 text-[12px] leading-relaxed text-text-3">{t("Management accounting, not statutory accounts or certified invoicing. Revenue is recognized over the service period (or the contract schedule); cash is what was actually received or paid. Estimated EBITDA = recognized revenue − direct costs − operating expenses (no interest, taxes, depreciation). * Provisional: part of the revenue is recognized on the payment date. Quotes and the weighted pipeline are never revenue.")}</p>
       </Panel>
-      {cell ? <DrillPanel fin={fin} months={months.map((m) => m.month)} {...cell} onClose={() => setCell(null)} /> : null}
+      {cell ? <DrillPanel fin={cell.src} months={cell.months} lines={cell.lines} label={cell.label} onClose={() => setCell(null)} /> : null}
     </div>
   );
 }
@@ -128,14 +140,14 @@ function sum(ms: PnlMonth[]): PnlMonth {
 }
 
 /** Drill-down: the movements and schedule lines behind one P&L cell. */
-function DrillPanel({ fin, month, months, lines, label, onClose }: { fin: Fin; month: string | null; months: string[]; lines: string[]; label: string; onClose: () => void }) {
+function DrillPanel({ fin, months, lines, label, onClose }: { fin: Fin; months: string[]; lines: string[]; label: string; onClose: () => void }) {
   const t = useT();
   const dt = useDateTag();
   const fmt = useFmt();
   const items = new Map(fin.items.map((i) => [i.id, i]));
   const sched = new Map(fin.schedule.map((s) => [s.id, s]));
   const rows = new Map<string, number>();
-  for (const c of fin.contributions) if (lines.includes(c.line) && (month ? c.month === month : months.includes(c.month))) rows.set(c.ref, (rows.get(c.ref) ?? 0) + c.amount);
+  for (const c of fin.contributions) if (lines.includes(c.line) && months.includes(c.month)) rows.set(c.ref, (rows.get(c.ref) ?? 0) + c.amount);
   const list = [...rows.entries()].map(([ref, amount]) => ({ ref, amount, it: items.get(ref), s: sched.get(ref) })).sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
   return (
     <DetailPanel open onClose={onClose} title={<h2 className="text-base font-semibold">{label}</h2>}>

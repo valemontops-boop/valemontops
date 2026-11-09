@@ -44,6 +44,7 @@ import { addManualEntry, addSocialAccount, audienceOverview, audienceSeries, imp
 import { childId } from "@/lib/ids";
 import { MemoryBank, demoWiseStore } from "@/fake-wise/store";
 import { categorySchema, csvSchema, importBankCsv, moneyOverview, setCategory, syncBank, syncStripe } from "@/server/services/bank";
+import { backfillBank, movementsPage, movementsSchema, readBackfill } from "@/server/services/bank-history";
 import { MemoryStripe, demoStripeStore } from "@/fake-stripe";
 import { LOCALE_OF, translate } from "@/i18n";
 import { callLog, callLogSchema, callQueue, callSchema, callLists, callbackSchema, listCallbacks, scheduleCallback, endSession, endSessionSchema, listSessions, logCall, objectionReport, sessionSummary, startSession, startSessionSchema, undoCall, undoSchema } from "@/server/services/calls";
@@ -206,6 +207,10 @@ const routes: Record<string, [z.ZodTypeAny | null, Handler]> = {
   "POST /api/money/stripe-sync": [null, async (_, f) => syncStripe(ctx, { founder: f })],
   "PATCH /api/money/category": [categorySchema, async (i, f) => setCategory(ctx, f, i as never)],
   "POST /api/money/import": [csvSchema, async (i, f) => importBankCsv(ctx, f, i as never)],
+  // D091: full Wise history (the demo Wise holds ~2 years) and the all-time Movements view.
+  "GET /api/money/backfill": [null, async () => readBackfill(ctx)],
+  "POST /api/money/backfill": [null, async (_, f) => backfillBank(ctx, { founder: f })],
+  "GET /api/money/movements": [movementsSchema, async (i, f) => movementsPage(ctx, f, i as never)],
   "GET /api/marketing/funnels": [funnelsSchema, async (i, f) => marketingFunnels(ctx, f, i as never)],
   "GET /api/marketing/seo": [seoSchema, async (i, f) => seoOverview(ctx, f, i as never)],
   "POST /api/marketing/seo": [gscImportSchema, async (i, f) => importSearchConsole(ctx, f, i as never)],

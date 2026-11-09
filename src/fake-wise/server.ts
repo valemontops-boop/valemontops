@@ -9,6 +9,10 @@ export class FakeWiseServer {
   publicKeyPem: string | null = null;
   requireSca = true;
   log: { path: string; status: number }[] = [];
+  /** Statement windows asked (D091 backfill tests). */
+  windows: { balanceId: string; from: string; to: string }[] = [];
+  /** Answer 503 once this many statement windows were served (an interruption mid-walk). */
+  failAfterWindows: number | null = null;
   /** Bearer token the fake accepts (tests may set a UUID-shaped one, like a real personal token). */
   token = "wise-test-token";
   private server: http.Server | null = null;
@@ -42,6 +46,10 @@ export class FakeWiseServer {
       }
       const from = url.searchParams.get("intervalStart") ?? "";
       const to = url.searchParams.get("intervalEnd") ?? "9999";
+      // Like Wise: a statement covers at most 469 days.
+      if (from && to !== "9999" && Date.parse(to) - Date.parse(from) > 469 * 86_400_000) return send(400, { error: "interval_too_long" });
+      this.windows.push({ balanceId: decodeURIComponent(m[2]), from, to });
+      if (this.failAfterWindows !== null && this.windows.length > this.failAfterWindows) return send(503, { error: "unavailable" });
       const tx = s.txs.filter((t) => t.balanceId === decodeURIComponent(m![2]) && t.occurred_at >= from && t.occurred_at <= to);
       return send(200, { transactions: tx.map((t) => ({
         type: t.direction.toUpperCase(), date: t.occurred_at, amount: { value: t.amount_minor / 100, currency: t.currency }, totalFees: { value: (t.fee_minor ?? 0) / 100 },

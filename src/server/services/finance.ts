@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ConflictError, type DataRepository, type Row } from "@/data/repository";
 import { BANK_CATEGORIES, type BankCategory } from "@/domain/bank";
 import {
-  COST_CENTERS, COST_CLASSES, buildPnl, defaultClass, lastMonths, monthEnd, mrrMovements, mrrOn, runwayMonths, suggestCostCenter, sumMonths,
+  COST_CENTERS, COST_CLASSES, buildPnl, defaultClass, lastMonths, monthEnd, monthsBetween, mrrMovements, mrrOn, runwayMonths, suggestCostCenter, sumMonths,
   type ContractLite, type CostCenter, type FinItem, type PnlMonth, type ScheduleLine,
 } from "@/domain/finance";
 import { addDays, localDate } from "@/domain/time";
@@ -111,10 +111,11 @@ async function readDb(ctx: AppContext, fresh = false): Promise<Db> {
   return (await ctx.repo.listMany([...FINANCE_TABLES], { fresh })) as unknown as Db;
 }
 
-export const overviewSchema = z.object({ months: z.coerce.number().int().min(3).max(24).default(12) });
+/** `span=all` (D091): every month since the first movement or entry (the P&L "by year" view); else the last `months`. */
+export const overviewSchema = z.object({ months: z.coerce.number().int().min(3).max(24).default(12), span: z.enum(["window", "all"]).default("window") });
 
 /** The finance read model behind Money: dashboard numbers, P&L by month with drill-down, contracts, schedule. */
-export async function financeOverview(ctx: AppContext, founder: FounderKey, input: { months?: number } = {}) {
+export async function financeOverview(ctx: AppContext, founder: FounderKey, input: { months?: number; span?: "window" | "all" } = {}) {
   const months = input.months ?? 12;
   const u = await userRow(ctx.repo, founder);
   const today = localDate(new Date(), u.timezone);
@@ -124,7 +125,8 @@ export async function financeOverview(ctx: AppContext, founder: FounderKey, inpu
   const schedule = scheduleLines(db);
   const contracts = live(db.Contracts.rows);
   const lites = contracts.map(contractLite);
-  const window = lastMonths(today, months);
+  const first = input.span === "all" ? [...items.map((i) => i.date), ...schedule.map((l) => l.period_start)].filter((d) => /^\d{4}-\d{2}/.test(d) && d <= today).sort()[0] : undefined;
+  const window = first ? monthsBetween(first, today) : lastMonths(today, months);
   const pnl = buildPnl({ items, schedule, contracts: lites, months: window });
 
   // Cash: what the accounts hold now in EUR (Wise balances + Stripe balance not yet paid out); other currencies are counted apart, never converted.
@@ -173,6 +175,15 @@ export async function financeOverview(ctx: AppContext, founder: FounderKey, inpu
     projects: live(db.Projects.rows).map((p) => ({ id: p.id, name: p.name })),
     setup_fee_policy: (await settingValue(ctx.repo, "finance_setup_fee_recognition")) === "over_term" ? "over_term" : "at_payment",
   };
+}
+
+/** The ledger lines (with project and contract names) of some bank movements: the all-time Movements page (D091). */
+export async function financeItemsFor(ctx: AppContext, ids: Set<string>) {
+  const db = await readDb(ctx);
+  const { local } = await offerDefaults(ctx.repo);
+  const projects = new Map(live(db.Projects.rows).map((p) => [p.id, p]));
+  const contracts = live(db.Contracts.rows);
+  return ledgerItems(db, local).filter((i) => ids.has(i.id)).map((i) => ({ ...i, project_name: projects.get(i.project_id)?.name ?? "", contract_name: contracts.find((c) => c.id === i.contract_id)?.name ?? "" }));
 }
 
 /* ---------------- mutations ---------------- */

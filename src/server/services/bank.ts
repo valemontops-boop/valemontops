@@ -7,16 +7,17 @@ import { BANK_CATEGORIES, autoCategory, moneySummary, parseWiseCsv, stripeCatego
 import { mrrOf } from "@/data/bank/stripe";
 import type { FounderKey } from "@/domain/constants";
 import { addDays, localDate } from "@/domain/time";
+import { BACKFILL_KEY, backfillSummary, parseBackfillState } from "@/domain/bank-history";
 import { RuleError } from "../errors";
 import type { AppContext } from "../context";
 import { userRow } from "./common";
 
 const SYSTEM = { founder: "system" };
-type Actor = { founder: string };
+export type Actor = { founder: string };
 const STATUS_ID = childId("integration", "wise");
 const STRIPE_STATUS_ID = childId("integration", "stripe");
 
-async function setStatus(ctx: AppContext, status: string, error = "", actor: Actor = SYSTEM, integration: "wise" | "stripe" = "wise") {
+export async function setStatus(ctx: AppContext, status: string, error = "", actor: Actor = SYSTEM, integration: "wise" | "stripe" = "wise") {
   const id = integration === "wise" ? STATUS_ID : STRIPE_STATUS_ID;
   const cur = await ctx.repo.get("IntegrationStatuses", id, { fresh: true });
   const patch = { status, last_error: error.slice(0, 500), ...(status === "ok" ? { last_success_at: new Date().toISOString() } : {}) };
@@ -24,7 +25,7 @@ async function setStatus(ctx: AppContext, status: string, error = "", actor: Act
   else await ctx.repo.insert("IntegrationStatuses", [{ id, integration, last_success_at: null, ...patch }], actor);
 }
 
-const txRow = (src: { bank?: "wise" | "stripe"; category?: BankCategory; source_id: string; origin: "api" | "webhook" | "csv" | "demo"; balance_id: string; currency: string; amount_minor: number; fee_minor: number | null; occurred_at: string; description: string; counterparty: string; bank_type: string; merchant_category: string; running_balance_minor: number | null; fx_currency?: string; fx_amount_minor?: number | null }, tz: string) => {
+export const txRow = (src: { bank?: "wise" | "stripe"; category?: BankCategory; source_id: string; origin: "api" | "webhook" | "csv" | "demo"; balance_id: string; currency: string; amount_minor: number; fee_minor: number | null; occurred_at: string; description: string; counterparty: string; bank_type: string; merchant_category: string; running_balance_minor: number | null; fx_currency?: string; fx_amount_minor?: number | null }, tz: string) => {
   const direction = src.amount_minor >= 0 ? ("credit" as const) : ("debit" as const);
   const { bank = "wise", category, fx_currency = "", fx_amount_minor = null, ...rest } = src;
   return {
@@ -37,6 +38,29 @@ const signed = (t: BankTx) => (t.direction === "credit" ? Math.abs(t.amount_mino
 /** A live (webhook) row and a statement row for the same movement: same balance and amount, within 15 minutes. */
 function sameMovement(a: { balance_id: string; amount_minor: number; occurred_at: string }, b: { balance_id: string; amount_minor: number; occurred_at: string }) {
   return a.balance_id === b.balance_id && a.amount_minor === b.amount_minor && Math.abs(Date.parse(a.occurred_at) - Date.parse(b.occurred_at)) <= 15 * 60_000;
+}
+
+/**
+ * One Wise statement (or statement window) into Sheets: new movements in ONE batched insert, a row first seen live
+ * (webhook) completed in place. `known` holds the ids already stored and is updated, so windows never insert twice.
+ */
+export async function mergeStatement(ctx: AppContext, actor: Actor, b: { id: string; currency: string }, txs: BankTx[], rows: Row<"BankTransactions">[], known: Set<string>, tz: string) {
+  const fresh: ReturnType<typeof txRow>[] = [];
+  for (const x of txs) {
+    if (!x.referenceNumber) continue;
+    const r = txRow({ source_id: x.referenceNumber, origin: "api", balance_id: b.id, currency: x.currency || b.currency, amount_minor: signed(x), fee_minor: x.fee_minor, occurred_at: x.occurred_at, description: x.description, counterparty: x.counterparty, bank_type: x.detailsType, merchant_category: x.merchantCategory, running_balance_minor: x.running_balance_minor, fx_currency: x.fx_currency ?? "", fx_amount_minor: x.fx_amount_minor ?? null }, tz);
+    if (known.has(r.id)) continue;
+    const live = rows.find((y) => y.origin === "webhook" && !y.is_archived && !known.has(`done:${y.id}`) && sameMovement(y, r));
+    if (live) {
+      await ctx.repo.update("BankTransactions", live.id, live.version, { source_id: r.source_id, origin: "api", description: r.description, counterparty: r.counterparty, bank_type: r.bank_type, merchant_category: r.merchant_category, fee_minor: r.fee_minor, running_balance_minor: r.running_balance_minor, fx_currency: r.fx_currency, fx_amount_minor: r.fx_amount_minor, ...(live.category_source === "auto" ? { category: r.category } : {}) }, actor);
+      known.add(r.id); known.add(`done:${live.id}`);
+      continue;
+    }
+    known.add(r.id);
+    fresh.push(r);
+  }
+  if (fresh.length) await ctx.repo.insert("BankTransactions", fresh, actor);
+  return fresh.length;
 }
 
 /**
@@ -58,6 +82,7 @@ export async function syncBank(ctx: AppContext, actor: Actor = SYSTEM, days = 90
     else await ctx.repo.insert("BankBalances", [{ id, ...v }], actor);
   }
   let added = 0, sca = false;
+  const known = new Set(t.BankTransactions.rows.map((r) => r.id));
   for (const b of balances) {
     const mine = t.BankTransactions.rows.filter((r) => r.balance_id === b.id && r.origin !== "webhook");
     const last = mine.map((r) => r.occurred_at).sort().at(-1);
@@ -69,20 +94,7 @@ export async function syncBank(ctx: AppContext, actor: Actor = SYSTEM, days = 90
       if (e instanceof ScaRequiredError) { sca = true; continue; }
       throw e;
     }
-    const rows = t.BankTransactions.rows;
-    const fresh: ReturnType<typeof txRow>[] = [];
-    for (const x of txs) {
-      if (!x.referenceNumber) continue;
-      const r = txRow({ source_id: x.referenceNumber, origin: "api", balance_id: b.id, currency: x.currency || b.currency, amount_minor: signed(x), fee_minor: x.fee_minor, occurred_at: x.occurred_at, description: x.description, counterparty: x.counterparty, bank_type: x.detailsType, merchant_category: x.merchantCategory, running_balance_minor: x.running_balance_minor, fx_currency: x.fx_currency ?? "", fx_amount_minor: x.fx_amount_minor ?? null }, tz);
-      if (rows.some((y) => y.id === r.id) || fresh.some((y) => y.id === r.id)) continue;
-      const live = rows.find((y) => y.origin === "webhook" && !y.is_archived && sameMovement(y, r));
-      if (live) {
-        await ctx.repo.update("BankTransactions", live.id, live.version, { source_id: r.source_id, origin: "api", description: r.description, counterparty: r.counterparty, bank_type: r.bank_type, merchant_category: r.merchant_category, fee_minor: r.fee_minor, running_balance_minor: r.running_balance_minor, fx_currency: r.fx_currency, fx_amount_minor: r.fx_amount_minor, ...(live.category_source === "auto" ? { category: r.category } : {}) }, actor);
-        continue;
-      }
-      fresh.push(r);
-    }
-    if (fresh.length) { await ctx.repo.insert("BankTransactions", fresh, actor); added += fresh.length; }
+    added += await mergeStatement(ctx, actor, b, txs, t.BankTransactions.rows, known, tz);
   }
   await setStatus(ctx, sca ? "sca_required" : "ok", sca ? "Statements need strong authentication" : "", actor);
   return { balances: balances.length, added, sca };
@@ -165,15 +177,38 @@ export async function applyWiseEvent(ctx: AppContext, ev: z.infer<typeof wiseEve
   return { recorded: !known };
 }
 
-export const csvSchema = z.object({ csv: z.string().min(10).max(3_000_000) });
+/**
+ * D091: a multi-year Wise export is up to 15 MB; the browser sends it in parts of at most CSV_PART_CHARS (record
+ * boundaries, header repeated: Vercel caps a request at 4.5 MB and route() at 1.2 MB). `row_offset` keeps error row
+ * numbers true to the whole file.
+ */
+export const CSV_PART_CHARS = 500_000;
+export const CSV_MAX_FILE_BYTES = 15_000_000;
+/** Rows per Sheets append: one insert call per chunk, never one per row. */
+export const CSV_INSERT_CHUNK = 500;
+export const csvSchema = z.object({ csv: z.string().min(10).max(1_100_000), row_offset: z.number().int().min(0).max(10_000_000).default(0) });
+/** Pause between two Sheets appends so a big import stays far below the 60 writes per minute of the service account. */
+export const sheetsPause = (ctx: AppContext, ms = 1_500) => (ctx.repo.kind === "sheets" ? ms : 0);
+export const sleep = (ms: number) => (ms > 0 ? new Promise<void>((r) => setTimeout(r, ms)) : Promise.resolve());
 /** Wise CSV statement export (fallback when the API statement needs strong authentication). Re-importing adds nothing. */
-export async function importBankCsv(ctx: AppContext, founder: FounderKey, input: z.infer<typeof csvSchema>) {
-  const parsed = Papa.parse<Record<string, string>>(input.csv.replace(/^﻿/, ""), { header: true, skipEmptyLines: true });
-  const { rows, errors } = parseWiseCsv(parsed.data);
+export async function importBankCsv(ctx: AppContext, founder: FounderKey, input: { csv: string; row_offset?: number }, opts: { pauseMs?: number } = {}) {
+  const parsed = Papa.parse<Record<string, string>>(input.csv.replace(/^\uFEFF/, ""), { header: true, skipEmptyLines: true });
+  const { rows, errors } = parseWiseCsv(parsed.data, input.row_offset ?? 0);
   const u = await userRow(ctx.repo, founder);
   const t = await ctx.repo.list("BankTransactions", { fresh: true });
-  const fresh = rows.map((x) => txRow({ ...x, origin: "csv", balance_id: `csv-${x.currency}`, occurred_at: `${x.date}T12:00:00.000Z` }, u.timezone)).filter((r, i, all) => !t.rows.some((y) => y.id === r.id) && all.findIndex((z) => z.id === r.id) === i);
-  if (fresh.length) await ctx.repo.insert("BankTransactions", fresh, { founder });
+  const known = new Set(t.rows.map((r) => r.id));
+  const fresh: ReturnType<typeof txRow>[] = [];
+  for (const x of rows) {
+    const r = txRow({ ...x, origin: "csv", balance_id: `csv-${x.currency}`, occurred_at: `${x.date}T12:00:00.000Z` }, u.timezone);
+    if (known.has(r.id)) continue;
+    known.add(r.id);
+    fresh.push(r);
+  }
+  const pause = opts.pauseMs ?? sheetsPause(ctx);
+  for (let i = 0; i < fresh.length; i += CSV_INSERT_CHUNK) {
+    if (i) await sleep(pause);
+    await ctx.repo.insert("BankTransactions", fresh.slice(i, i + CSV_INSERT_CHUNK), { founder });
+  }
   return { added: fresh.length, skipped: rows.length - fresh.length, errors };
 }
 
@@ -188,8 +223,10 @@ export async function moneyOverview(ctx: AppContext, founder: FounderKey) {
   const stale = async (id: string) => { const st = await ctx.repo.get("IntegrationStatuses", id); return !st?.last_success_at || Date.now() - Date.parse(st.last_success_at) > 15 * 60_000; };
   if (ctx.bank && (await stale(STATUS_ID))) { try { await syncBank(ctx, { founder }); } catch (e) { syncError = (e as Error).message; } }
   if (ctx.payments && (await stale(STRIPE_STATUS_ID))) { try { await syncStripe(ctx, { founder }); } catch (e) { syncError = (e as Error).message; } }
-  const t = await ctx.repo.listMany(["BankTransactions", "BankBalances", "IntegrationStatuses", "RevenueSnapshots"]);
+  const t = await ctx.repo.listMany(["BankTransactions", "BankBalances", "IntegrationStatuses", "RevenueSnapshots", "SystemSettings"]);
   const u = await userRow(ctx.repo, founder);
+  // D091: progress of the full-history import (the UI starts it after the first successful sync, never here).
+  const backfill = backfillSummary(parseBackfillState(t.SystemSettings.rows.find((r) => r.key === BACKFILL_KEY && !r.is_archived)?.value));
   const today = localDate(new Date(), u.timezone);
   const balances = t.BankBalances.rows.filter((b) => !b.is_archived).sort((a, b) => b.amount_minor - a.amount_minor);
   const status = t.IntegrationStatuses.rows.find((r) => r.id === STATUS_ID) ?? null;
@@ -200,6 +237,7 @@ export async function moneyOverview(ctx: AppContext, founder: FounderKey) {
   const stripeStatus = t.IntegrationStatuses.rows.find((r) => r.id === STRIPE_STATUS_ID) ?? null;
   return {
     connected: Boolean(ctx.bank), status: status?.status ?? null, lastSync: status?.last_success_at ?? null, syncError,
+    backfill,
     stripe: { connected: Boolean(ctx.payments), lastSync: stripeStatus?.last_success_at ?? null, mrr: mrr?.mrr_minor ?? null, mrrPrevious: monthAgo?.mrr_minor ?? null, subscriptions: mrr?.active_subscriptions ?? null },
     balances: balances.map((b) => ({ bank: b.bank, currency: b.currency, amount_minor: b.amount_minor, name: b.name, as_of: b.as_of })),
     summary: moneySummary(rows, "EUR", today),

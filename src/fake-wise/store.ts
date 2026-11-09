@@ -10,6 +10,21 @@ export class FakeWiseStore {
     b.amount_minor += t.amount_minor;
     this.txs.push({ ...t, balanceId, running_balance_minor: b.amount_minor });
   }
+  /**
+   * D091 tests: synthetic history for `balanceId`, one movement every `everyDays` days from `fromIso` up to `toIso`,
+   * alternating a card expense and a client credit (example names only), references `${prefix}-n`.
+   */
+  addHistory(balanceId: string, fromIso: string, toIso: string, everyDays = 20, prefix = "H") {
+    let n = 0;
+    for (let t = Date.parse(fromIso); t <= Date.parse(toIso); t += everyDays * 86_400_000, n++) {
+      const credit = n % 3 === 0;
+      this.addTx(balanceId, {
+        referenceNumber: `${prefix}-${n}`, direction: credit ? "credit" : "debit", occurred_at: new Date(t).toISOString(), amount_minor: credit ? 50000 : -(1000 + (n % 7) * 100), currency: "EUR", fee_minor: null,
+        description: credit ? `Invoice ${n}` : "Notion Labs", counterparty: credit ? "Client (test)" : "Notion", detailsType: credit ? "DEPOSIT" : "CARD", merchantCategory: credit ? "" : "Computer Software",
+      });
+    }
+    return n;
+  }
 }
 export class MemoryBank implements BankPort {
   constructor(private readonly s: FakeWiseStore) {}
@@ -20,7 +35,10 @@ export class MemoryBank implements BankPort {
   }
 }
 
-/** Demo account: a EUR balance with a few weeks of plausible, invented movements (example names only). */
+/**
+ * Demo account: a EUR balance with plausible, invented movements (example names only): the last weeks, plus ~2 years
+ * of older history (D091) that the first sync (90 days) does not pull and the full-history import does.
+ */
 export function demoWiseStore(now = new Date()) {
   const s = new FakeWiseStore();
   s.balances.push({ id: "demo-eur", currency: "EUR", amount_minor: 0, name: "" });
@@ -43,6 +61,22 @@ export function demoWiseStore(now = new Date()) {
     [3, 10000, "DEPOSIT", "Abonnement VL-0002 mois 1", "Électricité Démo (demo)", ""],
     [1, -120, "ACCRUAL_CHARGE", "Wise fee", "Wise", ""],
   ];
+  // D091: older history, oldest first (running balances): a founders' contribution 25 months ago, then monthly tools,
+  // a client invoice every other month, ads every third month and a train ticket every fourth.
+  const old: [number, number, string, string, string, string][] = [[760, 800000, "MONEY_ADDED", "Apport initial des fondateurs", "Théo (demo)", ""]];
+  for (let m = 24; m >= 4; m--) {
+    const base = m * 30;
+    old.push([base + 18, -2390, "CARD", "Google Workspace", "Google", "Computer Software"]);
+    old.push([base + 14, -2000, "CARD", "Notion Labs", "Notion", "Computer Software"]);
+    if (m % 2 === 0) old.push([base + 10, 90000 + (m % 5) * 15000, "DEPOSIT", `Facture historique ${25 - m}`, ["Plomberie Duval (demo)", "Garage du Parc (demo)", "Boulangerie Test (demo)"][m % 3], ""]);
+    old.push([base + 8, -1999, "CARD", "Movistar", "Movistar", "Telecommunication"]);
+    if (m % 3 === 0) old.push([base + 6, -12000, "CARD", "Meta ads", "Facebook", "Advertising Services"]);
+    if (m % 4 === 0) old.push([base + 3, -8500, "CARD", "Renfe Madrid", "Renfe", "Railroads"]);
+  }
+  old.sort((a, b) => b[0] - a[0]).forEach(([d, amount, type, description, counterparty, mc], i) => s.addTx("demo-eur", {
+    referenceNumber: `DEMO-H-${1000 + i}`, direction: amount >= 0 ? "credit" : "debit", occurred_at: day(d), amount_minor: amount, currency: "EUR", fee_minor: null,
+    description, counterparty, detailsType: type, merchantCategory: mc,
+  }));
   rows.forEach(([d, amount, type, description, counterparty, mc], i) => s.addTx("demo-eur", {
     referenceNumber: `DEMO-${1000 + i}`, direction: amount >= 0 ? "credit" : "debit", occurred_at: day(d), amount_minor: amount, currency: "EUR", fee_minor: null,
     description, counterparty, detailsType: type, merchantCategory: mc, ...(type === "TRANSFER" ? { fx_currency: "USD", fx_amount_minor: 32600 } : {}),

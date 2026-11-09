@@ -88,7 +88,7 @@ export function moneySummary(rows: Tx[], currency: string, today: string, months
 }
 
 /** Wise CSV statement export → rows. Columns are matched by name ("TransferWise ID" / "ID", "Date", "Amount", …). */
-export function parseWiseCsv(rows: Record<string, string>[]) {
+export function parseWiseCsv(rows: Record<string, string>[], rowOffset = 0) {
   const pick = (r: Record<string, string>, ...names: string[]) => {
     for (const n of names) { const k = Object.keys(r).find((x) => x.trim().toLowerCase() === n.toLowerCase()); if (k && r[k] !== undefined && r[k] !== "") return r[k].trim(); }
     return "";
@@ -101,7 +101,7 @@ export function parseWiseCsv(rows: Record<string, string>[]) {
     const raw = pick(r, "Date", "Created on", "Date Time");
     const m = /^(\d{2})-(\d{2})-(\d{4})/.exec(raw) ?? /^(\d{2})\/(\d{2})\/(\d{4})/.exec(raw);
     const date = m ? `${m[3]}-${m[2]}-${m[1]}` : /^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(0, 10) : "";
-    if (!id || !Number.isFinite(amount) || !date) { errors.push(`Row ${i + 2}: missing ID, date or amount`); return; }
+    if (!id || !Number.isFinite(amount) || !date) { errors.push(`Row ${i + 2 + rowOffset}: missing ID, date or amount`); return; }
     const fee = Number(pick(r, "Total fees").replace(",", "."));
     const bal = Number(pick(r, "Running Balance").replace(",", "."));
     // D085: a payment sent in another currency (e.g. USD to a contractor from the EUR balance): "Exchange To" + "Exchange To Amount".

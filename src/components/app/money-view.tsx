@@ -1,10 +1,10 @@
 "use client";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, Upload } from "lucide-react";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { History, RefreshCw, Search, Upload } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { EmptyState, ErrorState, Panel, PanelTitle, SegmentedSwitch, Select, Skeleton } from "@/components/ui/form";
+import { EmptyState, ErrorState, Input, Panel, PanelTitle, SegmentedSwitch, Select, Skeleton } from "@/components/ui/form";
 import { BANK_CATEGORIES, CATEGORY_LABELS, NEUTRAL, isIncome, type BankCategory } from "@/domain/bank";
 import { COST_CENTER_LABELS } from "@/domain/finance-constants";
 import type { FinanceOverview } from "@/server/services/finance";
@@ -17,6 +17,7 @@ import { ExportButton } from "./export-dialog";
 import { AllocationPanel, ContractsTab, EntriesPanel, FmtContext, PnlTab, UsdRatePanel, useFmt, type Fmt } from "./money-finance";
 import { UsdAmount } from "./usd-line";
 import { CsvExportButton } from "./csv-tools";
+import { splitCsv, type BackfillSummary } from "@/domain/bank-history";
 
 type Tx = { bank: "wise" | "stripe"; id: string; version: number; occurred_at: string; date: string; amount_minor: number; currency: string; description: string; counterparty: string; category: BankCategory; category_source: "auto" | "manual"; direction: "credit" | "debit"; origin: string };
 type Money = {
@@ -25,6 +26,14 @@ type Money = {
   balances: { bank: "wise" | "stripe"; currency: string; amount_minor: number; name: string; as_of: string }[];
   summary: { previousExpensesByCategory: { category: BankCategory; amount: number }[]; topClientShare: { name: string; share: number } | null; months: { month: string; income: number; expenses: number; net: number }[]; current: { income: number; expenses: number; net: number }; expensesByCategory: { category: BankCategory; amount: number }[]; contributions: number; toReview: number };
   transactions: Tx[];
+  backfill: BackfillSummary;
+};
+type BackfillRun = BackfillSummary & { added_now: number };
+type Movements = {
+  first_date: string | null; years: string[]; today: string;
+  totals: { income: number; expenses: number; net: number; non_eur: number; count: number };
+  by_category: { category: BankCategory; amount: number; count: number }[];
+  total: number; page: number; size: number; rows: Tx[]; items: FinItemView[];
 };
 export type Fin = FinanceOverview;
 export type FinItemView = Fin["items"][number];
@@ -51,6 +60,7 @@ export function MoneyView() {
     onSuccess: (r) => { toast(t("{n} new movements", { n: r.added })); qc.invalidateQueries({ queryKey: ["money"] }); qc.invalidateQueries({ queryKey: ["finance"] }); },
     onError: (e) => toast((e as Error).message),
   });
+  const history = useBackfill(q.data);
   // Everything is EUR (D082): no display currency, no conversion.
   const fmt = React.useCallback<Fmt>((m) => (m === null || m === undefined ? "—" : formatMoney(m)), []);
   if (q.isPending) return <Skeleton className="h-96" />;
@@ -84,7 +94,8 @@ export function MoneyView() {
         {tab === "pnl" ? (f.data ? <PnlTab fin={f.data} /> : <Skeleton className="h-96" />) : null}
         {tab === "ledger" ? (
           <>
-            <Transactions rows={d.transactions} toReview={d.summary.toReview} fin={f.data} />
+            <HistoryPanel money={d} run={history} />
+            <Transactions toReview={d.summary.toReview} fin={f.data} />
             {f.data ? <EntriesPanel fin={f.data} /> : null}
             {f.data ? <UsdRatePanel fin={f.data} /> : null}
           </>
@@ -168,49 +179,184 @@ function RevenueCostBars({ months }: { months: Fin["pnl"] }) {
   );
 }
 
-function Transactions({ rows, toReview, fin }: { rows: Tx[]; toReview: number; fin: Fin | undefined }) {
+/**
+ * D091: the full Wise history. Started once by the page itself right after the first successful sync (its own request,
+ * never inside /api/money), then by the button; each call walks ~4 minutes and the loop resumes until done.
+ */
+function useBackfill(d: Money | undefined) {
+  const t = useT();
+  const qc = useQueryClient();
+  const [last, setLast] = React.useState<BackfillRun | null>(null);
+  const run = useMutation({
+    mutationFn: async () => {
+      let added = 0;
+      let r: BackfillRun | null = null;
+      for (let i = 0; i < 30; i++) {
+        r = await api<BackfillRun>("/api/money/backfill", { body: {} });
+        added += r.added_now;
+        setLast(r);
+        if (r.status !== "partial" || r.running) break;
+        qc.invalidateQueries({ queryKey: ["money"] });
+      }
+      return { added, r };
+    },
+    onSuccess: ({ added, r }) => {
+      if (r?.done) toast(t("Wise history imported: {n} movements added.", { n: added }));
+      qc.invalidateQueries({ queryKey: ["money"] });
+      qc.invalidateQueries({ queryKey: ["finance"] });
+    },
+    onError: (e) => { toast((e as Error).message); qc.invalidateQueries({ queryKey: ["money"] }); },
+  });
+  const started = React.useRef(false);
+  const { mutate } = run;
+  React.useEffect(() => {
+    if (started.current || !d?.connected || d.status !== "ok" || !d.lastSync || d.backfill.started) return;
+    started.current = true;
+    mutate();
+  }, [d, mutate]);
+  return { start: () => run.mutate(), pending: run.isPending, state: last ?? d?.backfill ?? null };
+}
+
+function HistoryPanel({ money: d, run }: { money: Money; run: ReturnType<typeof useBackfill> }) {
   const t = useT();
   const dt = useDateTag();
+  const s = run.state;
+  const until = s?.reached ? new Date(s.reached).toLocaleDateString(dt, { month: "2-digit", year: "numeric" }) : null;
+  const line = !d.connected ? null
+    : run.pending || s?.running ? (until ? t("Importing the Wise history… back to {d}", { d: until }) : t("Importing the Wise history…"))
+    : !s?.started ? t("Only the last 90 days come from Wise for now.")
+    : s.status === "done" ? t("Full Wise history imported, back to {d} · {n} movements added. Done.", { d: until ?? "—", n: s.added })
+    : s.status === "sca_required" ? t("Wise asks for strong authentication to read the statement history: import the full history as a CSV (steps below).")
+    : s.status === "error" ? t("The import stopped on an error: {e}", { e: t(s.error) })
+    : t("Import paused, back to {d} · {n} movements added. Resume to continue.", { d: until ?? "—", n: s.added });
+  return (
+    <Panel>
+      <PanelTitle action={d.connected && s?.status !== "done" ? (
+        <Button size="sm" variant="outline" disabled={run.pending || Boolean(s?.running)} onClick={run.start}><History /> {s?.started ? t("Resume the Wise history import") : t("Import the whole Wise history")}</Button>
+      ) : null}>{t("History since the account was opened")}</PanelTitle>
+      {line ? <p className="text-sm" role="status">{line}</p> : null}
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+        <p className="max-w-3xl text-[12px] leading-relaxed text-text-3">{t("Without the API, export everything from Wise: Statements & reports › select all balances › date range from the account opening to today › CSV, then import the file here (up to 15 MB; movements already there are skipped).")}</p>
+        <CsvImport />
+      </div>
+    </Panel>
+  );
+}
+
+function Transactions({ toReview, fin }: { toReview: number; fin: Fin | undefined }) {
+  const t = useT();
+  const dt = useDateTag();
+  const fmt = useFmt();
   const qc = useQueryClient();
+  const [period, setPeriod] = React.useState("all");
+  const [category, setCategory] = React.useState<BankCategory | "">("");
   const [filter, setFilter] = React.useState<"all" | "in" | "out" | "review">("all");
   const [source, setSource] = React.useState<"all" | "wise" | "stripe">("all");
+  const [text, setText] = React.useState("");
+  const [search, setSearch] = React.useState("");
+  const [page, setPage] = React.useState(0);
   const [open, setOpen] = React.useState<string | null>(null);
+  React.useEffect(() => { const h = setTimeout(() => { setSearch(text.trim()); setPage(0); }, 250); return () => clearTimeout(h); }, [text]);
+  const params = new URLSearchParams({ period, category, kind: filter, source, q: search, page: String(page), size: "100" });
+  const q = useQuery({ queryKey: ["money", "movements", params.toString()], queryFn: () => api<Movements>(`/api/money/movements?${params}`), placeholderData: keepPreviousData });
   const set = useMutation({
     mutationFn: (b: { id: string; expected_version: number; category: BankCategory }) => api("/api/money/category", { method: "PATCH", body: b }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["money"] }); qc.invalidateQueries({ queryKey: ["finance"] }); },
     onError: (e) => toast((e as Error).message),
   });
-  const items = new Map((fin?.items ?? []).map((i) => [i.id, i]));
-  const shown = rows.filter((r) => source === "all" || r.bank === source).filter((r) => filter === "all" || (filter === "in" ? r.direction === "credit" : filter === "out" ? r.direction === "debit" : r.bank !== "stripe" && r.category_source === "auto" && r.direction === "credit" && isIncome(r.category)));
+  const reset = <V,>(fn: (v: V) => void) => (v: V) => { fn(v); setPage(0); };
+  const m = q.data;
+  const items = new Map((m?.items ?? []).map((i) => [i.id, i]));
   const item = open ? items.get(open) : undefined;
+  const firstYear = m?.first_date ? new Date(`${m.first_date}T12:00:00Z`).toLocaleDateString(dt, { month: "2-digit", year: "numeric" }) : null;
   return (
     <div className="flex flex-col gap-5 lg:flex-row lg:items-start">
       <Panel className="min-w-0 flex-1">
-        <PanelTitle action={<div className="flex flex-wrap gap-2"><SegmentedSwitch size="sm" label={t("Source")} value={source} onChange={setSource} options={[{ value: "all", label: t("All") }, { value: "wise", label: "Wise" }, { value: "stripe", label: "Stripe" }]} /><SegmentedSwitch size="sm" label={t("Filter")} value={filter} onChange={setFilter} options={[{ value: "all", label: t("All") }, { value: "in", label: t("Money in") }, { value: "out", label: t("Money out") }, { value: "review", label: toReview ? `${t("To check")} · ${toReview}` : t("To check") }]} /><CsvExportButton list="bank" /></div>}>{t("Bank movements")}</PanelTitle>
-        {shown.length === 0 ? <p className="text-sm text-text-2">{t("Nothing here.")}</p> : (
-          <ul className="flex flex-col divide-y divide-hairline">
-            {shown.slice(0, 80).map((r) => {
-              const it = items.get(r.id);
-              return (
-                <li key={r.id} className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-1 py-2.5 sm:grid-cols-[5rem_1fr_11rem_8rem]">
-                  <span className="num text-[12px] text-text-3">{new Date(r.occurred_at).toLocaleDateString(dt, { day: "2-digit", month: "short" })}</span>
-                  <button type="button" onClick={() => setOpen(r.id)} className="min-w-0 truncate rounded-[8px] text-left text-sm hover:underline" aria-label={t("Details of {name}", { name: r.counterparty || r.description || "—" })}>
-                    {r.bank === "stripe" ? <span className="mr-1.5 rounded bg-subtle px-1 text-[11px] text-text-2">Stripe</span> : null}
-                    {r.counterparty || t(r.description) || "—"}{r.counterparty && r.description ? <span className="text-text-3"> · {t(r.description)}</span> : null}
-                    {it && !NEUTRAL.includes(r.category) ? <span className="ml-1.5 text-[11px] text-text-3">· {t(COST_CENTER_LABELS[it.cost_center])}{it.receipt_url ? ` · ${t("receipt")}` : ""}{it.reconciled ? ` · ${t("reconciled")}` : ""}</span> : null}
-                  </button>
-                  <Select aria-label={t("Category")} value={r.category} onChange={(e) => set.mutate({ id: r.id, expected_version: r.version, category: e.target.value as BankCategory })} className={cn("h-9 text-[13px]", r.bank !== "stripe" && r.category_source === "auto" && r.direction === "credit" && isIncome(r.category) && "border-ink")}>
-                    {BANK_CATEGORIES.map((c) => <option key={c} value={c}>{t(CATEGORY_LABELS[c])}</option>)}
-                  </Select>
-                  <span className={cn("num text-right text-sm font-medium", r.direction === "credit" ? (NEUTRAL.includes(r.category) ? "text-text-2" : "text-win") : "")}>
-                    {r.direction === "credit" ? "+" : "−"}{formatMoney(Math.abs(r.amount_minor), r.currency)}
-                    {r.currency !== "EUR" && it ? <span className="block text-[11px] font-normal text-text-3">{t("not in EUR, not converted")}</span> : null}
-                    {it?.fx && it.fx_minor ? <UsdAmount usd={it.fx_minor} eur={Math.abs(r.amount_minor)} rate={it.fx} className="block text-[11px] font-normal text-text-3" /> : null}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
+        <PanelTitle action={<CsvExportButton list="bank" />}>{t("Bank movements")}</PanelTitle>
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <Select aria-label={t("Period")} value={period} onChange={(e) => reset(setPeriod)(e.target.value)} className="h-9 w-auto text-[13px]">
+            <option value="all">{firstYear ? t("Since the start ({d})", { d: firstYear }) : t("Since the start")}</option>
+            <option value="12m">{t("Last 12 months")}</option>
+            {(m?.years ?? []).map((y) => <option key={y} value={y}>{y}</option>)}
+          </Select>
+          <Select aria-label={t("Category")} value={category} onChange={(e) => reset(setCategory)(e.target.value as BankCategory | "")} className="h-9 w-auto text-[13px]">
+            <option value="">{t("All categories")}</option>
+            {BANK_CATEGORIES.map((c) => <option key={c} value={c}>{t(CATEGORY_LABELS[c])}</option>)}
+          </Select>
+          <label className="relative">
+            <span className="sr-only">{t("Search")}</span>
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-text-3" />
+            <Input value={text} onChange={(e) => setText(e.target.value)} placeholder={t("Search a supplier, a client, a label")} className="h-9 w-64 pl-8 text-[13px]" />
+          </label>
+        </div>
+        <div className="mb-4 flex flex-wrap gap-2">
+          <SegmentedSwitch size="sm" label={t("Source")} value={source} onChange={reset(setSource)} options={[{ value: "all", label: t("All") }, { value: "wise", label: "Wise" }, { value: "stripe", label: "Stripe" }]} />
+          <SegmentedSwitch size="sm" label={t("Filter")} value={filter} onChange={reset(setFilter)} options={[{ value: "all", label: t("All") }, { value: "in", label: t("Money in") }, { value: "out", label: t("Money out") }, { value: "review", label: toReview ? `${t("To check")} · ${toReview}` : t("To check") }]} />
+        </div>
+        {q.isError ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : null}
+        {!m ? <Skeleton className="h-64" /> : (
+          <>
+            <div className="mb-4 grid grid-cols-3 gap-3" aria-label={t("Totals of the movements shown")}>
+              <Total label={t("Expenses")} value={fmt(m.totals.expenses)} />
+              <Total label={t("Income")} value={fmt(m.totals.income)} />
+              <Total label={t("Net")} value={fmt(m.totals.net)} bad={m.totals.net < 0} />
+            </div>
+            <p className="mb-3 text-[12px] text-text-3">
+              {t("{n} movements", { n: m.total })}{m.totals.non_eur ? ` · ${t("{n} not in EUR, left out of the totals", { n: m.totals.non_eur })}` : ""} · {t("transfers between our balances, founder contributions and loans are neither income nor expenses")}
+            </p>
+            {m.rows.length === 0 ? <p className="text-sm text-text-2">{t("Nothing here.")}</p> : (
+              <ul className={cn("flex flex-col divide-y divide-hairline", q.isPlaceholderData && "opacity-60")}>
+                {m.rows.map((r) => {
+                  const it = items.get(r.id);
+                  return (
+                    <li key={r.id} className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-1 py-2.5 sm:grid-cols-[6rem_1fr_11rem_8rem]">
+                      <span className="num text-[12px] text-text-3">{new Date(r.occurred_at).toLocaleDateString(dt, { day: "2-digit", month: "short", year: "2-digit" })}</span>
+                      <button type="button" onClick={() => setOpen(r.id)} className="min-w-0 truncate rounded-[8px] text-left text-sm hover:underline" aria-label={t("Details of {name}", { name: r.counterparty || r.description || "—" })}>
+                        {r.bank === "stripe" ? <span className="mr-1.5 rounded bg-subtle px-1 text-[11px] text-text-2">Stripe</span> : null}
+                        {r.counterparty || t(r.description) || "—"}{r.counterparty && r.description ? <span className="text-text-3"> · {t(r.description)}</span> : null}
+                        {it && !NEUTRAL.includes(r.category) ? <span className="ml-1.5 text-[11px] text-text-3">· {t(COST_CENTER_LABELS[it.cost_center])}{it.receipt_url ? ` · ${t("receipt")}` : ""}{it.reconciled ? ` · ${t("reconciled")}` : ""}</span> : null}
+                      </button>
+                      <Select aria-label={t("Category")} value={r.category} onChange={(e) => set.mutate({ id: r.id, expected_version: r.version, category: e.target.value as BankCategory })} className={cn("h-9 text-[13px]", r.bank !== "stripe" && r.category_source === "auto" && r.direction === "credit" && isIncome(r.category) && "border-ink")}>
+                        {BANK_CATEGORIES.map((c) => <option key={c} value={c}>{t(CATEGORY_LABELS[c])}</option>)}
+                      </Select>
+                      <span className={cn("num text-right text-sm font-medium", r.direction === "credit" ? (NEUTRAL.includes(r.category) ? "text-text-2" : "text-win") : "")}>
+                        {r.direction === "credit" ? "+" : "−"}{formatMoney(Math.abs(r.amount_minor), r.currency)}
+                        {r.currency !== "EUR" && it ? <span className="block text-[11px] font-normal text-text-3">{t("not in EUR, not converted")}</span> : null}
+                        {it?.fx && it.fx_minor ? <UsdAmount usd={it.fx_minor} eur={Math.abs(r.amount_minor)} rate={it.fx} className="block text-[11px] font-normal text-text-3" /> : null}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {m.total > m.size ? (
+              <div className="mt-3 flex items-center justify-between gap-3 text-[13px] text-text-2">
+                <span className="num">{t("{from}–{to} of {n}", { from: m.page * m.size + 1, to: Math.min(m.total, (m.page + 1) * m.size), n: m.total })}</span>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" disabled={m.page === 0} onClick={() => setPage(m.page - 1)}>{t("Previous")}</Button>
+                  <Button size="sm" variant="outline" disabled={(m.page + 1) * m.size >= m.total} onClick={() => setPage(m.page + 1)}>{t("Next")}</Button>
+                </div>
+              </div>
+            ) : null}
+            {m.by_category.length ? (
+              <div className="mt-6">
+                <h3 className="mb-2 text-[13px] font-semibold text-text-2">{t("Expenses by category over the period")}</h3>
+                <table className="w-full text-[13px]">
+                  <thead><tr className="text-left text-text-3"><th className="py-1.5 font-medium">{t("Category")}</th><th className="num py-1.5 text-right font-medium">{t("Movements")}</th><th className="num py-1.5 text-right font-medium">{t("Amount")}</th><th className="num py-1.5 pl-3 text-right font-medium">{t("Share")}</th></tr></thead>
+                  <tbody>
+                    {m.by_category.map((c) => (
+                      <tr key={c.category} className="border-t border-hairline">
+                        <td className="py-1.5"><button type="button" className="rounded hover:underline" onClick={() => { setCategory(c.category); setFilter("all"); setPage(0); }}>{t(CATEGORY_LABELS[c.category])}</button></td>
+                        <td className="num py-1.5 text-right text-text-2">{c.count}</td>
+                        <td className="num py-1.5 text-right">{fmt(c.amount)}</td>
+                        <td className="num py-1.5 pl-3 text-right text-text-2">{m.totals.expenses ? `${Math.round((c.amount / m.totals.expenses) * 100)} %` : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </>
         )}
       </Panel>
       {item && fin ? <AllocationPanel key={item.id} item={item} fin={fin} onClose={() => setOpen(null)} /> : null}
@@ -218,19 +364,43 @@ function Transactions({ rows, toReview, fin }: { rows: Tx[]; toReview: number; f
   );
 }
 
+function Total({ label, value, bad }: { label: string; value: string; bad?: boolean }) {
+  return (
+    <div className="min-w-0 rounded-[12px] bg-subtle px-3 py-2">
+      <p className="text-[12px] text-text-2">{label}</p>
+      <p className={cn("num truncate text-lg font-semibold", bad && "text-bad")}>{value}</p>
+    </div>
+  );
+}
+
+/** Max file accepted in the browser (D091: a multi-year export), sent in parts the server and the host accept. */
+const CSV_MAX_FILE = 15_000_000;
+const CSV_PART = 500_000;
 function CsvImport() {
   const t = useT();
   const qc = useQueryClient();
   const ref = React.useRef<HTMLInputElement>(null);
+  const [progress, setProgress] = React.useState<string | null>(null);
   const imp = useMutation({
-    mutationFn: async (f: File) => api<{ added: number; skipped: number; errors: string[] }>("/api/money/import", { body: { csv: await f.text() } }),
-    onSuccess: (r) => { toast(t("{added} added, {skipped} already there", { added: r.added, skipped: r.skipped })); qc.invalidateQueries({ queryKey: ["money"] }); qc.invalidateQueries({ queryKey: ["finance"] }); },
+    mutationFn: async (f: File) => {
+      if (f.size > CSV_MAX_FILE) throw new Error(t("File too large (15 MB max). Export one period at a time."));
+      const parts = splitCsv(await f.text(), CSV_PART);
+      const sum = { added: 0, skipped: 0, errors: [] as string[] };
+      for (const [i, p] of parts.entries()) {
+        if (parts.length > 1) setProgress(t("Part {n} of {total}", { n: i + 1, total: parts.length }));
+        const r = await api<{ added: number; skipped: number; errors: string[] }>("/api/money/import", { body: { csv: p.csv, row_offset: p.offset } });
+        sum.added += r.added; sum.skipped += r.skipped; sum.errors.push(...r.errors);
+      }
+      return sum;
+    },
+    onSuccess: (r) => { toast(t("{added} added, {skipped} already there", { added: r.added, skipped: r.skipped })); if (r.errors.length) toast(t(r.errors[0])); qc.invalidateQueries({ queryKey: ["money"] }); qc.invalidateQueries({ queryKey: ["finance"] }); },
     onError: (e) => toast((e as Error).message),
+    onSettled: () => setProgress(null),
   });
   return (
     <>
       <input ref={ref} type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) imp.mutate(f); e.target.value = ""; }} />
-      <Button variant="ghost" disabled={imp.isPending} onClick={() => ref.current?.click()}><Upload /> {t("Import Wise CSV")}</Button>
+      <Button variant="ghost" disabled={imp.isPending} onClick={() => ref.current?.click()}><Upload /> {imp.isPending && progress ? progress : t("Import Wise CSV")}</Button>
     </>
   );
 }

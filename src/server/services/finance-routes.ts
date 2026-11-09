@@ -13,7 +13,7 @@ type Handler = (ctx: AppContext, founder: FounderKey, input: never) => Promise<u
  * session, same-origin, Zod) and the browser preview's mock fetch.
  */
 export const FINANCE_ROUTES: Record<string, [z.ZodTypeAny | null, Handler]> = {
-  "GET /api/finance": [overviewSchema, (c, f, i: { months?: number }) => financeOverview(c, f, i)],
+  "GET /api/finance": [overviewSchema, (c, f, i: { months?: number; span?: "window" | "all" }) => financeOverview(c, f, i)],
   "PATCH /api/finance/allocation": [allocationSchema, (c, f, i) => saveAllocation(c, f, i)],
   "POST /api/finance/entries": [entrySchema, (c, f, i) => addEntry(c, f, i)],
   "POST /api/finance/entries/reverse": [reverseSchema, (c, f, i) => reverseEntry(c, f, i)],
