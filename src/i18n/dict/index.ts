@@ -6,8 +6,13 @@ import { entries as marketing } from "./marketing";
 import { entries as money } from "./money";
 import { entries as myday } from "./myday";
 import { entries as server } from "./server";
+import { entries as overrides } from "./overrides";
+import { entries as report } from "./report";
 import { entries as settings } from "./settings";
 import { entries as work } from "./work";
 
 /** English source → [French, Spanish]. One file per area so several people can edit at once. */
-export const ENTRIES: Record<string, readonly [string, string]> = { ...labels, ...server, ...core, ...calls, ...crm, ...myday, ...marketing, ...work, ...settings, ...money };
+export const ENTRIES: Record<string, readonly [string, string]> = { ...labels, ...server, ...core, ...calls, ...crm, ...myday, ...marketing, ...work, ...settings, ...money, ...report, ...overrides };
+
+/** Keys that describe sentences built on the server: only these (and number-only keys) are used as patterns. */
+export const PATTERN_KEYS: ReadonlySet<string> = new Set([...Object.keys(labels), ...Object.keys(server), ...Object.keys(report)]);

@@ -158,9 +158,10 @@ describe("Scenario 13 (service part): a field visit counts as one new business a
     expect(day.tally.field_visits).toBe(1);
     expect(day.tally.new_businesses).toBe(1);
     const text = await whatsappReport(makeRepo(url), "theo", "Visit 5 garages", NOW);
-    expect(text).toContain("- Field visit: 1");
-    expect(text).toContain("- New businesses contacted: 1");
-    expect(text).toContain("- New businesses contacted: 1/5");
+    // Théo's report is in French (D048).
+    expect(text).toContain("- Visite terrain: 1");
+    expect(text).toContain("- Nouvelles entreprises contactées : 1");
+    expect(text).toContain("- Nouvelles entreprises contactées: 1/5");
   });
 });
 

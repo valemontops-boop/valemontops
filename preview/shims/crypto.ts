@@ -24,3 +24,9 @@ export function createHmac(_alg: string, key: string) {
   h.update(key);
   return h;
 }
+
+/** Not available in the browser preview (Wise SCA signing runs on the server only). */
+export function createPrivateKey(): never { throw new Error("Not available in the preview"); }
+export function createPublicKey(): never { throw new Error("Not available in the preview"); }
+export function sign(): never { throw new Error("Not available in the preview"); }
+export function verify(): never { throw new Error("Not available in the preview"); }

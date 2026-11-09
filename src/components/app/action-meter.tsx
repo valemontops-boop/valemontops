@@ -1,12 +1,14 @@
 "use client";
 import { cn } from "@/lib/utils";
 import { TONE_BAR, type Tone } from "@/lib/tones";
+import { useT } from "@/i18n/react";
 
 /**
  * Signature component (DESIGN.md): one tick per action up to the target. Filled = confirmed by the server,
  * hollow = saving, hatched = remaining. Above 60 it falls back to a continuous bar.
  */
 export function ActionMeter({ label, actual, target, pending = 0, onLog, tone = "sales" }: { label: string; actual: number; target: number; pending?: number; onLog?: () => void; tone?: Tone }) {
+  const t = useT();
   const done = Math.min(actual, target);
   const extra = Math.max(0, actual - target);
   const pend = Math.min(pending, Math.max(0, target - done));
@@ -19,11 +21,11 @@ export function ActionMeter({ label, actual, target, pending = 0, onLog, tone = 
           {actual}/{target}
           {extra > 0 ? ` (+${extra})` : ""}
         </span>
-        {pending > 0 ? <span className="text-[12px] text-text-3">saving…</span> : null}
+        {pending > 0 ? <span className="text-[12px] text-text-3">{t("saving…")}</span> : null}
       </div>
       {onLog ? (
-        <button type="button" onClick={onLog} className="row-span-2 h-11 min-w-16 rounded-full border border-control px-4 text-sm font-medium hover:bg-subtle" aria-label={`Log ${label.toLowerCase()}`}>
-          + Log
+        <button type="button" onClick={onLog} className="row-span-2 h-11 min-w-16 rounded-full border border-control px-4 text-sm font-medium hover:bg-subtle" aria-label={t("Log {what}", { what: label.toLowerCase() })}>
+          {t("+ Log")}
         </button>
       ) : null}
       <div role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={target} aria-valuenow={actual} className="min-w-0">

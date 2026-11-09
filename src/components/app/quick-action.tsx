@@ -15,10 +15,11 @@ import {
 import { addDays } from "@/domain/time";
 import { useCrm, type CrmAccount, type CrmContact } from "./use-crm";
 import { useMe } from "./providers";
+import { useT } from "@/i18n/react";
 
 export type QuickKind = "call" | "visit" | "dm" | "invitation" | "inmail" | "email" | "follow_up" | "demo" | "meeting" | "comment";
 export const QUICK_KINDS: { kind: QuickKind; label: string; key: string }[] = [
-  { kind: "call", label: "Call", key: "c" },
+  { kind: "call", label: "Phone call", key: "c" },
   { kind: "visit", label: "Field visit", key: "v" },
   { kind: "dm", label: "LinkedIn DM", key: "d" },
   { kind: "invitation", label: "Invitation", key: "l" },
@@ -48,15 +49,20 @@ export function useQuickAction() {
 export function QuickActionProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = React.useState<{ open: boolean; prefill: QuickPrefill; session: number }>({ open: false, prefill: {}, session: 0 });
   const open = React.useCallback((p: QuickPrefill = {}) => setState((s) => ({ open: true, prefill: p, session: s.session + 1 })), []);
+  const t = useT();
   return (
     <Ctx.Provider value={{ open }}>
       {children}
-      <Modal open={state.open} onOpenChange={(o) => setState((s) => ({ ...s, open: o }))} title="Log activity" description="Counted only after the server confirms the save.">
+      <Modal open={state.open} onOpenChange={(o) => setState((s) => ({ ...s, open: o }))} title={t("Log activity")} description={t("Counted only after the server confirms the save.")}>
         {state.open ? <QuickActionForm key={state.session} prefill={state.prefill} onDone={() => setState((s) => ({ ...s, open: false }))} /> : null}
       </Modal>
     </Ctx.Provider>
   );
 }
+
+/** English words for API values, translated at render. */
+const CHANNEL_WORDS: Record<string, string> = { phone: "Phone", email: "Email", linkedin: "LinkedIn", in_person: "In person", field_visit: "Field visit", whatsapp: "WhatsApp" };
+const RULE_STATUS_WORDS: Record<string, string> = { allowed: "Allowed", allowed_with_conditions: "Allowed with conditions", requires_consent: "Requires consent", needs_review: "Needs review" };
 
 type CallResult = "no_answer" | "voicemail" | "connected";
 const CONNECTED_OUTCOMES: Outcome[] = ["conversation", "interested", "not_interested", "callback_requested", "demo_booked", "meeting_booked", "gatekeeper"];
@@ -89,6 +95,7 @@ function ruleChannel(kind: QuickKind, followChannel: string): "phone" | "email" 
 
 function QuickActionForm({ prefill, onDone }: { prefill: QuickPrefill; onDone: () => void }) {
   const me = useMe();
+  const t = useT();
   const crm = useCrm();
   const qc = useQueryClient();
   const [idempotencyKey] = React.useState(() => crypto.randomUUID()); // reused for every retry (spec 4.2)
@@ -160,12 +167,12 @@ function QuickActionForm({ prefill, onDone }: { prefill: QuickPrefill; onDone: (
       }),
     onSuccess: (r) => {
       qc.invalidateQueries();
-      toast(r.duplicate ? "Already saved earlier. Not counted twice." : "Saved");
-      for (const w of r.warnings) toast(w);
+      toast(r.duplicate ? t("Already saved earlier. Not counted twice.") : t("Saved"));
+      for (const w of r.warnings) toast(t(w));
       onDone();
     },
     onError: (e) => {
-      setFormError(e instanceof ApiError && e.isBlocked ? e.message : e instanceof ApiError && e.isRetryable ? `Error: ${e.message} Retry keeps the same entry, so nothing is counted twice.` : (e as Error).message);
+      setFormError(e instanceof ApiError && e.isBlocked ? t(e.message) : e instanceof ApiError && e.isRetryable ? t("Error: {message} Retry keeps the same entry, so nothing is counted twice.", { message: t(e.message) }) : t((e as Error).message));
     },
   });
 
@@ -182,11 +189,11 @@ function QuickActionForm({ prefill, onDone }: { prefill: QuickPrefill; onDone: (
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-4" onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(); }}>
-      <div role="radiogroup" aria-label="Activity" className="flex flex-wrap gap-2">
+      <div role="radiogroup" aria-label={t("Activity")} className="flex flex-wrap gap-2">
         {QUICK_KINDS.map((k) => (
           <button key={k.kind} type="button" role="radio" aria-checked={kind === k.kind} onClick={() => { setKind(k.kind); setOutcome(""); }}
             className={cn("h-10 rounded-full border px-4 text-sm font-medium", kind === k.kind ? "border-ink bg-ink text-panel" : "border-control text-ink hover:bg-subtle")}>
-            {k.label}
+            {t(k.label)}
           </button>
         ))}
       </div>
@@ -200,17 +207,17 @@ function QuickActionForm({ prefill, onDone }: { prefill: QuickPrefill; onDone: (
               <p className="text-[13px] text-text-2">{[account.country, account.niche, account.phone].filter(Boolean).join(" · ")}</p>
             </div>
             {!prefill.accountId ? (
-              <button type="button" className="rounded-full p-2 hover:bg-panel" aria-label="Change business" onClick={() => { setAccountId(""); setContactId(""); setOpportunityId(""); }}>
+              <button type="button" className="rounded-full p-2 hover:bg-panel" aria-label={t("Change business")} onClick={() => { setAccountId(""); setContactId(""); setOpportunityId(""); }}>
                 <X className="size-4" />
               </button>
             ) : null}
           </div>
         ) : (
           <div className="flex flex-col gap-2">
-            <label htmlFor="qa-search" className="text-[13px] font-medium text-text-2">Business{kind === "comment" ? " (optional)" : ""}</label>
+            <label htmlFor="qa-search" className="text-[13px] font-medium text-text-2">{kind === "comment" ? t("Business (optional)") : t("Business")}</label>
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-text-3" />
-              <Input id="qa-search" autoFocus placeholder="Search by business, contact or phone" value={query} onChange={(e) => setQuery(e.target.value)} className="pl-9" autoComplete="off" />
+              <Input id="qa-search" autoFocus placeholder={t("Search by business, contact or phone")} value={query} onChange={(e) => setQuery(e.target.value)} className="pl-9" autoComplete="off" />
             </div>
             {results.length > 0 ? (
               <ul className="flex flex-col divide-y divide-hairline rounded-[12px] border border-hairline">
@@ -218,48 +225,48 @@ function QuickActionForm({ prefill, onDone }: { prefill: QuickPrefill; onDone: (
                   <li key={a.id}>
                     <button type="button" onClick={() => { setAccountId(a.id); setQuery(""); }} className="flex min-h-11 w-full items-center justify-between px-3 py-2 text-left hover:bg-subtle">
                       <span className="font-medium">{a.name}</span>
-                      <span className="text-[13px] text-text-3">{a.country ?? ""}{a.blocked_reason ? " · blocked" : ""}</span>
+                      <span className="text-[13px] text-text-3">{a.country ?? ""}{a.blocked_reason ? ` · ${t("blocked")}` : ""}</span>
                     </button>
                   </li>
                 ))}
               </ul>
-            ) : query.trim() && crm.isSuccess ? <p className="text-sm text-text-2">No match.</p> : null}
+            ) : query.trim() && crm.isSuccess ? <p className="text-sm text-text-2">{t("No match.")}</p> : null}
             <button type="button" className="self-start text-sm font-medium text-accent-text underline underline-offset-2" onClick={() => { setFast(true); setFc((f) => ({ ...f, company_name: query })); }}>
-              Add a new business
+              {t("Add a new business")}
             </button>
           </div>
         )
       ) : (
         <fieldset className="grid grid-cols-1 gap-3 rounded-[12px] border border-hairline p-3 sm:grid-cols-2">
-          <legend className="px-1 text-[13px] font-medium text-text-2">New business</legend>
-          <Field label="Business name" htmlFor="fc-company"><Input id="fc-company" autoFocus value={fc.company_name} onChange={(e) => setFc({ ...fc, company_name: e.target.value })} /></Field>
-          <Field label="Country" htmlFor="fc-country">
-            <SegmentedSwitch label="Country" value={fc.country} onChange={(v) => setFc({ ...fc, country: v })} options={[{ value: "FR", label: "France" }, { value: "ES", label: "Spain" }]} />
+          <legend className="px-1 text-[13px] font-medium text-text-2">{t("New business")}</legend>
+          <Field label={t("Business name")} htmlFor="fc-company"><Input id="fc-company" autoFocus value={fc.company_name} onChange={(e) => setFc({ ...fc, company_name: e.target.value })} /></Field>
+          <Field label={t("Country")} htmlFor="fc-country">
+            <SegmentedSwitch label={t("Country")} value={fc.country} onChange={(v) => setFc({ ...fc, country: v })} options={[{ value: "FR", label: t("France") }, { value: "ES", label: t("Spain") }]} />
           </Field>
-          <Field label="Contact name" htmlFor="fc-name"><Input id="fc-name" value={fc.contact_name} onChange={(e) => setFc({ ...fc, contact_name: e.target.value })} /></Field>
-          <Field label="Phone" htmlFor="fc-phone"><Input id="fc-phone" type="tel" inputMode="tel" value={fc.phone} onChange={(e) => setFc({ ...fc, phone: e.target.value })} /></Field>
-          <Field label="Email" htmlFor="fc-email"><Input id="fc-email" type="email" value={fc.email} onChange={(e) => setFc({ ...fc, email: e.target.value })} /></Field>
-          <Field label="Contact type" htmlFor="fc-type">
+          <Field label={t("Contact name")} htmlFor="fc-name"><Input id="fc-name" value={fc.contact_name} onChange={(e) => setFc({ ...fc, contact_name: e.target.value })} /></Field>
+          <Field label={t("Phone")} htmlFor="fc-phone"><Input id="fc-phone" type="tel" inputMode="tel" value={fc.phone} onChange={(e) => setFc({ ...fc, phone: e.target.value })} /></Field>
+          <Field label={t("Email")} htmlFor="fc-email"><Input id="fc-email" type="email" value={fc.email} onChange={(e) => setFc({ ...fc, email: e.target.value })} /></Field>
+          <Field label={t("Contact type")} htmlFor="fc-type">
             <Select id="fc-type" value={fc.contact_type} onChange={(e) => setFc({ ...fc, contact_type: e.target.value as ContactType })}>
-              {CONTACT_TYPES.map((t) => <option key={t} value={t}>{CONTACT_TYPE_LABELS[t]}</option>)}
+              {CONTACT_TYPES.map((ct) => <option key={ct} value={ct}>{t(CONTACT_TYPE_LABELS[ct])}</option>)}
             </Select>
           </Field>
-          <button type="button" className="self-start text-sm text-text-2 underline sm:col-span-2" onClick={() => setFast(false)}>Search existing businesses instead</button>
+          <button type="button" className="self-start text-sm text-text-2 underline sm:col-span-2" onClick={() => setFast(false)}>{t("Search existing businesses instead")}</button>
         </fieldset>
       )}
 
       {account && contacts.length > 1 ? (
-        <Field label="Contact" htmlFor="qa-contact">
+        <Field label={t("Contact")} htmlFor="qa-contact">
           <Select id="qa-contact" value={contactId} onChange={(e) => setContactId(e.target.value)}>
-            <option value="">Business (no specific person)</option>
-            {contacts.map((c) => <option key={c.id} value={c.id}>{c.full_name || c.email || c.phone}{c.blocked_reason ? " (blocked)" : ""}</option>)}
+            <option value="">{t("Business (no specific person)")}</option>
+            {contacts.map((c) => <option key={c.id} value={c.id}>{c.full_name || c.email || c.phone}{c.blocked_reason ? ` (${t("blocked")})` : ""}</option>)}
           </Select>
         </Field>
       ) : null}
       {account && opps.length > 1 ? (
-        <Field label="Opportunity" htmlFor="qa-opp">
+        <Field label={t("Opportunity")} htmlFor="qa-opp">
           <Select id="qa-opp" value={opportunityId} onChange={(e) => setOpportunityId(e.target.value)}>
-            <option value="">None</option>
+            <option value="">{t("None")}</option>
             {opps.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
           </Select>
         </Field>
@@ -267,86 +274,86 @@ function QuickActionForm({ prefill, onDone }: { prefill: QuickPrefill; onDone: (
 
       {outreach && blockedReason ? (
         <p role="alert" className="flex items-start gap-2 rounded-[12px] bg-[#fbeceb] p-3 text-sm text-bad">
-          <Ban className="mt-0.5 size-4 shrink-0" /> {blockedReason} Outreach cannot be logged or queued for either founder.
+          <Ban className="mt-0.5 size-4 shrink-0" /> {t(blockedReason)} {t("Outreach cannot be logged or queued for either founder.")}
         </p>
       ) : null}
       {outreach && rule && rule.status !== "allowed" && !blockedReason ? (
         <p className="flex items-start gap-2 rounded-[12px] bg-subtle p-3 text-[13px] text-text-2">
           <AlertTriangle className="mt-0.5 size-4 shrink-0 text-accent-text" />
-          <span><strong className="font-semibold text-ink">{rule.market} · {CONTACT_TYPE_LABELS[rule.contact_type]} · {rule.channel}: {rule.status.replace(/_/g, " ")}.</strong> {rule.note} Not legal advice.</span>
+          <span><strong className="font-semibold text-ink">{rule.market} · {t(CONTACT_TYPE_LABELS[rule.contact_type])} · {t(CHANNEL_WORDS[rule.channel] ?? rule.channel)}: {t(RULE_STATUS_WORDS[rule.status] ?? rule.status.replace(/_/g, " "))}.</strong> {t(rule.note)} {t("Not legal advice.")}</span>
         </p>
       ) : null}
 
       {kind === "call" ? (
-        <Field label="Result" htmlFor="qa-call">
-          <SegmentedSwitch label="Call result" value={callResult} onChange={(v) => { setCallResult(v); setOutcome(""); }} options={[{ value: "no_answer", label: "No answer" }, { value: "voicemail", label: "Voicemail" }, { value: "connected", label: "Connected" }]} />
+        <Field label={t("Result")} htmlFor="qa-call">
+          <SegmentedSwitch label={t("Call result")} value={callResult} onChange={(v) => { setCallResult(v); setOutcome(""); }} options={[{ value: "no_answer", label: t("No answer") }, { value: "voicemail", label: t("Voicemail") }, { value: "connected", label: t("Connected") }]} />
         </Field>
       ) : null}
       {kind === "meeting" ? (
-        <Field label="Meeting" htmlFor="qa-meeting">
-          <SegmentedSwitch label="Meeting" value={meeting} onChange={setMeeting} options={[{ value: "booked", label: "Booked" }, { value: "held", label: "Held" }]} />
+        <Field label={t("Meeting")} htmlFor="qa-meeting">
+          <SegmentedSwitch label={t("Meeting")} value={meeting} onChange={setMeeting} options={[{ value: "booked", label: t("Booked") }, { value: "held", label: t("Held") }]} />
         </Field>
       ) : null}
       {kind === "follow_up" ? (
-        <Field label="Channel" htmlFor="qa-channel">
+        <Field label={t("Channel")} htmlFor="qa-channel">
           <Select id="qa-channel" value={channel} onChange={(e) => setChannel(e.target.value)}>
-            {FOLLOW_UP_CHANNELS.map((c) => <option key={c} value={c}>{c.replace("_", " ")}</option>)}
+            {FOLLOW_UP_CHANNELS.map((c) => <option key={c} value={c}>{t(CHANNEL_WORDS[c] ?? c.replace("_", " "))}</option>)}
           </Select>
         </Field>
       ) : null}
 
       {outcomeOptions.length ? (
         <div className="flex flex-col gap-1.5">
-          <span className="text-[13px] font-medium text-text-2">Outcome</span>
+          <span className="text-[13px] font-medium text-text-2">{t("Outcome")}</span>
           <div className="flex flex-wrap gap-2">
             {outcomeOptions.map((o) => (
               <button key={o} type="button" aria-pressed={outcome === o} onClick={() => setOutcome(outcome === o ? "" : o)}
                 className={cn("min-h-10 rounded-full border px-3 text-sm", outcome === o ? "border-ink bg-ink text-panel" : "border-control hover:bg-subtle")}>
-                {OUTCOME_LABELS[o]}
+                {t(OUTCOME_LABELS[o])}
               </button>
             ))}
           </div>
         </div>
       ) : null}
       {kind === "visit" ? (
-        <Field label="Who you met" htmlFor="qa-met"><Input id="qa-met" value={metPerson} onChange={(e) => setMetPerson(e.target.value)} placeholder="e.g. owner, receptionist" /></Field>
+        <Field label={t("Who you met")} htmlFor="qa-met"><Input id="qa-met" value={metPerson} onChange={(e) => setMetPerson(e.target.value)} placeholder={t("e.g. owner, receptionist")} /></Field>
       ) : null}
 
       <details className="group rounded-[12px] border border-hairline px-3 py-2">
-        <summary className="cursor-pointer text-sm font-medium text-text-2">Objection, notes, brand</summary>
+        <summary className="cursor-pointer text-sm font-medium text-text-2">{t("Objection, notes, brand")}</summary>
         <div className="mt-3 flex flex-col gap-3">
-          <Field label="Objection" htmlFor="qa-obj">
+          <Field label={t("Objection")} htmlFor="qa-obj">
             <Select id="qa-obj" value={objection} onChange={(e) => setObjection(e.target.value)}>
-              <option value="">None</option>
-              {OBJECTIONS.map((o) => <option key={o} value={o}>{OBJECTION_LABELS[o]}</option>)}
+              <option value="">{t("None")}</option>
+              {OBJECTIONS.map((o) => <option key={o} value={o}>{t(OBJECTION_LABELS[o])}</option>)}
             </Select>
           </Field>
-          <Field label="Notes" htmlFor="qa-notes"><Textarea id="qa-notes" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={4000} /></Field>
-          <Field label="Brand" htmlFor="qa-brand">
+          <Field label={t("Notes")} htmlFor="qa-notes"><Textarea id="qa-notes" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={4000} /></Field>
+          <Field label={t("Brand")} htmlFor="qa-brand">
             <Select id="qa-brand" value={brand} onChange={(e) => setBrand(e.target.value as Brand)}>
-              <option value="">From the business or opportunity</option>
-              {BRANDS.map((b) => <option key={b} value={b}>{BRAND_LABELS[b]}</option>)}
+              <option value="">{t("From the business or opportunity")}</option>
+              {BRANDS.map((b) => <option key={b} value={b}>{t(BRAND_LABELS[b])}</option>)}
             </Select>
           </Field>
         </div>
       </details>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto]">
-        <Field label="Next action" htmlFor="qa-next"><Input id="qa-next" value={nextAction} onChange={(e) => setNextAction(e.target.value)} placeholder="e.g. Call back after 5pm" /></Field>
-        <Field label="Due" htmlFor="qa-due"><Input id="qa-due" type="date" value={nextDue} onChange={(e) => setNextDue(e.target.value)} /></Field>
+        <Field label={t("Next action")} htmlFor="qa-next"><Input id="qa-next" value={nextAction} onChange={(e) => setNextAction(e.target.value)} placeholder={t("e.g. Call back after 5pm")} /></Field>
+        <Field label={t("Due")} htmlFor="qa-due"><Input id="qa-due" type="date" value={nextDue} onChange={(e) => setNextDue(e.target.value)} /></Field>
       </div>
       <div className="-mt-2 flex flex-wrap gap-2">
         {[["Tomorrow", 1], ["In 3 days", 3], ["In 7 days", 7], ["In 14 days", 14]].map(([l, d]) => (
-          <button key={l} type="button" onClick={() => setNextDue(addDays(today, d as number))} className="min-h-9 rounded-full border border-hairline px-3 text-[13px] text-text-2 hover:bg-subtle">{l}</button>
+          <button key={l} type="button" onClick={() => setNextDue(addDays(today, d as number))} className="min-h-9 rounded-full border border-hairline px-3 text-[13px] text-text-2 hover:bg-subtle">{t(l as string)}</button>
         ))}
       </div>
 
       {formError ? <p role="alert" className="rounded-[12px] bg-[#fbeceb] p-3 text-sm text-bad">{formError}</p> : null}
 
       <div className="sticky bottom-0 -mx-5 flex items-center justify-between gap-3 border-t border-hairline bg-panel px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-        <span className="text-[13px] text-text-3">Logged by {me.name} · Enter to save</span>
+        <span className="text-[13px] text-text-3">{t("Logged by {name} · Enter to save", { name: me.name })}</span>
         <Button type="submit" variant="primary" size="lg" disabled={!canSave} className="min-w-36">
-          {mutation.isPending ? "Saving…" : formError && mutation.isError ? "Retry" : "Save"}
+          {mutation.isPending ? t("Saving…") : formError && mutation.isError ? t("Retry") : t("Save")}
         </Button>
       </div>
     </form>

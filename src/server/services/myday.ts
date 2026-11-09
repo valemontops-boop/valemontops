@@ -1,3 +1,4 @@
+import { LOCALE_OF, tFor } from "@/i18n";
 import { z } from "zod";
 import type { DataRepository } from "@/data/repository";
 import type { Row } from "@/data/schema/tables";
@@ -275,5 +276,5 @@ export async function whatsappReport(repo: DataRepository, founder: FounderKey, 
     openOpportunities: mine.map((o) => ({ name: o.name || name.get(o.account_id) || "", stage: STAGE_LABELS[o.stage], nextAction: o.next_action })),
     openOpportunityCount: mine.length,
     nextDayPriority,
-  });
+  }, tFor(LOCALE_OF[founder]));
 }

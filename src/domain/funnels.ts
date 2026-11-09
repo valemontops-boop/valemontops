@@ -70,7 +70,9 @@ export function channelFunnels(input: { events: Ev[]; sends: Send[]; opps: Opp[]
   const meetings = new Map<ChannelKey, Set<string>>();
   for (const e of events.filter(isMeeting)) {
     const ch = channelOf(e) ?? lastTouch(e.account_id, e.occurred_at);
-    if (ch && e.account_id) meetings.set(ch, (meetings.get(ch) ?? new Set()).add(e.account_id));
+    // Free-dial meetings may have no business record yet: count them by their hashed number.
+    const who = e.account_id || (e.target_key ? `n:${e.target_key}` : "");
+    if (ch && who) meetings.set(ch, (meetings.get(ch) ?? new Set()).add(who));
   }
   const accOf = new Map(input.opps.map((o) => [o.id, o.account_id]));
   const won = new Map<ChannelKey, Set<string>>();

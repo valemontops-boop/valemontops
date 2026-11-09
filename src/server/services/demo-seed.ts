@@ -35,7 +35,7 @@ export async function seedDemo(repo: DataRepository) {
     id: childId("demo-account", String(i)),
     name, sector, niche, country, city: "", website: `https://${domain}`, domain_normalized: domain, phone, email: `contact@${domain}`,
     linkedin_url: "", lead_source: "Demo list", lead_type: "outbound" as const, brand: "local" as const, owner_founder: owner,
-    lead_status: "working" as const, observed_problem: i % 2 === 0 ? "Missed calls go to a full voicemail during site visits (observed on two calls)." : "",
+    lead_status: "working" as const, observed_problem: i % 2 === 0 ? "Appels manqués : messagerie pleine pendant les chantiers (constaté sur deux appels)." : "",
     problem_evidence: "", language: country === "FR" ? "fr" : "es", notes: "", import_batch_id: "",
   }));
   await repo.insert("Accounts", acc, sys);
@@ -45,20 +45,20 @@ export async function seedDemo(repo: DataRepository) {
       id: childId("demo-contact", String(i)),
       account_id: a.id,
       full_name: ["Alex Demo", "Camille Exemple", "Dominique Test", "Sacha Fictif", "Lucía Ejemplo", "Mario Prueba", "Nora Demo", "Iker Ficticio"][i],
-      role: "Owner", is_decision_maker: true, phone: a.phone, email: a.email, linkedin_url: "",
+      role: "Gérant", is_decision_maker: true, phone: a.phone, email: a.email, linkedin_url: "",
       contact_type: i === 6 ? ("sole_trader" as const) : ("professional_named" as const),
       language: a.language, consent_status: i === 7 ? ("opted_out" as const) : ("unknown" as const),
-      lawful_basis: "Legitimate interest (B2B, relevant to role) — to be confirmed", source: "Demo list",
+      lawful_basis: "Intérêt légitime (B2B, lié à la fonction) — à confirmer", source: "Demo list",
       retention_review_at: null, import_batch_id: "",
     })),
     sys,
   );
   const opps = [
-    [0, "contacted", "theo", "Call back after 5pm", addDays(today, 0), 49000],
-    [1, "discovery_scheduled", "theo", "Discovery visit", addDays(today, 2), 49000],
+    [0, "contacted", "theo", "Rappeler après 17 h", addDays(today, 0), 49000],
+    [1, "discovery_scheduled", "theo", "Visite de découverte", addDays(today, 2), 49000],
     [2, "targeted", "theo", "", null, null],
-    [4, "replied", "pablo", "Send demo video", addDays(today, -1), 49000],
-    [5, "contacted", "pablo", "Follow-up call", addDays(today, 1), 49000],
+    [4, "replied", "pablo", "Enviar el vídeo de demo", addDays(today, -1), 49000],
+    [5, "contacted", "pablo", "Llamada de seguimiento", addDays(today, 1), 49000],
   ] as const;
   await repo.insert(
     "Opportunities",
@@ -92,7 +92,7 @@ export async function seedDemoWork(repo: DataRepository, privateRepo: (f: string
     { id: childId("setting", "founder_point_video_link"), key: "founder_point_video_link", value: "", description: "Standing video link inserted in founder point events." },
   ], sys);
   await repo.insert("Sprints", [{
-    id: childId("demo-sprint", "1"), name: "Local launch sprint (demo)", start_date: addDays(today, -6), end_date: addDays(today, 7), status: "active",
+    id: childId("demo-sprint", "1"), name: "Sprint lancement Local (démo)", start_date: addDays(today, -6), end_date: addDays(today, 7), status: "active",
     niche: "garage", targets: { theo: { contacted: 50, replies: 10, demos: 3, pilots: 1 }, pablo: { contacted: 50, replies: 10, demos: 3, pilots: 1 } },
     brand_split: { local: 0.7, consulting: 0.2, thirty: 0.1 },
   }], sys);
@@ -102,17 +102,17 @@ export async function seedDemoWork(repo: DataRepository, privateRepo: (f: string
     completed_at: null, visibility: "team", snoozed_until: null, snooze_reason: "", source: "manual", source_id: "", ...p,
   });
   await repo.insert("Tasks", [
-    task(1, { title: "Script and record the Local demo reel (FR)", owner: "theo", priority: "P1", due_at: today, estimated_minutes: 60, area: "marketing" }),
-    task(2, { title: "Translate the call script to Spanish", owner: "pablo", priority: "P0", due_at: today, created_by_founder: "theo", estimated_minutes: 45, area: "sales" }),
-    task(3, { title: "Buy the garage prospect list for Lyon", owner: null, priority: "P2", due_at: addDays(today, 2), area: "sales" }),
-    task(4, { title: "Weekly pipeline cleanup", owner: "theo", priority: "P2", due_at: addDays(today, -1), recurrence: "weekly", area: "ops" }),
-    task(5, { title: "Set up the business bank account", owner: "theo", priority: "P1", due_at: today, area: "ops" }),
-    task(6, { title: "Post 2 Instagram stories (ES)", owner: "pablo", priority: "P2", due_at: today, area: "marketing" }),
+    task(1, { title: "Écrire et tourner le reel démo Local (FR)", owner: "theo", priority: "P1", due_at: today, estimated_minutes: 60, area: "marketing" }),
+    task(2, { title: "Traducir el guion de llamada al español", owner: "pablo", priority: "P0", due_at: today, created_by_founder: "theo", estimated_minutes: 45, area: "sales" }),
+    task(3, { title: "Acheter la liste de garages de Lyon", owner: null, priority: "P2", due_at: addDays(today, 2), area: "sales" }),
+    task(4, { title: "Nettoyage hebdo du pipeline", owner: "theo", priority: "P2", due_at: addDays(today, -1), recurrence: "weekly", area: "ops" }),
+    task(5, { title: "Ouvrir le compte bancaire de la société", owner: "theo", priority: "P1", due_at: today, area: "ops" }),
+    task(6, { title: "Publicar 2 stories de Instagram (ES)", owner: "pablo", priority: "P2", due_at: today, area: "marketing" }),
   ] as never, sys);
   await repo.insert("Ideas", [
-    { id: childId("demo-idea", "1"), text: "Offer a 14-day free pilot to garages", note: "", brand: "local", category: "offer", status: "testing", votes: { theo: "yes" }, reason: "", created_by_founder: "theo", converted_type: null, converted_id: "" },
-    { id: childId("demo-idea", "2"), text: "Short reel: missed calls cost money", note: "", brand: "local", category: "content", status: "testing", votes: {}, reason: "", created_by_founder: "pablo", converted_type: null, converted_id: "" },
-    { id: childId("demo-idea", "3"), text: "Partner with an accountant network in Madrid", note: "", brand: "consulting", category: "partner", status: "discuss", votes: { pablo: "yes", theo: "maybe" }, reason: "", created_by_founder: "pablo", converted_type: null, converted_id: "" },
+    { id: childId("demo-idea", "1"), text: "Proposer un pilote gratuit de 14 jours aux garages", note: "", brand: "local", category: "offer", status: "testing", votes: { theo: "yes" }, reason: "", created_by_founder: "theo", converted_type: null, converted_id: "" },
+    { id: childId("demo-idea", "2"), text: "Reel court : les appels manqués coûtent de l'argent", note: "", brand: "local", category: "content", status: "testing", votes: {}, reason: "", created_by_founder: "pablo", converted_type: null, converted_id: "" },
+    { id: childId("demo-idea", "3"), text: "Aliarse con una red de gestorías en Madrid", note: "", brand: "consulting", category: "partner", status: "discuss", votes: { pablo: "yes", theo: "maybe" }, reason: "", created_by_founder: "pablo", converted_type: null, converted_id: "" },
   ] as never, sys);
   const accId = childId("demo-social", "li-page-valemont");
   const igId = childId("demo-social", "ig-thirty");
@@ -150,7 +150,7 @@ export async function seedDemoWork(repo: DataRepository, privateRepo: (f: string
   await repo.insert("AudienceBreakdown", [["FR", 4800], ["BE", 1800], ["ES", 900], ["MA", 800], ["CH", 700], ["CA", 1000]].map(([key, value]) => ({ id: childId("demo-bd", igId, String(key)), account_id: igId, date: addDays(today, -1), dimension: "country" as const, key: String(key), value: Number(value), unit: "bp" as const, source: "manual" as const })), sys);
   await repo.insert("AudienceBreakdown", [["FR", 210], ["ES", 64], ["BE", 22], ["CH", 9]].map(([key, value]) => ({ id: childId("demo-bd", accId, String(key)), account_id: accId, date: addDays(today, -2), dimension: "country" as const, key: String(key), value: Number(value), unit: "count" as const, source: "import" as const })), sys);
   await repo.insert("ContentLog", [
-    { id: childId("demo-content", "1"), idempotency_key: childId("demo-content-key", "1"), founder_key: "theo", deliverable: "reel", brand: "thirty", language: "FR", title: "30/30: 3 AI tools for plumbers (FR)", url: "", local_date: today },
+    { id: childId("demo-content", "1"), idempotency_key: childId("demo-content-key", "1"), founder_key: "theo", deliverable: "reel", brand: "thirty", language: "FR", title: "30/30 : 3 outils IA pour plombiers (FR)", url: "", local_date: today },
     { id: childId("demo-content", "2"), idempotency_key: childId("demo-content-key", "2"), founder_key: "pablo", deliverable: "brand_post", brand: "consulting", language: "ES", title: "Caso: respuesta en 5 minutos", url: "", local_date: today },
   ], sys);
   await seedDemoCallsAndEmails(repo, today);
@@ -182,8 +182,8 @@ async function seedDemoCallsAndEmails(repo: DataRepository, today: string) {
   });
   await repo.insert("Accounts", callAcc.map((x) => x.a), sys);
   await repo.insert("Contacts", callAcc.filter((x) => x.contact).map((x, i) => ({
-    id: childId("demo-call-contact", String(i)), account_id: x.a.id, full_name: x.contact, role: "Owner", is_decision_maker: true, phone: x.a.phone, email: x.a.email, linkedin_url: "",
-    contact_type: "professional_named" as const, language: x.a.language, consent_status: "unknown" as const, lawful_basis: "Legitimate interest (B2B) — to be confirmed", source: "Demo list", retention_review_at: null, import_batch_id: "",
+    id: childId("demo-call-contact", String(i)), account_id: x.a.id, full_name: x.contact, role: "Gérant", is_decision_maker: true, phone: x.a.phone, email: x.a.email, linkedin_url: "",
+    contact_type: "professional_named" as const, language: x.a.language, consent_status: "unknown" as const, lawful_basis: "Intérêt légitime (B2B) — à confirmer", source: "Demo list", retention_review_at: null, import_batch_id: "",
   })), sys);
   const day = addDays(today, -2);
   const sid = childId("demo-call-session", "1");
@@ -221,7 +221,7 @@ async function seedDemoCallsAndEmails(repo: DataRepository, today: string) {
       account_id: childId("demo-account", String(es ? 4 + (i % 4) : i % 4)), contact_id: "", activity_event_id: "", call_session_id: "",
       channel: (i % 9 === 4 ? "whatsapp" : "email") as "email" | "whatsapp", via: (i % 9 === 4 ? "whatsapp" : i % 2 ? "gmail" : "mail_app") as "gmail" | "mail_app" | "whatsapp",
       context: (cold ? "cold" : "after_call") as "cold" | "after_call", template_key: tpl, language: (es ? "ES" : "FR") as "ES" | "FR", brand: "local" as const, market: (es ? "ES" : "FR") as "ES" | "FR",
-      niche: niches[i % 4], to_address: `contact${i}@business-demo.example.com`, subject: "Demo follow-up", status: "sent" as const, sent_at: at, local_date: d,
+      niche: niches[i % 4], to_address: `contact${i}@business-demo.example.com`, subject: "Relance (démo)", status: "sent" as const, sent_at: at, local_date: d,
       gmail_message_id: "", gmail_thread_id: "", replied_at: reply ? at : null, reply_kind: reply as "positive" | "neutral" | "negative" | "bounce" | null,
     };
   });

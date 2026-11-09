@@ -1,6 +1,14 @@
 # Status
 
-Updated: 2026-11-09 · Stage: **1B complete + founder feedback round 4 (fake-verified)** · Next: Stage 2 (revenue operations).
+Updated: 2026-11-09 · Stage: **1B complete + founder feedback round 5 (fake-verified)** · Next: Stage 2 (revenue operations).
+
+## Feedback round 5 (2026-11-09)
+| Change | Status |
+|---|---|
+| No English UI: French for Théo, Spanish for Pablo (UI, server messages, WhatsApp report, dates, money format) | VERIFIED_FAKE (i18n.test.ts, preview scan FR/ES) |
+| Wise: balances, statements (SCA signing), live webhooks (RSA-verified), CSV import, categories, Money page, Command Center cash | VERIFIED_FAKE (wise.test.ts, fake Wise HTTP) — needs the real token for VERIFIED_LIVE |
+| Simpler call screen and sober UI (one blue, green for results) | VERIFIED_FAKE (e2e, preview) |
+| Marketing = funnels across calls, visits, LinkedIn, email, WhatsApp, website/social, meetings per hour | VERIFIED_FAKE (funnels.test.ts) |
 
 ## Feedback round 4 (2026-11-09)
 | Change | Status |

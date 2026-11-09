@@ -6,7 +6,7 @@ import { publicConfig } from "@/server/config";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
-    <Suspense fallback={<div className="p-6 text-sm text-text-2">Loading…</div>}>
+    <Suspense fallback={<div className="p-6 text-sm text-text-2" aria-busy="true">…</div>}>
       <Authed>{children}</Authed>
     </Suspense>
   );

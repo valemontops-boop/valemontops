@@ -25,7 +25,7 @@ export const WORK_MODES = [
 ] as const;
 export type WorkMode = (typeof WORK_MODES)[number];
 export const WORK_MODE_LABELS: Record<WorkMode, string> = {
-  JOB_SEARCHING: "Job searching",
+  JOB_SEARCHING: "Flexible schedule",
   EMPLOYED_35H: "Employed 35h",
   LAUNCH_SPRINT: "Launch sprint",
   CUSTOM: "Custom",

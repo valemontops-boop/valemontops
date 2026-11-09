@@ -1,5 +1,7 @@
+"use client";
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { useT } from "@/i18n/react";
 
 const control =
   "w-full rounded-[12px] border border-control bg-panel px-3 text-[15px] text-ink placeholder:text-text-3 focus-visible:outline-2 focus-visible:outline-ink disabled:opacity-60";
@@ -88,13 +90,14 @@ export function EmptyState({ title, children, action }: { title: string; childre
 }
 
 export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
-  const msg = error instanceof Error ? error.message : "Something went wrong";
+  const t = useT();
+  const msg = error instanceof Error ? t(error.message) : t("Something went wrong");
   return (
     <div role="alert" className="flex flex-wrap items-center gap-3 rounded-[12px] border border-bad/40 bg-[#fbeceb] p-4 text-sm text-bad">
-      <span>Error: {msg}</span>
+      <span>{t("Error: {message}", { message: msg })}</span>
       {onRetry ? (
         <button type="button" onClick={onRetry} className="font-semibold underline underline-offset-2">
-          Retry
+          {t("Retry")}
         </button>
       ) : null}
     </div>

@@ -3,9 +3,11 @@ import { Dialog as D } from "radix-ui";
 import { X } from "lucide-react";
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { useT } from "@/i18n/react";
 
 /** Modal used only for protected focus (Quick Action). Bottom sheet on phones, centered on larger screens. */
 export function Modal({ open, onOpenChange, title, description, children, wide }: { open: boolean; onOpenChange: (o: boolean) => void; title: string; description?: string; children: React.ReactNode; wide?: boolean }) {
+  const t = useT();
   return (
     <D.Root open={open} onOpenChange={onOpenChange}>
       <D.Portal>
@@ -22,7 +24,7 @@ export function Modal({ open, onOpenChange, title, description, children, wide }
               <D.Title className="text-lg font-semibold tracking-tight">{title}</D.Title>
               {description ? <D.Description className="text-sm text-text-2">{description}</D.Description> : <D.Description className="sr-only">{title}</D.Description>}
             </div>
-            <D.Close className="rounded-full p-2 text-text-2 hover:bg-subtle" aria-label="Close">
+            <D.Close className="rounded-full p-2 text-text-2 hover:bg-subtle" aria-label={t("Close")}>
               <X className="size-5" />
             </D.Close>
           </div>
@@ -35,6 +37,7 @@ export function Modal({ open, onOpenChange, title, description, children, wide }
 
 /** Right-hand detail panel: keeps the list visible on desktop, full screen on phones. */
 export function DetailPanel({ open, onClose, title, children, footer }: { open: boolean; onClose: () => void; title: React.ReactNode; children: React.ReactNode; footer?: React.ReactNode }) {
+  const t = useT();
   React.useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -44,12 +47,12 @@ export function DetailPanel({ open, onClose, title, children, footer }: { open: 
   if (!open) return null;
   return (
     <aside
-      aria-label="Details"
+      aria-label={t("Details")}
       className="fixed inset-0 z-30 flex flex-col bg-panel lg:sticky lg:top-4 lg:inset-auto lg:z-auto lg:h-[calc(100dvh-2rem)] lg:w-[420px] lg:shrink-0 lg:rounded-[20px] lg:shadow-[0_8px_30px_rgba(23,22,26,0.08)]"
     >
       <div className="flex items-start justify-between gap-3 border-b border-hairline px-5 py-4">
         <div className="min-w-0 flex-1">{title}</div>
-        <button type="button" onClick={onClose} aria-label="Close details" className="rounded-full p-2 text-text-2 hover:bg-subtle">
+        <button type="button" onClick={onClose} aria-label={t("Close details")} className="rounded-full p-2 text-text-2 hover:bg-subtle">
           <X className="size-5" />
         </button>
       </div>

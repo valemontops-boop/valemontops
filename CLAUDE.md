@@ -18,7 +18,7 @@ Spec: `docs/VALEMONT_OS_CLAUDE_CODE_MASTER_PROMPT.md` (binding). Resume from `do
 - Server-side auth + Zod on every route (`src/server/http.ts` `route()`), same-origin check on mutations.
 - No real emails, IDs, handles or tokens in code/fixtures (`tests/integration/build-separation.test.ts`). Fixtures use example.com.
 - The building Claude account/connectors are NEVER used on Valemont's real resources (spec §3.15).
-- UI in English. Design tokens and limits in `docs/DESIGN.md` (≤5 numbers, ≤1 chart, accent ≤2, one ink block).
+- UI in French for Théo and Spanish for Pablo (no English UI, D048): wrap every visible string with t() from `src/i18n/react` and add [FR, ES] to `src/i18n/dict`. Design tokens and limits in `docs/DESIGN.md` (≤5 numbers, ≤1 chart, accent ≤2, one ink block).
 - No inert buttons: later-stage modules stay out of navigation; list them in Settings › Roadmap.
 - Status words: VERIFIED_LIVE / VERIFIED_FAKE / PARTIAL / NOT_STARTED / BLOCKED. Nothing is VERIFIED_LIVE without real credentials.
 

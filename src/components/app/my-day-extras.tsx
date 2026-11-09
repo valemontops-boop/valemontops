@@ -15,6 +15,7 @@ import { TaskRowItem, NewTaskModal, useTasks, type Area } from "./tasks-view";
 import { cn } from "@/lib/utils";
 import { useAgenda } from "./agenda-view";
 import { useCrm } from "./use-crm";
+import { useDateTag, useT } from "@/i18n/react";
 
 type Streaks = Awaited<ReturnType<typeof streakSummary>>;
 type Nba = { tier: number; tierLabel: string; accountId: string; opportunityId: string | null; title: string; why: string };
@@ -24,7 +25,11 @@ export function useStreaks() {
 }
 
 /** Multi-day streak: one column per day for the last 14 days, shape + color by status. */
+const STATUS_LABEL: Record<string, string> = { scheduled: "Scheduled", in_progress: "In progress", passed: "Passed", perfect: "Perfect", missed: "Missed", off: "Off" };
+
 export function StreakStrip() {
+  const t = useT();
+  const tag = useDateTag();
   const q = useStreaks();
   if (q.isPending) return <Skeleton className="h-24" />;
   if (q.isError) return null;
@@ -33,30 +38,31 @@ export function StreakStrip() {
   const c = (x: { pct: number | null }) => (x.pct === null ? "—" : `${Math.round(x.pct * 100)}%`);
   const dot = (st: string) => st === "perfect" ? "bg-ink ring-2 ring-ink ring-offset-2 ring-offset-panel" : st === "passed" ? "bg-ink" : st === "missed" ? "border-2 border-bad" : st === "in_progress" ? "border-2 border-ink border-dashed" : "bg-subtle";
   return (
-    <section aria-label="Streak" className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-[20px] bg-panel px-5 py-4">
+    <section aria-label={t("Streak")} className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-[20px] bg-panel px-5 py-4">
       <div className="flex items-baseline gap-2">
         <span className="num text-[40px] font-semibold leading-none tracking-tight">{s.streak}</span>
-        <span className="text-sm text-text-2">day streak</span>
+        <span className="text-sm text-text-2">{t("day streak")}</span>
       </div>
-      <ol className="flex flex-1 items-end gap-1.5" aria-label="Last 14 days">
+      <ol className="flex flex-1 items-end gap-1.5" aria-label={t("Last 14 days")}>
         {days.map((d) => (
-          <li key={d.date} className="flex flex-1 flex-col items-center gap-1" title={`${d.date}: ${d.status}${d.attainment !== null ? ` · ${Math.round(d.attainment * 100)}%` : ""}`}>
+          <li key={d.date} className="flex flex-1 flex-col items-center gap-1" title={`${d.date}: ${t(STATUS_LABEL[d.status] ?? d.status)}${d.attainment !== null ? ` · ${Math.round(d.attainment * 100)}%` : ""}`}>
             <span className={cn("size-4 rounded-full sm:size-5", dot(d.status))} />
-            <span className="num text-[10px] text-text-3">{"SMTWTFS"[new Date(d.date + "T12:00:00Z").getUTCDay()]}</span>
-            <span className="sr-only">{d.date} {d.status}</span>
+            <span className="num text-[10px] text-text-3">{new Intl.DateTimeFormat(tag, { weekday: "narrow", timeZone: "UTC" }).format(new Date(d.date + "T12:00:00Z"))}</span>
+            <span className="sr-only">{d.date} {t(STATUS_LABEL[d.status] ?? d.status)}</span>
           </li>
         ))}
       </ol>
       <div className="flex gap-4 text-[13px] text-text-2">
-        <span>7 days <span className="num font-semibold text-ink">{c(s.c7)}</span></span>
-        <span>30 days <span className="num font-semibold text-ink">{c(s.c30)}</span></span>
-        <span>{s.todayStatus.attainment === null ? "Today: off" : `Today ${Math.round(s.todayStatus.attainment * 100)}%${s.todayStatus.reviewDone ? " · reviewed" : ""}`}</span>
+        <span>{t("7 days")} <span className="num font-semibold text-ink">{c(s.c7)}</span></span>
+        <span>{t("30 days")} <span className="num font-semibold text-ink">{c(s.c30)}</span></span>
+        <span>{s.todayStatus.attainment === null ? t("Today: off") : `${t("Today {pct}%", { pct: Math.round(s.todayStatus.attainment * 100) })}${s.todayStatus.reviewDone ? ` · ${t("reviewed")}` : ""}`}</span>
       </div>
     </section>
   );
 }
 
 export function NextBestActions() {
+  const t = useT();
   const qa = useQuickAction();
   const crm = useCrm();
   const q = useQuery({ queryKey: ["nba"], queryFn: () => api<Nba[]>("/api/nba") });
@@ -64,32 +70,33 @@ export function NextBestActions() {
   const phone = new Map((crm.data?.accounts ?? []).map((a) => [a.id, a.phone]));
   return (
     <Panel aria-labelledby="nba-title">
-      <PanelTitle action={q.data && q.data.length > 5 ? <Button variant="ghost" size="sm" onClick={() => setAll((v) => !v)}>{all ? "Show fewer" : `See all ${q.data.length}`}</Button> : null}>
-        <span id="nba-title">Next best actions</span>
+      <PanelTitle action={q.data && q.data.length > 5 ? <Button variant="ghost" size="sm" onClick={() => setAll((v) => !v)}>{all ? t("Show fewer") : t("See all {n}", { n: q.data.length })}</Button> : null}>
+        <span id="nba-title">{t("Next best actions")}</span>
       </PanelTitle>
       {q.isPending ? <Skeleton className="h-32" /> : q.isError ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : q.data.length === 0 ? (
-        <p className="text-sm text-text-2">Queue empty: no reply waiting, no follow-up due, no hot lead going cold.</p>
+        <p className="text-sm text-text-2">{t("Queue empty: no reply waiting, no follow-up due, no hot lead going cold.")}</p>
       ) : (
         <ol className="flex flex-col">
           {(all ? q.data : q.data.slice(0, 5)).map((i) => (
             <li key={i.accountId} className="flex items-center gap-2 border-t border-hairline py-2.5 first:border-t-0">
               <div className="min-w-0 flex-1">
-                <p className="truncate font-medium">{i.title}</p>
-                <p className="text-[13px] text-text-2"><span className="font-medium text-ink">{i.tierLabel}.</span> {i.why}</p>
+                <p className="truncate font-medium">{t(i.title)}</p>
+                <p className="text-[13px] text-text-2"><span className="font-medium text-ink">{t(i.tierLabel)}.</span> {t(i.why)}</p>
               </div>
-              {phone.get(i.accountId) ? <a href={`tel:${phone.get(i.accountId)}`} className="flex size-10 items-center justify-center rounded-full text-text-2 hover:bg-subtle" aria-label="Call"><Phone className="size-4" /></a> : null}
-              <Button size="sm" variant="outline" onClick={() => qa.open({ kind: i.tier === 5 ? "call" : "follow_up", accountId: i.accountId, opportunityId: i.opportunityId ?? undefined })}>Log</Button>
+              {phone.get(i.accountId) ? <a href={`tel:${phone.get(i.accountId)}`} className="flex size-10 items-center justify-center rounded-full text-text-2 hover:bg-subtle" aria-label={t("Call")}><Phone className="size-4" /></a> : null}
+              <Button size="sm" variant="outline" onClick={() => qa.open({ kind: i.tier === 5 ? "call" : "follow_up", accountId: i.accountId, opportunityId: i.opportunityId ?? undefined })}>{t("Log")}</Button>
             </li>
           ))}
         </ol>
       )}
-      <p className="mt-2 text-[12px] text-text-3">Order: replies waiting · overdue high-priority · due today · hot leads going cold · new targets in the sprint niche.</p>
+      <p className="mt-2 text-[12px] text-text-3">{t("Order: replies waiting · overdue high-priority · due today · hot leads going cold · new targets in the sprint niche.")}</p>
     </Panel>
   );
 }
 
 /** Today's tasks for one area (sales, marketing, ops): open, mine, due today/overdue or undated P0. */
 export function TasksFor({ area }: { area: Area }) {
+  const tr = useT();
   const q = useTasks("mine");
   const [adding, setAdding] = React.useState(false);
   const today = new Date().toLocaleDateString("en-CA");
@@ -97,10 +104,10 @@ export function TasksFor({ area }: { area: Area }) {
   return (
     <div>
       <div className="mb-1 flex items-center justify-between">
-        <h3 className="text-[13px] font-semibold text-text-2">Tasks today <span className="num font-normal text-text-3">{items.length}</span></h3>
-        <Button variant="ghost" size="sm" onClick={() => setAdding(true)}>+ Task</Button>
+        <h3 className="text-[13px] font-semibold text-text-2">{tr("Tasks today")} <span className="num font-normal text-text-3">{items.length}</span></h3>
+        <Button variant="ghost" size="sm" onClick={() => setAdding(true)}>{tr("+ Task")}</Button>
       </div>
-      {q.isPending ? <Skeleton className="h-16" /> : q.isError ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : items.length === 0 ? <p className="py-1 text-sm text-text-3">Nothing due.</p> : <ul>{items.slice(0, 5).map((t) => <TaskRowItem key={t.id} t={t} />)}</ul>}
+      {q.isPending ? <Skeleton className="h-16" /> : q.isError ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : items.length === 0 ? <p className="py-1 text-sm text-text-3">{tr("Nothing due.")}</p> : <ul>{items.slice(0, 5).map((t) => <TaskRowItem key={t.id} t={t} />)}</ul>}
       <NewTaskModal open={adding} onOpenChange={setAdding} defaults={{ area }} />
     </div>
   );
@@ -109,26 +116,27 @@ export function TasksFor({ area }: { area: Area }) {
 type Week = { weekStart: string; items: { deliverable: string; label: string; done: number; target: number }[] };
 /** Weekly marketing deliverables: one tap = one piece published. */
 export function MarketingWeek() {
+  const t = useT();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["marketing-week"], queryFn: () => api<Week>("/api/marketing/week") });
   const log = useMutation({
     mutationFn: (deliverable: string) => api("/api/marketing/week", { body: { idempotency_key: crypto.randomUUID(), deliverable } }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["marketing-week"] }); toast("Published · counted"); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["marketing-week"] }); toast(t("Published · counted")); },
   });
   if (q.isPending) return <Skeleton className="h-28" />;
   if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
   return (
     <div>
-      <h3 className="mb-2 text-[13px] font-semibold text-text-2">This week&apos;s content (team)</h3>
+      <h3 className="mb-2 text-[13px] font-semibold text-text-2">{t("This week's content (team)")}</h3>
       <ul className="flex flex-col gap-2">
         {q.data.items.map((i) => (
           <li key={i.deliverable} className="grid grid-cols-[1fr_auto_auto] items-center gap-3">
             <div className="min-w-0">
-              <p className="flex justify-between text-sm"><span>{i.label}</span><span className={cn("num", i.done >= i.target ? "font-semibold text-ink" : "text-text-2")}>{i.done}/{i.target}</span></p>
+              <p className="flex justify-between text-sm"><span>{t(i.label)}</span><span className={cn("num", i.done >= i.target ? "font-semibold text-ink" : "text-text-2")}>{i.done}/{i.target}</span></p>
               <div className="mt-1 flex gap-[3px]" aria-hidden>{Array.from({ length: Math.max(i.target, i.done) }, (_, k) => <span key={k} className={cn("h-2 flex-1 rounded-[2px]", k < i.done ? "bg-ink" : "hatch")} />)}</div>
             </div>
             <span />
-            <button type="button" onClick={() => log.mutate(i.deliverable)} disabled={log.isPending} aria-label={`Log one ${i.label}`} className="h-9 rounded-full border border-control px-3 text-[13px] font-medium hover:bg-subtle disabled:opacity-50">+1</button>
+            <button type="button" onClick={() => log.mutate(i.deliverable)} disabled={log.isPending} aria-label={t("Log one {what}", { what: t(i.label) })} className="h-9 rounded-full border border-control px-3 text-[13px] font-medium hover:bg-subtle disabled:opacity-50">+1</button>
           </li>
         ))}
       </ul>
@@ -137,58 +145,62 @@ export function MarketingWeek() {
 }
 
 export function NextMeetings() {
+  const t = useT();
   const q = useAgenda();
   const next = (q.data?.events ?? []).filter((e) => e.kind !== "other_busy").slice(0, 2);
   if (!next.length) return null;
   return (
     <p className="text-[13px] text-text-2">
-      Next: {next.map((e, i) => <span key={e.id}>{i ? " · " : ""}<span className="font-medium text-ink">{e.title}</span> {fmtDateTime(e.start)}</span>)} · <Link className="underline underline-offset-2" href="/agenda">Agenda</Link>
+      {t("Next:")} {next.map((e, i) => <span key={e.id}>{i ? " · " : ""}<span className="font-medium text-ink">{t(e.title)}</span> {fmtDateTime(e.start)}</span>)} · <Link className="underline underline-offset-2" href="/agenda">{t("Agenda")}</Link>
     </p>
   );
 }
 
 export function CloseDayButton() {
+  const t = useT();
   const [open, setOpen] = React.useState(false);
   const review = useQuery({ queryKey: ["review"], queryFn: () => api<{ review: { went_well: string; blockers: string; tomorrow_priority: string } | null }>("/api/review") });
   return (
     <>
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>{review.data?.review ? "Edit day review" : "Close my day"}</Button>
-      <Modal open={open} onOpenChange={setOpen} title="End-of-day review" description="Required to pass the day. Two minutes, then tomorrow starts with a priority.">
+      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>{review.data?.review ? t("Edit day review") : t("Close my day")}</Button>
+      <Modal open={open} onOpenChange={setOpen} title={t("End-of-day review")} description={t("Required to pass the day. Two minutes, then tomorrow starts with a priority.")}>
         {open ? <ReviewForm initial={review.data?.review ?? null} onDone={() => setOpen(false)} /> : null}
       </Modal>
     </>
   );
 }
 function ReviewForm({ initial, onDone }: { initial: { went_well: string; blockers: string; tomorrow_priority: string } | null; onDone: () => void }) {
+  const t = useT();
   const qc = useQueryClient();
   const [v, setV] = React.useState(initial ?? { went_well: "", blockers: "", tomorrow_priority: "" });
-  const m = useMutation({ mutationFn: () => api("/api/review", { body: v }), onSuccess: () => { qc.invalidateQueries(); toast("Day review saved"); onDone(); } });
+  const m = useMutation({ mutationFn: () => api("/api/review", { body: v }), onSuccess: () => { qc.invalidateQueries(); toast(t("Day review saved")); onDone(); } });
   return (
     <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); if (v.tomorrow_priority.trim()) m.mutate(); }}>
-      <Field label="What moved forward?" htmlFor="rv-w"><Textarea id="rv-w" value={v.went_well} onChange={(e) => setV({ ...v, went_well: e.target.value })} /></Field>
-      <Field label="What blocked you?" htmlFor="rv-b"><Textarea id="rv-b" value={v.blockers} onChange={(e) => setV({ ...v, blockers: e.target.value })} /></Field>
-      <Field label="Tomorrow's priority (required)" htmlFor="rv-t"><Input id="rv-t" required value={v.tomorrow_priority} onChange={(e) => setV({ ...v, tomorrow_priority: e.target.value })} /></Field>
+      <Field label={t("What moved forward?")} htmlFor="rv-w"><Textarea id="rv-w" value={v.went_well} onChange={(e) => setV({ ...v, went_well: e.target.value })} /></Field>
+      <Field label={t("What blocked you?")} htmlFor="rv-b"><Textarea id="rv-b" value={v.blockers} onChange={(e) => setV({ ...v, blockers: e.target.value })} /></Field>
+      <Field label={t("Tomorrow's priority (required)")} htmlFor="rv-t"><Input id="rv-t" required value={v.tomorrow_priority} onChange={(e) => setV({ ...v, tomorrow_priority: e.target.value })} /></Field>
       {m.isError ? <ErrorState error={m.error} onRetry={() => m.mutate()} /> : null}
-      <Button type="submit" variant="primary" disabled={!v.tomorrow_priority.trim() || m.isPending}>{m.isPending ? "Saving…" : "Save review"}</Button>
+      <Button type="submit" variant="primary" disabled={!v.tomorrow_priority.trim() || m.isPending}>{m.isPending ? t("Saving…") : t("Save review")}</Button>
     </form>
   );
 }
 
 export function LateCorrections() {
+  const t = useT();
   const q = useStreaks();
   const qc = useQueryClient();
   const [reason, setReason] = React.useState("");
   const [date, setDate] = React.useState<string | null>(null);
-  const m = useMutation({ mutationFn: () => api("/api/streaks/correction", { body: { local_date: date, reason } }), onSuccess: () => { qc.invalidateQueries(); setDate(null); setReason(""); toast("Day recomputed with the late activity"); } });
+  const m = useMutation({ mutationFn: () => api("/api/streaks/correction", { body: { local_date: date, reason } }), onSuccess: () => { qc.invalidateQueries(); setDate(null); setReason(""); toast(t("Day recomputed with the late activity")); } });
   const days = q.data?.lateDaysToCorrect ?? [];
   if (!days.length) return null;
   return (
     <div className="rounded-[12px] bg-subtle p-3 text-sm">
-      <p>Activity was logged after the cutoff for {days.map(fmtDay).join(", ")}. A closed day changes only through a correction with a reason.</p>
+      <p>{t("Activity was logged after the cutoff for {days}. A closed day changes only through a correction with a reason.", { days: days.map(fmtDay).join(", ") })}</p>
       <form className="mt-2 flex flex-wrap gap-2" onSubmit={(e) => { e.preventDefault(); if (date && reason.trim().length >= 5) m.mutate(); }}>
-        <Select aria-label="Day" value={date ?? ""} onChange={(e) => setDate(e.target.value || null)} className="h-9 w-40"><option value="">Choose a day</option>{days.map((d) => <option key={d} value={d}>{fmtDay(d)}</option>)}</Select>
-        <Input aria-label="Reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (e.g. logged from the car after a visit)" className="h-9 min-w-56 flex-1" />
-        <Button type="submit" size="sm" variant="outline" disabled={!date || reason.trim().length < 5 || m.isPending}>Apply correction</Button>
+        <Select aria-label={t("Day")} value={date ?? ""} onChange={(e) => setDate(e.target.value || null)} className="h-9 w-40"><option value="">{t("Choose a day")}</option>{days.map((d) => <option key={d} value={d}>{fmtDay(d)}</option>)}</Select>
+        <Input aria-label={t("Reason")} value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t("Reason (e.g. logged from the car after a visit)")} className="h-9 min-w-56 flex-1" />
+        <Button type="submit" size="sm" variant="outline" disabled={!date || reason.trim().length < 5 || m.isPending}>{t("Apply correction")}</Button>
       </form>
       {m.isError ? <div className="mt-2"><ErrorState error={m.error} onRetry={() => m.mutate()} /></div> : null}
     </div>

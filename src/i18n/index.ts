@@ -1,5 +1,5 @@
 import type { FounderKey } from "@/domain/constants";
-import { ENTRIES } from "./dict";
+import { ENTRIES, PATTERN_KEYS } from "./dict";
 
 /**
  * UI language per founder (D048): Théo reads French, Pablo reads Spanish. There is no English UI.
@@ -11,12 +11,16 @@ export const LOCALE_OF: Record<FounderKey, Locale> = { theo: "fr", pablo: "es" }
 export const dateTag = (l: Locale) => (l === "fr" ? "fr-FR" : "es-ES");
 
 type Vars = Record<string, string | number | null | undefined>;
+const NUMERIC = /^(n|count|total|called|reached|yes|meetings|left|good|won|sent|failed|added|skipped|d|h|pct|days)$/;
 const exact = new Map<string, readonly [string, string]>(Object.entries(ENTRIES));
 const patterns = [...exact.entries()]
-  .filter(([k]) => /\{[a-zA-Z_]+\}/.test(k))
+  // Pattern matching (translating a sentence that arrives already filled in) is limited to server sentences and to
+  // number-only keys, so free text typed by a founder ("Call back after 5pm") is never caught by a UI key like "Call {name}".
+  .filter(([k]) => /\{[a-zA-Z_]+\}/.test(k) && (PATTERN_KEYS.has(k) || [...k.matchAll(/\{([a-zA-Z_]+)\}/g)].every((m) => NUMERIC.test(m[1]))))
   .map(([k, v]) => {
     const names: string[] = [];
-    const src = k.replace(/[.*+?^$()|[\]\\]/g, "\\$&").replace(/\\?\{([a-zA-Z_]+)\\?\}/g, (_m, n: string) => { names.push(n); return "(.+?)"; });
+    // Count-like placeholders only match numbers, so "Call back" never matches "Call {name}"-style keys by accident.
+    const src = k.replace(/[.*+?^$()|[\]\\]/g, "\\$&").replace(/\\?\{([a-zA-Z_]+)\\?\}/g, (_m, n: string) => { names.push(n); return NUMERIC.test(n) ? "([-+−]?[\\d.,\\s]+%?)" : "(.+?)"; });
     return { re: new RegExp(`^${src}$`), names, v, len: k.length };
   })
   .sort((a, b) => b.len - a.len); // most specific first
