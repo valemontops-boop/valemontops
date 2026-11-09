@@ -4,9 +4,8 @@ import * as React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ErrorState, Field, Input, Panel, PanelTitle, SegmentedSwitch, Select, Skeleton, Textarea } from "@/components/ui/form";
-import { DEFAULT_PLAYBOOK, EMAIL_TEMPLATE_LABELS, LINKEDIN_TEMPLATE_LABELS, objectionLabel, type Lang, type PlaybookItem } from "@/domain/playbook";
 import { CONTACT_TYPE_LABELS, RULE_STATUSES } from "@/domain/constants";
-import { useLocale, useT } from "@/i18n/react";
+import { useT } from "@/i18n/react";
 import { ApiError, api } from "@/lib/api";
 import { formatEur, relTime } from "@/lib/utils";
 import { useMe } from "./providers";
@@ -23,6 +22,7 @@ import { CommercialSettings } from "./commercial-settings";
 import { AuditPanel, BackupsPanel, HealthPanel } from "./ops-panel";
 import { IntegrationsHub } from "./integrations-hub";
 import { InstallCheckPanel } from "./install-view";
+import { TemplatesView } from "./templates-view";
 
 type Tab = "profile" | "targets" | "calendars" | "sprint" | "workspace" | "playbook" | "rules" | "suppression" | "diagnostics" | "integrations" | "tracker" | "commercial" | "roadmap";
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -40,11 +40,11 @@ export function SettingsView() {
       <h1 className="text-2xl font-semibold tracking-tight">{t("Settings")}</h1>
       <div className="overflow-x-auto">
         <SegmentedSwitch label={t("Settings section")} value={tab} onChange={setTab} options={[
-          { value: "profile", label: t("Profile") }, { value: "targets", label: t("Mode & targets") }, { value: "calendars", label: t("Calendars") }, { value: "sprint", label: t("Sprint") }, { value: "workspace", label: t("Workspace") }, { value: "playbook", label: t("Playbook") }, { value: "rules", label: t("Channel rules") },
+          { value: "profile", label: t("Profile") }, { value: "targets", label: t("Mode & targets") }, { value: "calendars", label: t("Calendars") }, { value: "sprint", label: t("Sprint") }, { value: "workspace", label: t("Workspace") }, { value: "playbook", label: t("Templates") }, { value: "rules", label: t("Channel rules") },
           { value: "suppression", label: t("Suppression") }, { value: "diagnostics", label: t("Diagnostics") }, { value: "integrations", label: t("Integrations") }, { value: "tracker", label: t("My tracker") }, { value: "commercial", label: t("Commercial") }, { value: "roadmap", label: t("Roadmap") },
         ]} />
       </div>
-      {tab === "profile" ? <Profile /> : tab === "targets" ? <TargetsTab /> : tab === "calendars" ? <Calendars /> : tab === "sprint" ? <SprintTab /> : tab === "workspace" ? <Workspace /> : tab === "playbook" ? <PlaybookTab /> : tab === "rules" ? <Rules /> : tab === "suppression" ? <Suppression /> : tab === "diagnostics" ? <Diagnostics /> : tab === "integrations" ? <IntegrationsHub /> : tab === "tracker" ? <TrackerPanel /> : tab === "commercial" ? <CommercialSettings /> : <Roadmap />}
+      {tab === "profile" ? <Profile /> : tab === "targets" ? <TargetsTab /> : tab === "calendars" ? <Calendars /> : tab === "sprint" ? <SprintTab /> : tab === "workspace" ? <Workspace /> : tab === "playbook" ? <TemplatesView /> : tab === "rules" ? <Rules /> : tab === "suppression" ? <Suppression /> : tab === "diagnostics" ? <Diagnostics /> : tab === "integrations" ? <IntegrationsHub /> : tab === "tracker" ? <TrackerPanel /> : tab === "commercial" ? <CommercialSettings /> : <Roadmap />}
     </div>
   );
 }
@@ -365,6 +365,7 @@ function Workspace() {
     linkedin_daily_invitation_limit: ["LinkedIn invitations per day (limit)", "LinkedIn limits always take priority over targets. Seed 20."],
     linkedin_weekly_invitation_limit: ["LinkedIn invitations per week (limit)", "Seed 100."],
     time_split_target: ["Time split target", "Sales / content / site, tools and analysis in %, e.g. 75/15/10."],
+    email_sender_address: ["Sending address for client emails", "Both founders' emails to clients leave from it. Connect Gmail with this address (Call mode › Connect Gmail)."],
     [`signature_${me.founder}`]: ["Email signature", me.founder === "theo" ? "Théo's email signature (several lines allowed)." : "Pablo's email signature (several lines allowed)."],
   };
   if (q.isPending) return <Skeleton className="h-64" />;
@@ -427,51 +428,3 @@ function SettingField({ k, label, hint, initial, onSave }: { k: string; label: s
   );
 }
 
-const KIND_TITLES: Record<PlaybookItem["kind"], string> = { opener: "Call opener and downsell pitches", objection: "Objection replies: 3 lines = Label · Ask · Next step (shown live in call mode, best reply first)", email: "Follow-up emails", whatsapp: "WhatsApp messages", linkedin: "LinkedIn messages (invitation note ≤ 300 characters)" };
-function PlaybookTab() {
-  const t = useT();
-  const qc = useQueryClient();
-  // Each founder edits the scripts in their own language (Théo FR, Pablo ES).
-  const lang: Lang = useLocale() === "es" ? "ES" : "FR";
-  const q = useQuery({ queryKey: ["playbook"], queryFn: () => api<{ items: PlaybookItem[] }>("/api/playbook") });
-  const save = useMutation({ mutationFn: (b: PlaybookItem) => api("/api/playbook", { body: b }), onSuccess: () => { qc.invalidateQueries({ queryKey: ["playbook"] }); toast(t("Saved")); } });
-  if (q.isPending) return <Skeleton className="h-64" />;
-  if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
-  const items = q.data.items.filter((i) => i.language === lang);
-  return (
-    <div className="flex flex-col gap-4">
-      <Panel className="flex flex-wrap items-center justify-between gap-3">
-        <p className="max-w-xl text-sm text-text-2">{t("Scripts and templates used live in call mode. Placeholders:")} <code>{"{business}"}</code> <code>{"{contact}"}</code> <code>{"{founder}"}</code> <code>{"{calendly}"}</code> <code>{"{deck}"}</code> <code>{"{first_name}"}</code> <code>{"{thirty}"}</code> <code>{"{local_price}"}</code>. {t("Links are set in Workspace. Nothing is ever sent without your click.")}</p>
-      </Panel>
-      {(["opener", "objection", "email", "whatsapp", "linkedin"] as const).map((kind) => (
-        <Panel key={kind}>
-          <PanelTitle>{t(KIND_TITLES[kind])}</PanelTitle>
-          <div className="flex flex-col gap-4">
-            {items.filter((i) => i.kind === kind).map((i) => <PlaybookEditor key={`${i.kind}:${i.key}:${i.language}:${i.body.length}:${i.subject}`} item={i} busy={save.isPending} onSave={(v) => save.mutate(v)} />)}
-          </div>
-        </Panel>
-      ))}
-      {save.isError ? <ErrorState error={save.error} onRetry={() => save.reset()} /> : null}
-    </div>
-  );
-}
-function PlaybookEditor({ item, busy, onSave }: { item: PlaybookItem; busy: boolean; onSave: (v: PlaybookItem) => void }) {
-  const t = useT();
-  const [subject, setSubject] = React.useState(item.subject);
-  const [body, setBody] = React.useState(item.body);
-  const def = DEFAULT_PLAYBOOK.find((d) => d.kind === item.kind && d.key === item.key && d.language === item.language);
-  const isDefault = def?.body === item.body && def?.subject === item.subject;
-  const title = item.kind === "objection" ? t(objectionLabel(item.key)) : item.kind === "email" ? t(EMAIL_TEMPLATE_LABELS[item.key as keyof typeof EMAIL_TEMPLATE_LABELS] ?? item.key) : item.kind === "whatsapp" ? `WhatsApp · ${t(EMAIL_TEMPLATE_LABELS[item.key as keyof typeof EMAIL_TEMPLATE_LABELS] ?? item.key)}` : item.kind === "linkedin" ? t(LINKEDIN_TEMPLATE_LABELS[item.key as keyof typeof LINKEDIN_TEMPLATE_LABELS] ?? item.key) : item.key === "pitch_local" ? t("Local pitch (after a no to Consulting, said live)") : item.key === "pitch_thirty" ? t("30/30 pitch (after a no to Local, said live)") : t("Opener");
-  const id = `pb-${item.kind}-${item.key}-${item.language}`;
-  return (
-    <form className="flex flex-col gap-2 border-t border-hairline pt-3 first:border-0 first:pt-0" onSubmit={(e) => { e.preventDefault(); onSave({ ...item, subject, body }); }}>
-      <p className="text-sm font-medium">{title}{isDefault ? <span className="ml-2 text-[12px] font-normal text-text-3">{t("default")}</span> : null}</p>
-      {item.kind === "email" || (item.kind === "linkedin" && item.key === "inmail") ? <Input aria-label={`${title} · ${t("Subject")}`} value={subject} onChange={(e) => setSubject(e.target.value)} /> : null}
-      <Textarea id={id} aria-label={`${title} · ${t("Text")}`} rows={item.kind === "email" ? 7 : 3} value={body} onChange={(e) => setBody(e.target.value)} />
-      <div className="flex gap-2">
-        <Button type="submit" size="sm" variant="outline" disabled={busy || (body === item.body && subject === item.subject)}>{t("Save")}</Button>
-        {!isDefault ? <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => onSave({ ...item, subject: "", body: "" })}>{t("Back to default")}</Button> : null}
-      </div>
-    </form>
-  );
-}

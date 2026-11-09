@@ -50,7 +50,7 @@ export const playbookEditSchema = z.object({
 
 function checkLimit(kind: PlaybookItem["kind"], key: string, body: string) {
   const max = textLimit(kind, key);
-  if (max !== null && body.trim().length > max) throw new RuleError(`Too long: ${body.trim().length} characters for ${max} allowed.`);
+  if (max !== null && body.trim().length > max) throw new RuleError("Too long: LinkedIn refuses a connection note over 300 characters.");
 }
 
 /**

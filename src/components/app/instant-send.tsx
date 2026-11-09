@@ -157,12 +157,14 @@ export function useSentRows() {
 export function ConnectGmail({ back = "/call", compact = false }: { back?: string; compact?: boolean }) {
   const t = useT();
   const [hidden, setHidden] = React.useState(() => { try { return localStorage.getItem("vos-gmail-hint") === "1"; } catch { return false; } });
+  const status = useQuery({ queryKey: ["gmail-status"], queryFn: () => api<{ connected: boolean; sender?: string }>("/api/email/status") });
+  const sender = status.data?.sender ?? "";
   if (compact) return <a className="text-[12px] font-medium underline" href={`/api/auth/google/gmail?back=${back}`}>{t("Connect Gmail")}</a>;
   if (hidden) return null;
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-[14px] bg-subtle px-4 py-3">
       <Mail className="size-5 shrink-0" />
-      <p className="min-w-0 flex-1 text-sm"><b className="font-semibold">{t("Connect Gmail: emails leave in one click.")}</b> <span className="text-text-2">{t("No tab to open, nothing to paste. Send only: Valemont OS never reads your inbox.")}</span></p>
+      <p className="min-w-0 flex-1 text-sm"><b className="font-semibold">{t("Connect Gmail: emails leave in one click.")}</b> <span className="text-text-2">{t("No tab to open, nothing to paste. Send only: Valemont OS never reads your inbox.")}</span>{" "}{sender ? <span className="font-medium">{t("Sign in with {sender}: every client email leaves from it.", { sender })}</span> : <span className="text-bad">{t("Set the sending address first: Settings › Workspace.")}</span>}</p>
       <Button asChild size="sm" variant="primary"><a href={`/api/auth/google/gmail?back=${back}`}>{t("Connect Gmail")}</a></Button>
       <Button size="icon" variant="ghost" aria-label={t("Hide")} onClick={() => { setHidden(true); try { localStorage.setItem("vos-gmail-hint", "1"); } catch { /* convenience only */ } }}><X /></Button>
     </div>
@@ -537,4 +539,33 @@ export function InCallMail({ s, target, chips, suggested, sent, keys, needsBusin
   ) : null;
   if (layout) return <>{layout({ chips: chipsEl, preview })}</>;
   return <div className="flex flex-col gap-2">{preview}{chipsEl}</div>;
+}
+
+const GMAIL_ERRORS: Record<string, string> = {
+  wrong_account: "Sign in with {sender} (Valemont's sending address).",
+  no_sender: "Set the sending address first: Settings › Workspace.",
+  unverified: "Google did not confirm this address. Sign in with {sender} (Valemont's sending address).",
+  no_email: "Google did not say which mailbox you used. Sign in with {sender} (Valemont's sending address).",
+  not_granted: "Gmail sending was not allowed. Try again and tick “Send email on your behalf”.",
+  state: "The Gmail connection expired. Try again.",
+  oauth: "Google refused the connection. Try again.",
+  unavailable: "Gmail cannot be connected here.",
+};
+/**
+ * Back from the Gmail consent with `?gmail_error=` (D090): says why in plain words (the wrong mailbox names the
+ * sending address to use), once, then cleans the address bar. Mounted once in the shell.
+ */
+export function GmailErrorNotice() {
+  const t = useT();
+  React.useEffect(() => {
+    const u = new URL(window.location.href);
+    const e = u.searchParams.get("gmail_error");
+    if (!e) return;
+    const sender = u.searchParams.get("gmail_sender") ?? "";
+    toast(t(GMAIL_ERRORS[e] ?? GMAIL_ERRORS.oauth, { sender: sender || "…" }), { duration: 20_000 });
+    u.searchParams.delete("gmail_error");
+    u.searchParams.delete("gmail_sender");
+    window.history.replaceState(null, "", `${u.pathname}${u.search}${u.hash}`);
+  }, [t]);
+  return null;
 }

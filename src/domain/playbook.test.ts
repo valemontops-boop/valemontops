@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PLAYBOOK, fill, findItem, gmailComposeLink, hasMissingLink, mailtoLink, mergePlaybook, suggestedFollowUp, whatsappLink } from "./playbook";
+import { DEFAULT_PLAYBOOK, customKeyOf, customTemplates, fill, findItem, gmailComposeLink, hasMissingLink, isCustomKey, mailtoLink, mergePlaybook, suggestedFollowUp, textLimit, whatsappLink } from "./playbook";
+import { chipLabel, customChips, messageFor } from "./messages";
 import { OBJECTION_GUIDE, REPLY_STEP_MAX_WORDS, objectionDefaults, objectionGroups, pickVariant, replySteps, replyStats, wordCount } from "./objections";
 import { emailBenchmarks, type SendRow } from "./email";
 
@@ -97,5 +98,48 @@ describe("live objection list (D076)", () => {
     expect(g[1].keys[0]).toBe("too_expensive");
     expect(g[0].keys.length + g[1].keys.length).toBe(OBJECTION_GUIDE.length);
     expect(new Set([...g[0].keys, ...g[1].keys]).size).toBe(OBJECTION_GUIDE.length);
+  });
+});
+
+describe("custom templates and editable texts (D090)", () => {
+  const key = customKeyOf("3f2b8c1e-9a4d-4e5f-8a6b-1c2d3e4f5a6b");
+  it("derives a stable custom key from the client UUID", () => {
+    expect(key).toBe("custom_3f2b8c1e9a4d4e5f8a6b1c2d3e4f5a6b");
+    expect(isCustomKey(key)).toBe(true);
+    expect(isCustomKey("thanks")).toBe(false);
+  });
+  it("adds the founders' own templates after the built-in texts, with their name, and renders them with placeholders", () => {
+    const items = mergePlaybook([
+      { kind: "whatsapp", key, language: "FR", subject: "", body: "Bonjour {contact}, {founder} de Valemont : {calendly}", template_name: "Relance douce", version: 3 },
+      { kind: "whatsapp", key, language: "ES", subject: "", body: "x", template_name: "Relance douce", is_archived: true, version: 2 },
+    ]);
+    const custom = customTemplates(items, "whatsapp", "FR");
+    expect(custom).toHaveLength(1);
+    expect(custom[0]).toMatchObject({ key, name: "Relance douce", custom: true, version: 3 });
+    // A language not written yet falls back to the other one.
+    expect(customTemplates(items, "whatsapp", "ES")[0].language).toBe("FR");
+    expect(customTemplates(items, "email", "FR")).toEqual([]);
+    const pb = { items, links: { calendly: "https://calendly.example.com/t", deckFR: "", deckES: "" }, founderName: "Théo", signature: "" };
+    expect(messageFor(pb, "FR", "whatsapp", key, { name: "Plomberie Martin", contact: "Julien" }).body).toBe("Bonjour Julien, Théo de Valemont : https://calendly.example.com/t");
+    expect(customChips(pb, "whatsapp", "FR")).toEqual([key]);
+    expect(chipLabel(pb, key)).toEqual({ text: "Relance douce", custom: true });
+    expect(chipLabel(pb, "deck")).toEqual({ text: "Deck", custom: false });
+  });
+  it("keeps the row version on built-in texts (0 = never edited) so saves are version-checked", () => {
+    const items = mergePlaybook([{ kind: "email", key: "missed", language: "FR", subject: "S", body: "", is_archived: true, version: 4 }]);
+    expect(findItem(items, "email", "missed", "FR")).toMatchObject({ version: 4, edited: false });
+    expect(findItem(items, "email", "thanks", "FR")).toMatchObject({ version: 0, edited: false });
+  });
+  it("has every prospect-facing text in both languages, incl. the inbox replies, and the LinkedIn note limit", () => {
+    for (const k of ["thanks", "price", "call"]) for (const l of ["FR", "ES"] as const) expect(findItem(DEFAULT_PLAYBOOK, "inbox", k, l)?.language).toBe(l);
+    expect(textLimit("linkedin", "invitation")).toBe(300);
+    expect(textLimit("email", "thanks")).toBeNull();
+    for (const d of DEFAULT_PLAYBOOK.filter((x) => x.kind === "linkedin" && x.key === "invitation")) expect(fill(d.body, { first_name: "Julien", business: "Plomberie Martin", founder: "Théo" }).length).toBeLessThanOrEqual(300);
+  });
+  it("opens Gmail compose on the sending mailbox (authuser)", () => {
+    const url = new URL(gmailComposeLink("a@example.com", "S", "B", "contact@example.com"));
+    expect(url.searchParams.get("authuser")).toBe("contact@example.com");
+    expect(url.searchParams.get("to")).toBe("a@example.com");
+    expect(new URL(gmailComposeLink("a@example.com", "S", "B")).searchParams.has("authuser")).toBe(false);
   });
 });

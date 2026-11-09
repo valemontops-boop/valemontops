@@ -62,6 +62,7 @@ import { connectorEnvSync } from "@/server/connector-env";
 import { csvExportSchema, exportList } from "@/server/services/csv-lists";
 import { trackerAction, trackerActionSchema, trackerStatus } from "@/server/services/tracker";
 import { createFolder, folderSchema } from "@/server/services/files";
+import { senderAddress } from "@/server/sender";
 import { createCustomTemplate, customCreateSchema, customDeleteSchema, deleteCustomTemplate, getPlaybook, playbookEditSchema, savePlaybookItem } from "@/server/services/playbook";
 import { addInboxItem, inboxAddSchema, inboxListSchema, inboxStatusSchema, listInbox, setInboxStatus } from "@/server/services/inbox";
 import { batchSchema, followUpQueue, sendBatch, benchmarks as emailBenchmarksFor, listSends, markReply, replySchema, sendFollowUp, sendSchema } from "@/server/services/email";
@@ -194,7 +195,7 @@ const routes: Record<string, [z.ZodTypeAny | null, Handler]> = {
   "DELETE /api/playbook/custom": [customDeleteSchema, async (i, f) => deleteCustomTemplate(ctx, f, i as never)],
   "GET /api/calls/log": [callLogSchema, async (i, f) => callLog(ctx, f, i as never)],
   "GET /api/calls/objections": [null, async (_, f) => objectionReport(ctx, f)],
-  "GET /api/email/status": [null, async (_, f) => ({ connected: gmailGrant[f], mode: "demo" })],
+  "GET /api/email/status": [null, async (_, f) => ({ connected: gmailGrant[f], mode: "demo", sender: await senderAddress(repo) })],
   "DELETE /api/email/status": [null, async (_, f) => { gmailGrant[f] = false; return { connected: false }; }],
   "POST /api/email/send": [sendSchema, async (i, f) => sendFollowUp(ctx, f, gmailGrant[f] ? `preview-gmail-${f}` : null, i as never)],
   "GET /api/email/sends": [null, async () => listSends(ctx)],
