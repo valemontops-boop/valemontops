@@ -53,21 +53,24 @@ export async function setupSpreadsheet(client: SheetsClient, kind: "shared" | "p
 
   const titles = Object.keys(wanted);
   const headers = await client.batchGet(titles.map((t) => `${quoteSheet(t)}!1:1`));
+  // All header writes go out in ONE request: Google allows 60 write requests per minute per user.
+  const headerWrites: { range: string; values: string[][] }[] = [];
   for (let i = 0; i < titles.length; i++) {
     const tab = titles[i];
     const header = (headers[i][0] ?? []).map((h) => String(h ?? "").trim());
     if (header.length === 0) {
-      await client.update(`${quoteSheet(tab)}!A1:${colLetters(wanted[tab].length - 1)}1`, [wanted[tab]]);
+      headerWrites.push({ range: `${quoteSheet(tab)}!A1:${colLetters(wanted[tab].length - 1)}1`, values: [wanted[tab]] });
       report.headersWritten.push(tab);
       continue;
     }
     const missing = wanted[tab].filter((c) => !header.includes(c));
     if (missing.length) {
       const start = header.length;
-      await client.update(`${quoteSheet(tab)}!${colLetters(start)}1:${colLetters(start + missing.length - 1)}1`, [missing]);
+      headerWrites.push({ range: `${quoteSheet(tab)}!${colLetters(start)}1:${colLetters(start + missing.length - 1)}1`, values: [missing] });
       report.columnsAdded.push({ tab, columns: missing });
     }
   }
+  await client.updateMany(headerWrites);
 
   const structural: unknown[] = [];
   for (const s of meta.sheets) {

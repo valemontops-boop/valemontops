@@ -181,6 +181,12 @@ export class FakeSheetsServer {
         const raw = url.searchParams.get("valueRenderOption") === "UNFORMATTED_VALUE";
         return send(200, { spreadsheetId: bookId, valueRanges: ranges.map((r) => ({ range: r, majorDimension: "ROWS", values: this.read(book, r, raw) })) });
       }
+      if (rest === "/values:batchUpdate" && method === "POST") {
+        const b = body as { valueInputOption?: string; data?: { range: string; values: Cell[][] }[] };
+        const responses = (b.data ?? []).map((d) => ({ updatedRange: this.write(book, d.range, d.values ?? [], b.valueInputOption ?? "RAW") }));
+        this.persist();
+        return send(200, { spreadsheetId: bookId, responses });
+      }
       const vm = /^\/values\/(.+?)(:append|:clear)?$/.exec(rest);
       if (vm) {
         const range = vm[1];

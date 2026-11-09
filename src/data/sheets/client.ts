@@ -140,6 +140,15 @@ export class SheetsClient {
     });
   }
 
+  /** Several ranges in ONE write request (setup writes dozens of headers; Sheets allows 60 writes/min/user). */
+  updateMany(data: { range: string; values: string[][] }[]) {
+    if (data.length === 0) return Promise.resolve(undefined);
+    return this.request<unknown>("POST", "/values:batchUpdate", {
+      idempotent: true,
+      body: { valueInputOption: "RAW", data: data.map((d) => ({ range: d.range, majorDimension: "ROWS", values: d.values })) },
+    });
+  }
+
   clear(range: string) {
     return this.request<unknown>("POST", `/values/${encodeURIComponent(range)}:clear`, { idempotent: true, body: {} });
   }
