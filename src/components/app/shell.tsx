@@ -1,5 +1,5 @@
 "use client";
-import { PhoneCall, Bell, CalendarDays, ChevronDown, Command, FileText, Gauge, Lightbulb, LayoutList, ListChecks, Megaphone, Plus, RefreshCw, Settings, Sun, Users, AlertCircle, Check, Loader2, BarChart3, X, Wallet, Briefcase } from "lucide-react";
+import { PhoneCall, Bell, CalendarDays, ChevronDown, Command, FileText, Gauge, Lightbulb, LayoutList, ListChecks, Megaphone, Plus, RefreshCw, Settings, Sun, Users, AlertCircle, Check, Loader2, BarChart3, X, Wallet, Briefcase, CalendarRange } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { IdeaCapture } from "./idea-capture";
@@ -24,6 +24,7 @@ const NAV = [
   { href: "/call", label: "Call mode", icon: PhoneCall },
   { href: "/crm", label: "Sales CRM", icon: Users },
   { href: "/marketing", label: "Growth", icon: Megaphone },
+  { href: "/marketing/content", label: "Content planning", icon: CalendarRange },
   { href: "/money", label: "Money", icon: Wallet },
   { href: "/clients", label: "Clients", icon: Briefcase },
 ];
@@ -79,7 +80,8 @@ function Notifications() {
 }
 
 function NavLink({ href, label, icon: Icon, path, badge }: { href: string; label: string; icon: React.ComponentType<{ className?: string }>; path: string; badge?: number }) {
-  const active = path.startsWith(href);
+  // "Growth" (/marketing) is not highlighted on its own sub-page "Content planning" (/marketing/content).
+  const active = path.startsWith(href) && !(href === "/marketing" && path.startsWith("/marketing/content"));
   const t = useT();
   return (
     <Link href={href} aria-current={active ? "page" : undefined}

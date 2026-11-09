@@ -238,4 +238,5 @@ export const entries: Record<string, readonly [string, string]> = {
   "Social account not found": ["Compte social introuvable", "Cuenta social no encontrada"],
   "Pick an image, a video or a PDF.": ["Choisis une image, une vidéo ou un PDF.", "Elige una imagen, un vídeo o un PDF."],
   "HH:MM expected": ["Format HH:MM attendu", "Formato HH:MM esperado"],
+  "Content planning": ["Planification contenu", "Planificación de contenido"],
 };
