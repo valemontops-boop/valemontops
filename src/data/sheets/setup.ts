@@ -21,6 +21,14 @@ export interface SetupReport {
   revisionsSeeded: string[];
 }
 
+/** Every tab (and its header columns) that `setupSpreadsheet` prepares for this kind of spreadsheet. */
+export function wantedTabs(kind: "shared" | "private" = "shared"): Record<string, string[]> {
+  const wanted: Record<string, string[]> = { ...SYSTEM_TABS };
+  const tables: TableName[] = kind === "shared" ? TABLE_NAMES : PRIVATE_TABLES;
+  for (const t of tables) wanted[t] = columnsOf(t);
+  return wanted;
+}
+
 /**
  * Idempotent: creates missing tabs and headers, appends missing columns at the right edge,
  * freezes header rows, adds warning-only protection. NEVER creates the spreadsheet (spec 4.8)
@@ -28,9 +36,7 @@ export interface SetupReport {
  */
 export async function setupSpreadsheet(client: SheetsClient, kind: "shared" | "private" = "shared"): Promise<SetupReport> {
   const report: SetupReport = { created: [], headersWritten: [], columnsAdded: [], protectedTabs: [], revisionsSeeded: [] };
-  const wanted: Record<string, string[]> = { ...SYSTEM_TABS };
-  const tables: TableName[] = kind === "shared" ? TABLE_NAMES : PRIVATE_TABLES;
-  for (const t of tables) wanted[t] = columnsOf(t);
+  const wanted = wantedTabs(kind);
 
   let meta = await client.getMeta();
   const existing = new Set(meta.sheets.map((s) => s.properties.title));

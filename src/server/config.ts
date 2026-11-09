@@ -44,7 +44,7 @@ export function readConfig(env: Record<string, string | undefined> = process.env
     ok: false,
     errors,
     production,
-    baseUrl: (env.APP_BASE_URL || "http://localhost:3000").replace(/\/$/, ""),
+    baseUrl: (env.APP_BASE_URL || vercelBaseUrl(env) || "http://localhost:3000").replace(/\/$/, ""),
     sessionSecret,
     pollSeconds: Math.min(60, Math.max(30, Number(env.SYNC_POLL_SECONDS) || 30)),
     founders: {
@@ -85,7 +85,7 @@ export function readConfig(env: Record<string, string | undefined> = process.env
         errors.push((e as Error).message);
       }
     }
-    if (!env.APP_BASE_URL) errors.push("APP_BASE_URL is missing (used for the Google sign-in redirect).");
+    if (!env.APP_BASE_URL && !vercelBaseUrl(env)) errors.push("APP_BASE_URL is missing (used for the Google sign-in redirect).");
     if (production && !cfg.sheets.isGoogle) errors.push("SHEETS_API_BASE_URL must not point to a fake server in production.");
   }
   if (mode === "demo" && production && cfg.demo.accessCode.length < 12) {
@@ -93,6 +93,16 @@ export function readConfig(env: Record<string, string | undefined> = process.env
   }
   cfg.ok = errors.length === 0;
   return cfg;
+}
+
+/**
+ * D086: on Vercel, APP_BASE_URL may be left unset; the deployment's own address is used instead
+ * (production: VERCEL_PROJECT_PRODUCTION_URL, previews: VERCEL_BRANCH_URL or VERCEL_URL). An explicit APP_BASE_URL wins.
+ */
+export function vercelBaseUrl(env: Record<string, string | undefined> = process.env): string {
+  const host = env.VERCEL_ENV === "production" ? env.VERCEL_PROJECT_PRODUCTION_URL || env.VERCEL_URL : env.VERCEL_BRANCH_URL || env.VERCEL_URL || env.VERCEL_PROJECT_PRODUCTION_URL;
+  const h = (host ?? "").trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+  return h && /^[a-z0-9.-]+(:\d+)?$/i.test(h) ? `https://${h}` : "";
 }
 
 let cached: AppConfig | null = null;

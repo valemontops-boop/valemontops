@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-const PAGES = ["/my-day", "/crm", "/settings", "/command-center", "/marketing", "/tasks", "/agenda", "/ideas", "/files", "/reports", "/call", "/money", "/clients"];
+const PAGES = ["/install", "/my-day", "/crm", "/settings", "/command-center", "/marketing", "/tasks", "/agenda", "/ideas", "/files", "/reports", "/call", "/money", "/clients"];
 
 /**
  * 1. Correlation id (D084): every page and API request carries `x-request-id` (the caller's when it is a safe token,
@@ -26,7 +26,7 @@ export function proxy(req: NextRequest) {
 
 export const config = {
   matcher: [
-    "/api/:path*",
+    "/api/:path*", "/install",
     "/my-day/:path*", "/crm/:path*", "/settings/:path*", "/command-center/:path*", "/marketing/:path*", "/tasks/:path*",
     "/agenda/:path*", "/ideas/:path*", "/files/:path*", "/reports/:path*", "/call/:path*", "/money/:path*", "/clients/:path*",
   ],

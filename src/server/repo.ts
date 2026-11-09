@@ -61,8 +61,16 @@ async function build(cfg: AppConfig): Promise<DataRepository> {
   }
   // LIVE: never seeds demo data and never creates the spreadsheet; setup:sheets prepares it.
   const key = decodeServiceAccountKey(cfg.sheets.serviceAccountB64);
-  const client = new SheetsClient({ baseUrl: cfg.sheets.baseUrl, spreadsheetId: cfg.sheets.spreadsheetId, getToken: serviceAccountTokenProvider(key) });
+  const client = new SheetsClient({ baseUrl: cfg.sheets.baseUrl, spreadsheetId: cfg.sheets.spreadsheetId, getToken: sheetsTokenFor(cfg, key) });
   return new GoogleSheetsRepository(client);
+}
+
+/**
+ * Service-account token for the Sheets API. A LIVE server pointed at the local fake Sheets server (tests, local
+ * rehearsal; refused in production by readConfig) gets a fixed token, as scripts/_client.ts does.
+ */
+export function sheetsTokenFor(cfg: AppConfig, key: ReturnType<typeof decodeServiceAccountKey>): () => Promise<string> {
+  return cfg.sheets.isGoogle ? serviceAccountTokenProvider(key) : async () => "fake-token";
 }
 
 /** The process-wide repository. LIVE with missing credentials throws SetupRequiredError: never a DEMO fallback. */
@@ -125,7 +133,7 @@ async function buildContext(cfg: AppConfig): Promise<AppContext> {
   const key = decodeServiceAccountKey(cfg.sheets.serviceAccountB64);
   const privateIds: Record<string, string> = { theo: process.env.PRIVATE_SHEET_ID_THEO ?? "", pablo: process.env.PRIVATE_SHEET_ID_PABLO ?? "" };
   const privates = new Map<string, DataRepository>();
-  const sheetsToken = serviceAccountTokenProvider(key);
+  const sheetsToken = sheetsTokenFor(cfg, key);
   const googleToken = serviceAccountTokenProvider(key, GOOGLE_SCOPES);
   const api = (process.env.GOOGLE_API_BASE_URL || "https://www.googleapis.com").replace(/\/$/, "");
   return {

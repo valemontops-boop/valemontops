@@ -8,28 +8,37 @@ import { schemaHash } from "./setup";
 export interface DoctorCheck {
   name: string;
   status: "ok" | "warn" | "fail";
+  /** English sentence (CLI output). */
   detail: string;
+  /** D086: the same sentence as a dictionary key + values, so the app can show it in the founder's language. */
+  key: string;
+  vars?: Record<string, string | number>;
 }
+
+const fill = (key: string, vars?: Record<string, string | number>) => (vars ? key.replace(/\{([a-zA-Z_]+)\}/g, (m, n: string) => (vars[n] === undefined ? m : String(vars[n]))) : key);
 
 const CELL_LIMIT = 10_000_000;
 
 /** `npm run doctor:sheets`: permissions, tabs, schema, integrity, quota, and a safe round-trip. */
 export async function runDoctor(client: SheetsClient): Promise<DoctorCheck[]> {
   const out: DoctorCheck[] = [];
-  const add = (name: string, status: DoctorCheck["status"], detail: string) => out.push({ name, status, detail });
+  const add = (name: string, status: DoctorCheck["status"], key: string, vars?: Record<string, string | number>) => out.push({ name, status, detail: fill(key, vars), key, vars });
 
   let meta;
   try {
     meta = await client.getMeta();
-    add("Access", "ok", `Spreadsheet “${meta.properties.title}” is reachable with the service account.`);
+    add("Access", "ok", "Spreadsheet “{title}” is reachable with the service account.", { title: meta.properties.title });
   } catch (e) {
     const status = (e as { status?: number }).status;
-    add("Access", "fail", status === 403 ? "Permission denied: share the Sheet with the service account email as Editor." : status === 404 ? "Spreadsheet not found: check SHEETS_SPREADSHEET_ID." : (e as Error).message);
+    if (status === 403) add("Access", "fail", "Permission denied: share the Sheet with the service account email as Editor.");
+    else if (status === 404) add("Access", "fail", "Spreadsheet not found: check SHEETS_SPREADSHEET_ID.");
+    else add("Access", "fail", "Google Sheets could not be reached: {error}", { error: (e as Error).message });
     return out;
   }
   const titles = new Set(meta.sheets.map((s) => s.properties.title));
   const missing = [...TABLE_NAMES, REVISIONS_TAB, DOCTOR_TAB].filter((t) => !titles.has(t));
-  add("Tabs", missing.length ? "fail" : "ok", missing.length ? `Missing tabs: ${missing.join(", ")}. Run npm run setup:sheets.` : `All ${TABLE_NAMES.length + 2} tabs present.`);
+  if (missing.length) add("Tabs", "fail", "Missing tabs: {tabs}. Run npm run setup:sheets.", { tabs: missing.join(", ") });
+  else add("Tabs", "ok", "All {n} tabs present.", { n: TABLE_NAMES.length + 2 });
   if (missing.length) return out;
 
   const headers = await client.batchGet(TABLE_NAMES.map((t) => `${quoteSheet(t)}!1:1`));
@@ -41,23 +50,28 @@ export async function runDoctor(client: SheetsClient): Promise<DoctorCheck[]> {
     if (miss.length) headerIssues.push(`${t}: missing ${miss.join(", ")}`);
     else if (moved.length) headerIssues.push(`${t}: columns moved (${moved.slice(0, 3).join(", ")}…), still readable by header name`);
   });
-  add("Headers", headerIssues.some((x) => x.includes("missing")) ? "fail" : headerIssues.length ? "warn" : "ok", headerIssues.join("; ") || "All headers match the schema.");
+  if (headerIssues.length) add("Headers", headerIssues.some((x) => x.includes("missing")) ? "fail" : "warn", "Header problems: {issues}", { issues: headerIssues.join("; ") });
+  else add("Headers", "ok", "All headers match the schema.");
 
   const repo = new GoogleSheetsRepository(client, { revisionsTtlMs: 0 });
   const all = await repo.listMany(TABLE_NAMES, { fresh: true });
   const mig = all.SchemaMigrations.rows.find((r) => r.schema_version === SCHEMA_VERSION && r.schema_hash === schemaHash());
-  add("Schema version", mig ? "ok" : "warn", mig ? `v${SCHEMA_VERSION} (${schemaHash()})` : `No migration row for v${SCHEMA_VERSION} ${schemaHash()}. Run npm run setup:sheets.`);
+  if (mig) add("Schema version", "ok", "v{v} ({hash})", { v: SCHEMA_VERSION, hash: schemaHash() });
+  else add("Schema version", "warn", "No migration row for v{v} {hash}. Run npm run setup:sheets.", { v: SCHEMA_VERSION, hash: schemaHash() });
 
   const warnings = TABLE_NAMES.flatMap((t) => all[t].warnings);
   const malformed = warnings.filter((w) => w.kind === "malformed_row");
   const dupIds = warnings.filter((w) => w.kind === "duplicate_id");
-  add("Malformed rows", malformed.length ? "warn" : "ok", malformed.length ? malformed.slice(0, 10).map((w) => `${w.table} row ${w.rowNumber}: ${w.detail}`).join("; ") : "None.");
-  add("Duplicate ids", dupIds.length ? "warn" : "ok", dupIds.length ? dupIds.slice(0, 10).map((w) => `${w.table} row ${w.rowNumber}`).join("; ") + " (readers keep one; harmless but worth cleaning)" : "None.");
+  if (malformed.length) add("Malformed rows", "warn", "Rows that could not be read: {rows}", { rows: malformed.slice(0, 10).map((w) => `${w.table} row ${w.rowNumber}: ${w.detail}`).join("; ") });
+  else add("Malformed rows", "ok", "None.");
+  if (dupIds.length) add("Duplicate ids", "warn", "{rows} (readers keep one; harmless but worth cleaning)", { rows: dupIds.slice(0, 10).map((w) => `${w.table} row ${w.rowNumber}`).join("; ") });
+  else add("Duplicate ids", "ok", "None.");
 
   const keys = new Map<string, number>();
   for (const e of all.ActivityEvents.rows) keys.set(e.idempotency_key, (keys.get(e.idempotency_key) ?? 0) + 1);
   const dupKeys = [...keys.values()].filter((n) => n > 1).length;
-  add("Duplicate activity rows", dupKeys ? "warn" : "ok", dupKeys ? `${dupKeys} idempotency keys appear more than once (each counts once).` : "None.");
+  if (dupKeys) add("Duplicate activity rows", "warn", "{n} idempotency keys appear more than once (each counts once).", { n: dupKeys });
+  else add("Duplicate activity rows", "ok", "None.");
 
   const ids = (t: TableName) => new Set(all[t].rows.map((r) => r.id));
   const accounts = ids("Accounts");
@@ -70,10 +84,11 @@ export async function runDoctor(client: SheetsClient): Promise<DoctorCheck[]> {
     if (e.opportunity_id && !opps.has(e.opportunity_id)) orphans.push(`Activity ${e.id} → opportunity`);
   }
   for (const s of all.OpportunityStageEvents.rows) if (!opps.has(s.opportunity_id)) orphans.push(`Stage event ${s.id}`);
-  add("References", orphans.length ? "warn" : "ok", orphans.length ? `${orphans.length} missing references, e.g. ${orphans.slice(0, 5).join("; ")}` : "No orphans.");
+  if (orphans.length) add("References", "warn", "{n} missing references, e.g. {examples}", { n: orphans.length, examples: orphans.slice(0, 5).join("; ") });
+  else add("References", "ok", "No orphans.");
 
   const cells = meta.sheets.reduce((n, s) => n + (s.properties.gridProperties?.rowCount ?? 0) * (s.properties.gridProperties?.columnCount ?? 0), 0);
-  add("Size", cells > CELL_LIMIT * 0.7 ? "warn" : "ok", `${cells.toLocaleString("en")} grid cells of ${CELL_LIMIT.toLocaleString("en")} (${((cells / CELL_LIMIT) * 100).toFixed(2)}%). ActivityEvents rows: ${all.ActivityEvents.rows.length}.`);
+  add("Size", cells > CELL_LIMIT * 0.7 ? "warn" : "ok", "{cells} grid cells of {limit} ({pct}%). ActivityEvents rows: {rows}.", { cells: cells.toLocaleString("en"), limit: CELL_LIMIT.toLocaleString("en"), pct: ((cells / CELL_LIMIT) * 100).toFixed(2), rows: all.ActivityEvents.rows.length });
 
   // Round-trip on the dedicated _Doctor tab with an explicit marker, cleaned up afterwards.
   const marker = `doctor-${randomUUID()}`;
@@ -84,11 +99,13 @@ export async function runDoctor(client: SheetsClient): Promise<DoctorCheck[]> {
     const ok = String(back[0]?.[0]) === marker && String(back[0]?.[1]) === probe[1];
     add("Read/write round-trip", ok ? "ok" : "fail", ok ? "Wrote and read back a marked test row; special values survived unchanged." : "Values changed on round-trip: check valueInputOption.");
   } catch (e) {
-    add("Read/write round-trip", "fail", (e as Error).message);
+    const status = (e as { status?: number }).status;
+    if (status === 403) add("Read/write round-trip", "fail", "Write refused: the service account can read the Sheet but is not Editor.");
+    else add("Read/write round-trip", "fail", "Google Sheets could not be reached: {error}", { error: (e as Error).message });
   } finally {
     await client.clear(`${quoteSheet(DOCTOR_TAB)}!A2:C2`).catch(() => undefined);
   }
   const s = client.stats;
-  add("Quota use (this run)", "ok", `${s.requests} requests, ${s.retries} retries, ${s.errors} errors. Budget: 60/min per user (the service account is shared by both founders).`);
+  add("Quota use (this run)", "ok", "{requests} requests, {retries} retries, {errors} errors. Budget: 60/min per user (the service account is shared by both founders).", { requests: s.requests, retries: s.retries, errors: s.errors });
   return out;
 }

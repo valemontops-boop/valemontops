@@ -7,11 +7,15 @@ export interface ServiceAccountKey {
   private_key: string;
 }
 
-/** Decodes GOOGLE_SERVICE_ACCOUNT_KEY_BASE64 (spec 3.5: base64 avoids newline issues on hosts). */
+/**
+ * Decodes GOOGLE_SERVICE_ACCOUNT_KEY_BASE64 (spec 3.5: base64 avoids newline issues on hosts).
+ * D086: the JSON key file pasted as-is is accepted too, so no terminal is needed to encode it.
+ */
 export function decodeServiceAccountKey(b64: string): ServiceAccountKey {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(Buffer.from(b64.trim(), "base64").toString("utf8"));
+    const raw = b64.trim();
+    parsed = JSON.parse(raw.startsWith("{") ? raw : Buffer.from(raw, "base64").toString("utf8"));
   } catch {
     throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY_BASE64 is not valid base64-encoded JSON");
   }
