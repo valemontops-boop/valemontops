@@ -19,6 +19,8 @@ import { RuleError } from "../errors";
 import type { AppContext } from "../context";
 import { userRow } from "./common";
 import { listTasks } from "./tasks";
+import { pnlForExport } from "./finance";
+import { COST_CENTERS, COST_CENTER_LABELS } from "@/domain/finance";
 
 const day = z.string().refine(isDay, "Invalid date");
 export const exportSchema = z.object({
@@ -289,6 +291,13 @@ export async function buildExport(ctx: AppContext, founder: FounderKey, input: P
       tables: [
         { title: t("Income and expenses by category"), columns: [col(t("Category")), col(t("Type")), col(t("Amount (EUR)"), "money"), col(t("Movements"), "int")], rows: [...cats.entries()].sort((a, b) => b[1].amount - a[1].amount).map(([c, v]) => [t(CATEGORY_LABELS[c]), isIncome(c) ? t("Income") : t("Expense"), major(v.amount), v.n]) },
         { title: t("Recurring revenue (MRR)"), columns: [col(t("Date"), "date"), col(t("MRR (EUR)"), "money"), col(t("Active subscriptions"), "int")], rows: filterPeriod(snaps, (r) => r.date, from, to).map((r) => [r.date, major(r.mrr_minor), r.active_subscriptions]) },
+        // Stage 3 (D078): managerial P&L by month (recognized revenue, direct costs, gross margin, opex, estimated EBITDA; cash apart).
+        ...(await pnlForExport(ctx, from, to).then((p) => [{
+          title: t("Managerial P&L by month (EUR, ex VAT)"),
+          note: t("Management accounting, not statutory accounts. Estimated EBITDA = recognized revenue − direct costs − operating expenses. Provisional = part of the revenue recognized on the payment date (invoice-based estimate)."),
+          columns: [col(t("Month")), ...COST_CENTERS.map((c) => col(t(COST_CENTER_LABELS[c]), "money")), col(t("Recognized revenue"), "money"), col(t("Direct costs"), "money"), col(t("Gross profit"), "money"), col(t("Gross margin"), "pct"), col(t("Operating expenses"), "money"), col(t("Estimated EBITDA"), "money"), col(t("Provisional")), col(t("Cash received"), "money"), col(t("Cash paid"), "money"), col(t("VAT collected"), "money")],
+          rows: p.months.map((m) => [m.month, ...COST_CENTERS.map((c) => major(m.revenue[c])), major(m.revenue.total), major(m.direct), major(m.gross_profit), m.gross_margin, major(m.opex), major(m.ebitda), m.provisional ? t("Yes") : t("No"), major(m.cash_in), major(m.cash_out), major(m.vat_in)] as Cell[]),
+        } satisfies ExportTable]).catch(() => [])),
       ],
     });
   }

@@ -118,7 +118,7 @@ export function InboxPanel() {
   const items = all ? q.data.items : q.data.items.slice(0, 3);
   return (
     <Panel aria-labelledby="inbox-title">
-      <PanelTitle action={<Button asChild size="sm" variant="ghost"><Link href="/marketing">{t("All in Growth")}</Link></Button>}>
+      <PanelTitle action={<Button asChild size="sm" variant="ghost"><Link href="/marketing?channel=inbox">{t("All in Growth")}</Link></Button>}>
         <span id="inbox-title" className="flex items-center gap-2"><MessageSquareReply className="size-4" />{t("To reply")} <span className="num text-text-3">{q.data.count}</span></span>
       </PanelTitle>
       <ul>{items.map((i) => <ItemRow key={i.id} item={i} />)}</ul>

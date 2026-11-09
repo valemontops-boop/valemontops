@@ -1,5 +1,11 @@
+import { Suspense } from "react";
 import { MarketingView } from "@/components/app/marketing-view";
 
 export default function Page() {
-  return <MarketingView />;
+  // Growth reads ?channel=&view=&tab= (drawer state, D077): useSearchParams needs a Suspense boundary.
+  return (
+    <Suspense fallback={null}>
+      <MarketingView />
+    </Suspense>
+  );
 }

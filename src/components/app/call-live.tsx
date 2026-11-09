@@ -6,16 +6,16 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState, Input, Panel, Skeleton } from "@/components/ui/form";
 import { useLocale, useT } from "@/i18n/react";
-import { ConfirmSent, ConnectGmail, InCallMail, MessageCard, useInstantSend, type Playbook, type SendTarget } from "./instant-send";
+import { ConfirmSent, ConnectGmail, InCallMail, MessageCard, SentLine, useInstantSend, type Playbook, type SendTarget } from "./instant-send";
 import { CallLog } from "./call-log";
 import {
   AFTER_OUTCOME_LABELS, CALL_OUTCOME_LABELS, LADDER_START, MISSED_OUTCOMES, afterOutcomes, ladder, nextStep, resolveAfter, suggestedAfter,
   type AfterOutcome, type CallFlowAction, type CallOutcome, type CallStats, type CallStep, type LadderOffer, type LadderState,
 } from "@/domain/calls";
 import { OBJECTION_LABELS, type Objection } from "@/domain/constants";
-import { OBJECTION_GUIDE, VARIANTS, guideOf, replySteps, type VariantStat } from "@/domain/objections";
-import { TEMPLATE_SHORT, fill, findItem, type Lang, type TemplateKey } from "@/domain/playbook";
-import { afterCallSuggestion, inCallChips, templateChips } from "@/domain/messages";
+import { OBJECTION_GUIDE, VARIANTS, guideOf, objectionGroups, replySteps, type ObjectionType, type VariantStat } from "@/domain/objections";
+import { EMAIL_TEMPLATE_LABELS, TEMPLATE_SHORT, fill, findItem, type Lang, type TemplateKey } from "@/domain/playbook";
+import { afterCallSuggestion, inCallChips, messageFor, templateChips } from "@/domain/messages";
 import { addDays } from "@/domain/time";
 import { ApiError, api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -40,8 +40,7 @@ function useNow() {
 }
 const isTyping = (el: EventTarget | null) => el instanceof HTMLElement && (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || el.isContentEditable);
 const isYes = (o: CallOutcome) => o === "meeting" || o === "interested" || o === "call_back";
-/** Objection chips shown first during a call: the founder's most frequent (then the team's), the rest behind "Others". */
-export const TOP_OBJECTIONS = 6;
+/** Objections during a call: the founder's most frequent first (then the team's); all of them are always shown (D076). */
 export function objectionOrder(mine: ObjCount[] | undefined, team: ObjCount[] | undefined): Objection[] {
   const n = (k: string) => (mine?.find((x) => x.key === k)?.count ?? 0) * 1000 + (team?.find((x) => x.key === k)?.count ?? 0);
   return OBJECTION_GUIDE.map((g, i) => ({ k: g.key, s: n(g.key), i })).sort((a, b) => b.s - a.s || a.i - b.i).map((x) => x.k);
@@ -51,12 +50,13 @@ type Pending = { after: AfterOutcome; outcome: CallOutcome; offer: LadderOffer |
 type After = { target: Target; outcome: CallOutcome | null; objections: Objection[]; offer: LadderOffer | null; sendKey: string; template?: TemplateKey; needsBusiness?: boolean; open: boolean };
 
 /**
- * The live call screen, round 9 (D071), one click per step:
- * [New call] (Enter) → [Picked up] 1 / [Not picked up] 2. Not picked up → no answer 1 / voicemail 2, logged, next
- * (a "tried to reach you" mail one click away). Picked up → objections and their reply, [Instant mail] (M, sent while
- * still on the phone), the downsell ladder (O: Local, then 30/30), [Hung up] (X) → one outcome (1–7), then the next
- * prospect. The message card stays available after, folded, never blocking; it is not suggested when a mail already
- * went out during the call. "Undo" for 10 seconds.
+ * The live call screen, round 10 (D076, after D071), one click per step:
+ * [New call] (Enter, focused) → [Picked up] 1 / [Not picked up] 2 / [Voicemail] 3. A missed call is logged at once and
+ * the next prospect comes up with [New call] focused (a "tried to reach you" mail waits in a slim bar, E shows it).
+ * Picked up → one viewport, no scrolling: every objection on the left (brush-offs, then real ones, letter keys), on the
+ * right the reply (3 steps), the instant-mail chips (hover = preview, click = editable preview, Enter sends), the
+ * downsell ladder (O, Y / N) and [Hung up] (X) → one outcome (1–7) → the next prospect, [New call] focused.
+ * "← Back" (Esc) goes one step back without logging anything; "Undo the last call" (U) sits in the header for 10 s.
  */
 export function ActiveSession({ id, listId, onEnd }: { id: string; listId: string; onEnd: () => void }) {
   const t = useT();
@@ -76,11 +76,11 @@ export function ActiveSession({ id, listId, onEnd }: { id: string; listId: strin
   const [objs, setObjs] = React.useState<Objection[]>([]);
   const [focusObj, setFocusObj] = React.useState<Objection | null>(null);
   const [variant, setVariant] = React.useState<Record<string, number>>({});
-  const [showAll, setShowAll] = React.useState(false);
   const [dialAt, setDialAt] = React.useState<number | null>(null);
   const [endAt, setEndAt] = React.useState<number | null>(null);
   const [ladderState, setLadder] = React.useState<LadderState>(LADDER_START);
-  const [mailOpen, setMailOpen] = React.useState(false);
+  const mailPreview = React.useRef(false); // the instant-mail preview handles Enter / Esc while open
+  const setMailPreview = React.useCallback((v: boolean) => { mailPreview.current = v; }, []);
   const [mailed, setMailed] = React.useState<TemplateKey[]>([]); // sent during this call
   const [known, setKnown] = React.useState<{ accountId: string; email: string; business: string }>({ accountId: "", email: "", business: "" }); // learnt during this call
   const [pending, setPending] = React.useState<Pending | null>(null);
@@ -89,6 +89,8 @@ export function ActiveSession({ id, listId, onEnd }: { id: string; listId: strin
   const [undoRaw, setUndo] = React.useState<{ key: string; outcome: CallOutcome; offer: LadderOffer | null; name: string; until: number } | null>(null);
   const [paused, setPaused] = React.useState<{ since: number } | null>(null);
   const [pausedMs, setPausedMs] = React.useState(0);
+  const newCallRef = React.useRef<HTMLButtonElement>(null);
+  const phoneRef = React.useRef<HTMLInputElement>(null);
   const now = useNow();
   const undo = undoRaw && now <= undoRaw.until ? undoRaw : null; // "Undo" lasts 10 seconds
   const sessionSec = summary.data ? Math.max(0, Math.floor((now - Date.parse(summary.data.session.started_at) - pausedMs - (paused ? now - paused.since : 0)) / 1000)) : 0;
@@ -101,7 +103,7 @@ export function ActiveSession({ id, listId, onEnd }: { id: string; listId: strin
     ? current ? { accountId: current.accountId, name: current.name, contact: current.contactName, email: known.email || current.email, phone: current.phone, market: current.country ?? "FR" } : null
     : { accountId: known.accountId, name: known.business, contact: "", email: known.email, phone, market };
   const pb = playbook.data;
-  const resetCall = () => { setObjs([]); setFocusObj(null); setVariant({}); setDialAt(null); setEndAt(null); setShowAll(false); setLadder(LADDER_START); setMailOpen(false); setMailed([]); setKnown({ accountId: "", email: "", business: "" }); setStep("ready"); };
+  const resetCall = () => { setObjs([]); setFocusObj(null); setVariant({}); setDialAt(null); setEndAt(null); setLadder(LADDER_START); setMailPreview(false); setMailed([]); setKnown({ accountId: "", email: "", business: "" }); setStep("ready"); };
   const instant = useInstantSend(id);
 
   const end = useMutation({ mutationFn: () => api("/api/calls/sessions", { method: "PATCH", body: { id } }), onSuccess: () => { qc.invalidateQueries(); onEnd(); } });
@@ -148,12 +150,21 @@ export function ActiveSession({ id, listId, onEnd }: { id: string; listId: strin
   };
   /** "Already called?": straight to picked up / not picked up. */
   const logWithoutDial = () => { if (busy) return; setAfter(null); setDialAt(Date.now()); setEndAt(Date.now()); go("hang_up"); };
-  const pickedUp = () => go("picked_up");
-  const notPickedUp = () => { if (!endAt) setEndAt(Date.now()); setMailOpen(false); go("not_picked_up"); };
-  const logMissed = (o: (typeof MISSED_OUTCOMES)[number]) => { if (!busy) log.mutate({ outcome: o, offers_pitched: [] }); };
+  const pickedUp = () => { setEndAt(null); go("picked_up"); };
+  /** Not picked up / voicemail: logged at once, then the next prospect with [New call] focused (D076). */
+  const logMissed = (o: (typeof MISSED_OUTCOMES)[number]) => { if (!busy) { if (!endAt) setEndAt(Date.now()); log.mutate({ outcome: o, offers_pitched: [] }); } };
   const hangUp = () => {
-    if (step === "live") { setEndAt(Date.now()); setFocusObj(null); setMailOpen(false); go("hang_up"); }
-    else if (step === "ringing") notPickedUp();
+    if (step === "live") { setEndAt(Date.now()); setFocusObj(null); go("hang_up"); }
+    else if (step === "ringing") logMissed("no_answer");
+  };
+  /** "← Back": one step back in the click path, nothing logged. */
+  const back = () => {
+    if (log.isPending) return;
+    setPending(null);
+    if (step === "hungup") setEndAt(null);
+    if (step === "ringing") { setDialAt(null); setEndAt(null); }
+    if (step === "live") setFocusObj(null);
+    go("back");
   };
   const chooseAfter = (a: AfterOutcome) => {
     if (busy) return;
@@ -164,22 +175,20 @@ export function ActiveSession({ id, listId, onEnd }: { id: string; listId: strin
   };
   const toggleObj = (o: Objection) => {
     const on = objs.includes(o);
+    if (on && focusObj !== o) { setFocusObj(o); return; } // already ticked: a tap brings its reply back first
     setObjs((x) => (on ? x.filter((y) => y !== o) : [...x, o]));
     if (!on) {
       setFocusObj(o);
       setVariant((v) => (v[o] ? v : { ...v, [o]: report.data?.picks[o] ?? 1 }));
-      if (o === "send_info" || o === "no_time") setMailOpen(true); // "send me info" / "no time": the deck is one click away
-    } else if (focusObj === o) setFocusObj(null);
+    } else setFocusObj(null);
   };
   const cycleVariant = (dir: 1 | -1) => {
     if (!focusObj) return;
     setVariant((v) => ({ ...v, [focusObj]: (((v[focusObj] ?? 1) - 1 + dir + VARIANTS) % VARIANTS) + 1 }));
   };
   const onLadder = (a: "propose" | "yes" | "no" | "reset") => {
-    const next = ladder(ladderState, a);
-    setLadder(next);
+    setLadder(ladder(ladderState, a));
     if (a !== "reset") setFocusObj(null);
-    if (next.accepted === "thirty" || next.accepted === "local") setMailOpen(true); // the matching mail comes first
   };
   const openMessage = (template: TemplateKey) => {
     const target = after?.target ?? liveTarget;
@@ -201,16 +210,21 @@ export function ActiveSession({ id, listId, onEnd }: { id: string; listId: strin
     setKnown((x) => ({ accountId: x.accountId || (listId ? "" : r.accountId), email: r.email, business: r.business || x.business }));
   };
 
+  // Back on the first state (after a missed call, an outcome, a skip): [New call] has the focus, Enter dials.
+  React.useEffect(() => {
+    if (step === "ready" && !paused && !after?.open && !busy) newCallRef.current?.focus({ preventScroll: true });
+  }, [step, current?.accountId, paused, after?.open, busy]);
+
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (paused) { if (e.key === "Enter" && !isTyping(e.target)) { e.preventDefault(); resume(); } return; }
+      if (mailPreview.current) return; // the mail preview: Enter sends, Esc cancels
       if (e.key === "Escape") {
         if (pending) setPending(null);
         else if (after?.open) setAfter({ ...after, open: false });
-        else if (mailOpen) setMailOpen(false);
         else if (focusObj) setFocusObj(null);
-        else if (step === "ringing" || step === "missed" || step === "hungup") go("back");
+        else if (step !== "ready") back();
         return;
       }
       if (isTyping(e.target) || pending) return;
@@ -225,17 +239,13 @@ export function ActiveSession({ id, listId, onEnd }: { id: string; listId: strin
         else if (k === "p") { e.preventDefault(); openMessage("deck"); }
         else if (k === "c") { e.preventDefault(); void copyCalendly(); }
         else if (k === "n" && listId) { e.preventDefault(); skip(); }
+        else if (!listId && /^[0-9+]$/.test(e.key)) phoneRef.current?.focus(); // free dialling: typing a number fills the field
         return;
       }
-      if (step === "ringing") {
+      if (step === "ringing" || step === "missed") {
         if (digit === 1) { e.preventDefault(); pickedUp(); }
-        else if (digit === 2 || k === "x") { e.preventDefault(); notPickedUp(); }
-        return;
-      }
-      if (step === "missed") {
-        if (k === "m") { e.preventDefault(); setMailOpen((x) => !x); return; }
-        if (mailOpen) return; // digits send a mail chip
-        if (digit >= 1 && digit <= MISSED_OUTCOMES.length) { e.preventDefault(); logMissed(MISSED_OUTCOMES[digit - 1]); }
+        else if (digit === 2 || k === "x") { e.preventDefault(); logMissed("no_answer"); }
+        else if (digit === 3) { e.preventDefault(); logMissed("voicemail"); }
         return;
       }
       if (step === "hungup") {
@@ -243,9 +253,8 @@ export function ActiveSession({ id, listId, onEnd }: { id: string; listId: strin
         else if (k === "enter" && suggested) { e.preventDefault(); chooseAfter(suggested); }
         return;
       }
-      // live
+      // live (M and the digits belong to the instant mail)
       if (k === "x") { e.preventDefault(); hangUp(); return; }
-      if (k === "m") { e.preventDefault(); setMailOpen((x) => !x); return; }
       if (k === "o" && (ladderState.at === "idle")) { e.preventDefault(); onLadder("propose"); return; }
       if ((k === "y" || k === "n") && (ladderState.at === "local" || ladderState.at === "thirty")) { e.preventDefault(); onLadder(k === "y" ? "yes" : "no"); return; }
       if (e.key === "ArrowRight" || e.key === "ArrowLeft") { if (focusObj) { e.preventDefault(); cycleVariant(e.key === "ArrowRight" ? 1 : -1); } return; }
@@ -258,40 +267,84 @@ export function ActiveSession({ id, listId, onEnd }: { id: string; listId: strin
 
   const s = summary.data?.stats;
   const done = listId && queue.isSuccess && !current && step === "ready";
+  const inCall = step !== "ready" && !done;
   const vars = { business: liveTarget?.name, contact: liveTarget?.contact, founder: pb?.founderName, calendly: pb?.links.calendly, deck: lang === "ES" ? pb?.links.deckES : pb?.links.deckFR, thirty: pb?.links.thirty, local_price: pb?.localPrice };
   const opener = pb ? findItem(pb.items, "opener", "default", lang) : null;
-  const order = objectionOrder(report.data?.mine, report.data?.team);
-  const shown = showAll ? order : [...new Set([...order.slice(0, TOP_OBJECTIONS), ...objs])];
+  const groups = objectionGroups(objectionOrder(report.data?.mine, report.data?.team));
   const todayCalls = day.data?.tally.calls ?? 0;
   const target = day.data?.targets?.calls?.target ?? 0;
   const chips = after ? templateChips(after.outcome, after.objections, after.target.market, after.offer) : null;
-  const mailChips = liveTarget ? inCallChips({ picked: step !== "missed", market: liveTarget.market, objections: objs, accepted: ladderState.accepted, sent: mailed }) : null;
+  const mailChips = liveTarget ? inCallChips({ picked: true, market: liveTarget.market, objections: objs, accepted: ladderState.accepted, sent: mailed }) : null;
   const yesCount = s ? s.interested + s.callBacks + s.meetings : 0;
-  const mailBlock = liveTarget && mailChips && instant.ready && mailOpen ? (
-    <InCallMail key={key} s={instant} target={liveTarget} chips={mailChips.chips} suggested={mailChips.suggested} sent={mailed} keys needsBusiness={!listId && !known.accountId} onSent={onMailSent} />
-  ) : null;
+  const afterTpl = after && chips ? after.template ?? chips.suggested : null;
+  const afterText = after && afterTpl && instant.playbook ? messageFor(instant.playbook, instant.lang, "email", afterTpl, { name: after.target.name, contact: after.target.contact }) : null;
+
+  // During the call, right column: the stage (mail preview, ladder pitch, reply or the "listen" hint) keeps one size,
+  // so a click never moves the page; then the mail chips, then the ladder and [Hung up].
+  const liveRight = (mail: { chips: React.ReactNode; preview: React.ReactNode | null } | null) => (
+    <div className="flex min-w-0 flex-col gap-3">
+      <div className={cn("flex flex-col", mail?.preview ? "lg:h-[clamp(300px,calc(100dvh-350px),460px)]" : "lg:h-[clamp(230px,calc(100dvh-430px),340px)]")}>
+        {mail?.preview ?? (ladderState.at === "local" || ladderState.at === "thirty" ? (
+          <PitchCard offer={ladderState.at} pb={pb} lang={lang} vars={vars} onAnswer={(yes) => onLadder(yes ? "yes" : "no")} />
+        ) : focusObj && pb ? (
+          <ReplyCard objection={focusObj} lang={lang} variant={variant[focusObj] ?? 1} onCycle={cycleVariant} pb={pb} vars={vars} stats={report.data?.variants ?? []} best={report.data?.picks[focusObj] ?? null} onClose={() => setFocusObj(null)} />
+        ) : (
+          <div className="flex h-full min-h-28 flex-col justify-center gap-2 rounded-[18px] bg-subtle/70 p-5">
+            <p className="text-[17px] text-text-2">{t("Listen, then tick what you hear")}</p>
+            {opener ? <p className="line-clamp-4 text-[15px] leading-relaxed text-text-2"><span className="text-[12px] font-medium uppercase tracking-wide text-text-3">{t("Opener")}</span> · {fill(opener.body, vars)}</p> : null}
+          </div>
+        ))}
+      </div>
+      {mail?.preview ? null : mail?.chips}
+      {mailed.length && !mail?.preview ? <SentLine s={instant} up /> : null}
+      <div className="flex flex-wrap items-center gap-2">
+        <LadderBar state={ladderState} onPropose={() => onLadder("propose")} onReset={() => onLadder("reset")} />
+        <Button variant="dark" size="lg" onClick={hangUp} className="ml-auto min-w-44"><PhoneOff /> {t("Hung up")} <span className="text-[11px] opacity-60">X</span></Button>
+      </div>
+    </div>
+  );
 
   return (
-    <div data-call-live className="mx-auto flex max-w-3xl flex-col gap-4">
-      {/* Session header: progress against today's target, timer, pause, end. */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-xl font-semibold tracking-tight">{listId ? t("Calling") : t("Free dialling")}</h1>
-          <p className="num text-sm text-text-2" aria-live="polite">{fmt(sessionSec)}{listId ? ` · ${t("{n} left in list", { n: queue.data?.remaining ?? "…" })}` : ""}{s ? ` · ${t("{n} picked up", { n: s.pickedUp })} · ${t("{n} yes", { n: yesCount })}` : ""}</p>
+    <div data-call-live className={cn("mx-auto flex flex-col gap-3", step === "live" ? "max-w-6xl" : "max-w-3xl")}>
+      {/* Session header, sticky: during a call it carries ← Back, who is on the line and the call timer. */}
+      <div className="sticky top-14 z-[5] -mx-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-b-[14px] bg-canvas/95 px-2 py-1.5 backdrop-blur">
+        {inCall && !paused ? <Button variant="outline" onClick={back} disabled={log.isPending} className="border-ink"><ChevronLeft /> {t("Back")} <span className="hidden text-[11px] opacity-60 sm:inline">Esc</span></Button> : null}
+        <div className="min-w-0 flex-1">
+          {inCall && !paused ? (
+            <>
+              <h1 className="truncate text-lg font-semibold tracking-tight">{listId ? current?.name : phone || t("Free dialling")}</h1>
+              {listId && current ? <p className="truncate text-[12px] text-text-2">{[t(current.why), current.niche ? t(current.niche) : "", current.city, current.contactName ? t("Ask for {name}", { name: current.contactName }) : ""].filter(Boolean).join(" · ")}</p> : null}
+            </>
+          ) : (
+            <>
+              <h1 className="text-xl font-semibold tracking-tight">{listId ? t("Calling") : t("Free dialling")}</h1>
+              <p className="num truncate text-sm text-text-2" aria-live="polite">{fmt(sessionSec)}{listId ? ` · ${t("{n} left in list", { n: queue.data?.remaining ?? "…" })}` : ""}{s ? ` · ${t("{n} picked up", { n: s.pickedUp })} · ${t("{n} yes", { n: yesCount })}` : ""}</p>
+            </>
+          )}
         </div>
-        <div className="flex items-center gap-2">
+        {inCall && !paused ? <span className="num text-3xl font-semibold" aria-label={t("Call timer")}>{fmt(callSec ?? 0)}</span> : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {undo ? (
+            <Button variant="outline" disabled={undoLast.isPending} onClick={() => undoLast.mutate(undo.key)} title={`${t(undo.offer ? AFTER_OUTCOME_LABELS[undo.offer === "local" ? "local_yes" : "thirty_yes"] : CALL_OUTCOME_LABELS[undo.outcome])}${undo.name ? ` · ${undo.name}` : ""}`} className="border-ink">
+              <RotateCcw /> <span className="hidden sm:inline">{t("Undo the last call")}</span><span className="sm:hidden">{t("Undo")}</span> <span className="num text-[11px] opacity-70">U · {Math.min(UNDO_SECONDS, Math.max(0, Math.ceil((undo.until - now) / 1000)))}s</span>
+            </Button>
+          ) : null}
           <Button variant="ghost" size="icon" aria-label={paused ? t("Resume") : t("Pause")} onClick={paused ? resume : pause}>{paused ? <Play /> : <Pause />}</Button>
           <MoreMenu>
             {instant.gmailKnown ? (instant.gmailConnected ? <span className="px-3 py-2 text-[13px] text-text-2">{t("Gmail connected")}</span> : <span className="px-3 py-2"><ConnectGmail compact /></span>) : null}
             <MenuItem onClick={() => openMessage("deck")} hint="P">{t("Send the deck")}</MenuItem>
             <MenuItem onClick={() => void copyCalendly()} hint="C">{t("Copy my Calendly link")}</MenuItem>
             {listId && current && step === "ready" ? <MenuItem onClick={skip} hint="N">{t("Skip this number")}</MenuItem> : null}
-            <p className="max-w-72 px-3 py-2 text-[12px] text-text-3">{t("Enter new call · 1 picked up · 2 not picked up · letters objections · ← → other reply · M instant mail · O offer Local then 30/30 · Y / N their answer · X hung up · 1–7 outcome · U undo · E message · N skip")}</p>
+            <label className="flex cursor-pointer items-center justify-between gap-4 px-3 py-2 text-[14px] hover:bg-subtle">
+              <span>{t("Send instant mails without preview")}</span>
+              <input type="checkbox" checked={instant.noPreview} onChange={(e) => instant.setNoPreview(e.target.checked)} className="size-4 accent-[var(--ink)]" />
+            </label>
+            <p className="max-w-72 px-3 py-2 text-[12px] text-text-3">{t("Enter new call · 1 picked up · 2 not picked up · 3 voicemail · Esc back · letters objections · ← → other reply · M or 1–6 mail preview, Enter sends · O offer Local then 30/30 · Y / N their answer · X hung up · 1–7 outcome · U undo · E message · N skip")}</p>
           </MoreMenu>
           <Button variant="outline" onClick={() => end.mutate()} disabled={end.isPending}>{t("End session")}</Button>
         </div>
       </div>
-      {target > 0 ? (
+      {target > 0 && !inCall ? (
         <div aria-label={t("Calls today")}>
           <div className="flex h-2 overflow-hidden rounded-full bg-subtle"><div className="bg-sales transition-[width]" style={{ width: `${Math.min(100, (todayCalls / target) * 100)}%` }} /></div>
           <p className="num mt-1 text-[12px] text-text-2">{t("{n} / {total} calls today", { n: todayCalls, total: target })}</p>
@@ -299,12 +352,7 @@ export function ActiveSession({ id, listId, onEnd }: { id: string; listId: strin
       ) : null}
 
       <ConfirmSent s={instant} />
-      {undo ? (
-        <div className="flex items-center gap-2 rounded-[12px] bg-subtle px-3 py-2 text-sm" role="status">
-          <span className="min-w-0 flex-1 truncate">{t(undo.offer ? AFTER_OUTCOME_LABELS[undo.offer === "local" ? "local_yes" : "thirty_yes"] : CALL_OUTCOME_LABELS[undo.outcome])}{undo.name ? ` · ${undo.name}` : ""}</span>
-          <Button size="sm" variant="ghost" disabled={undoLast.isPending} onClick={() => undoLast.mutate(undo.key)}><RotateCcw /> {t("Undo")} <span className="num text-[11px] opacity-70">U · {Math.max(0, Math.ceil((undo.until - now) / 1000))}</span></Button>
-        </div>
-      ) : null}
+      {!inCall ? <SentLine s={instant} /> : null}
 
       {paused ? (
         <Panel className="flex flex-col items-center gap-3 py-10 text-center">
@@ -314,112 +362,72 @@ export function ActiveSession({ id, listId, onEnd }: { id: string; listId: strin
         </Panel>
       ) : (
         <>
-          {/* After a call: the message stays one key away (E), folded, never in the way of the next call. */}
+          {/* After a call: the message stays one key away (E), folded, never in the way of the next call; it says what it sends. */}
           {after && chips && instant.ready && step === "ready" ? (after.open ? (
             <MessageCard key={after.sendKey} s={instant} target={after.target} chips={chips.chips} suggested={after.template ?? chips.suggested} sendKey={after.sendKey} keys needsBusiness={after.needsBusiness}
               onDone={() => setAfter(null)} onSkip={() => setAfter(null)}
               footer={listId && current && current.accountId !== after.target.accountId ? <span className="ml-auto text-[12px] text-text-3">{t("Next:")} {current.name}</span> : null} />
           ) : (
-            <div className="flex flex-wrap items-center gap-2 rounded-[14px] border border-sales/60 bg-panel px-4 py-2.5" role="status">
-              <Mail className="size-4 text-text-2" />
-              <p className="min-w-0 flex-1 truncate text-sm">{t("Message for {name}", { name: after.target.contact || after.target.name || t("the last call") })}{chips.suggested ? <span className="text-text-2"> · {t(TEMPLATE_SHORT[after.template ?? chips.suggested])}</span> : null}</p>
-              <Button size="sm" variant="outline" onClick={() => setAfter({ ...after, open: true })}>{t("Write")} <span className="text-[11px] opacity-60">E</span></Button>
+            <div className="flex flex-wrap items-center gap-2 rounded-[14px] border border-sales/60 bg-panel px-4 py-2" role="status">
+              <Mail className="size-4 shrink-0 text-text-2" />
+              <div className="min-w-0 flex-1 text-sm">
+                <p className="truncate">{t("Mail ready for {name}", { name: after.target.contact || after.target.name || t("the last call") })}{afterTpl ? <b className="font-semibold"> · {t(EMAIL_TEMPLATE_LABELS[afterTpl])}</b> : null}</p>
+                <p className="truncate text-[12px] text-text-2">{after.target.email ? `→ ${after.target.email}` : t("No email yet: you add it before sending")}{afterText?.subject ? ` · « ${afterText.subject} »` : ""}</p>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => setAfter({ ...after, open: true })}>{t("See and send")} <span className="text-[11px] opacity-60">E</span></Button>
               <Button size="icon" variant="ghost" aria-label={t("No message")} onClick={() => setAfter(null)}><X /></Button>
             </div>
           )) : null}
 
-          <Panel className="flex flex-col gap-5">
+          <Panel className={cn("flex flex-col gap-4", inCall && "p-4 sm:p-4")}>
             {listId && queue.isPending ? <Skeleton className="h-20" /> : done ? (
               <EmptyState title={t("List finished")} action={<Button variant="primary" size="sm" onClick={() => end.mutate()}>{t("See the session summary")}</Button>}>{t("Everyone in this list has been called today.")}</EmptyState>
             ) : (
               <>
-                {/* Who and why: always visible, small once the call has started. */}
-                {listId && current ? (
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-[12px] text-text-2">{t(current.why)}{current.niche ? ` · ${t(current.niche)}` : ""}{current.city ? ` · ${current.city}` : ""}</p>
-                      <p className={cn("truncate font-semibold tracking-tight", step === "ready" ? "text-2xl" : "text-lg")}>{current.name}</p>
-                      {current.contactName ? <p className="text-sm text-text-2">{t("Ask for {name}", { name: current.contactName })}</p> : null}
-                    </div>
-                    {step === "ready" ? <Button variant="ghost" size="sm" aria-label={t("Skip this number (N)")} onClick={skip}><SkipForward /> {t("Skip")}</Button> : null}
-                  </div>
-                ) : null}
-
                 {step === "ready" ? (
                   <>
-                    {!listId ? <Input aria-label={t("Number (optional, never stored for a refusal)")} type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); newCall(); } }} placeholder={t("Number (optional, never stored for a refusal)")} className="num h-12 text-lg" /> : null}
+                    {listId && current ? (
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-[12px] text-text-2">{t(current.why)}{current.niche ? ` · ${t(current.niche)}` : ""}{current.city ? ` · ${current.city}` : ""}</p>
+                          <p className="truncate text-2xl font-semibold tracking-tight">{current.name}</p>
+                          {current.contactName ? <p className="text-sm text-text-2">{t("Ask for {name}", { name: current.contactName })}</p> : null}
+                        </div>
+                        <Button variant="ghost" size="sm" aria-label={t("Skip this number (N)")} onClick={skip}><SkipForward /> {t("Skip")}</Button>
+                      </div>
+                    ) : null}
+                    {!listId ? <Input ref={phoneRef} aria-label={t("Number (optional, never stored for a refusal)")} type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); newCall(); } }} placeholder={t("Number (optional, never stored for a refusal)")} className="num h-12 text-lg" /> : null}
                     {opener ? (
                       <div className="rounded-[16px] bg-subtle/70 p-4">
                         <p className="mb-1 text-[12px] font-medium uppercase tracking-wide text-text-3">{t("Opener")}</p>
                         <p className="text-[18px] leading-relaxed">{fill(opener.body, vars)}</p>
                       </div>
                     ) : null}
-                    <Button size="lg" variant="primary" onClick={newCall} disabled={busy} className="h-16 w-full text-lg"><Phone /> {t("New call")} {listId && current ? <span className="num font-normal opacity-90">{current.phone}</span> : null}<span className="text-[12px] opacity-70">↵</span></Button>
+                    <Button ref={newCallRef} size="lg" variant="primary" onClick={newCall} disabled={busy} className="h-16 w-full text-lg focus-visible:ring-4 focus-visible:ring-sales/50"><Phone /> {t("New call")} {listId && current ? <span className="num font-normal opacity-90">{current.phone}</span> : null}<span className="text-[12px] opacity-70">↵</span></Button>
                     <button type="button" onClick={logWithoutDial} className="self-center text-[13px] text-text-2 underline">{t("Already called? Log the outcome")}</button>
                   </>
                 ) : null}
 
-                {step === "ringing" ? (
+                {step === "ringing" || step === "missed" ? (
                   <>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="num text-3xl font-semibold" aria-label={t("Call timer")}>{fmt(callSec ?? 0)}</span>
-                      <button type="button" onClick={() => go("back")} className="text-[13px] text-text-2 underline">{t("Back")}</button>
-                    </div>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                       <BigChoice onClick={pickedUp} tone="win" hint="1">{t("They picked up")}</BigChoice>
-                      <BigChoice onClick={notPickedUp} hint="2">{t("They did not pick up")}</BigChoice>
+                      <BigChoice onClick={() => logMissed("no_answer")} hint="2" disabled={log.isPending}>{t("They did not pick up")}</BigChoice>
+                      <BigChoice onClick={() => logMissed("voicemail")} hint="3" disabled={log.isPending}>{t("Voicemail")}</BigChoice>
                     </div>
+                    <p className="text-center text-[13px] text-text-2">{t("Not picked up or voicemail: logged at once, the next prospect comes up.")}</p>
                   </>
-                ) : null}
-
-                {step === "missed" ? (
-                  <div className="flex flex-col gap-3">
-                    <p className="text-sm font-medium">{t("Nobody picked up: what happened?")}</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {MISSED_OUTCOMES.map((o, i) => (
-                        <button key={o} type="button" onClick={() => logMissed(o)} disabled={log.isPending} className="flex min-h-[64px] flex-col items-center justify-center rounded-[14px] border-2 border-hairline bg-panel text-[17px] font-semibold hover:bg-subtle disabled:opacity-50">
-                          {t(CALL_OUTCOME_LABELS[o])}<span className="text-[12px] font-normal text-text-3">{i + 1}</span>
-                        </button>
-                      ))}
-                    </div>
-                    {mailBlock ?? (liveTarget ? <MailToggle onClick={() => setMailOpen(true)} sent={mailed.length} label={t("Mail: tried to reach you")} /> : null)}
-                    <button type="button" onClick={() => go("back")} className="self-start text-[13px] text-text-2 underline">{t("Back")}</button>
-                  </div>
                 ) : null}
 
                 {step === "live" ? (
-                  <>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="num text-3xl font-semibold" aria-label={t("Call timer")}>{fmt(callSec ?? 0)}</span>
-                      <Button variant="dark" size="lg" onClick={hangUp}><PhoneOff /> {t("Hung up")} <span className="text-[11px] opacity-60">X</span></Button>
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,8fr)]">
+                    <ObjectionList groups={groups} on={objs} focus={focusObj} onToggle={toggleObj} className="order-2 lg:order-1" />
+                    <div className="order-1 min-w-0 lg:order-2">
+                      {liveTarget && mailChips && instant.ready ? (
+                        <InCallMail key={key} s={instant} target={liveTarget} chips={mailChips.chips} suggested={mailChips.suggested} sent={mailed} keys needsBusiness={!listId && !known.accountId} onSent={onMailSent} onPreview={setMailPreview} layout={liveRight} />
+                      ) : liveRight(null)}
                     </div>
-                    {ladderState.at === "local" || ladderState.at === "thirty" ? (
-                      <PitchCard offer={ladderState.at} pb={pb} lang={lang} vars={vars} onAnswer={(yes) => onLadder(yes ? "yes" : "no")} />
-                    ) : focusObj && pb ? (
-                      <ReplyCard objection={focusObj} lang={lang} variant={variant[focusObj] ?? 1} onCycle={cycleVariant} pb={pb} vars={vars} stats={report.data?.variants ?? []} best={report.data?.picks[focusObj] ?? null} onClose={() => setFocusObj(null)} />
-                    ) : <p className="rounded-[16px] bg-subtle/70 p-4 text-[15px] text-text-2">{t("Listen, then tick what you hear")}</p>}
-                    <div className="flex flex-wrap gap-2">
-                      {mailOpen ? null : <MailToggle onClick={() => setMailOpen(true)} sent={mailed.length} label={t("Instant mail")} />}
-                      <LadderBar state={ladderState} onPropose={() => onLadder("propose")} onReset={() => onLadder("reset")} />
-                    </div>
-                    {mailBlock}
-                    <div>
-                      <p className="mb-2 text-sm font-medium text-text-2">{t("Objection? Tap it (or its letter): the answer shows above.")}</p>
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                        {shown.map((k) => {
-                          const g = guideOf(k)!;
-                          const on = objs.includes(k);
-                          return (
-                            <button key={k} type="button" aria-pressed={on} onClick={() => toggleObj(k)} title={t(g.meaning)}
-                              className={cn("flex min-h-12 items-center justify-between gap-2 rounded-[12px] border px-3 text-left text-[15px] font-medium transition-colors", on ? "border-ink bg-ink text-panel" : "border-control bg-panel hover:bg-subtle", focusObj === k && "ring-2 ring-sales ring-offset-2 ring-offset-panel")}>
-                              <span>{t(OBJECTION_LABELS[k])}</span><span className={cn("rounded border px-1 text-[11px] uppercase", on ? "border-panel/40 text-panel/70" : "border-hairline text-text-3")}>{g.hotkey}</span>
-                            </button>
-                          );
-                        })}
-                        {!showAll && order.length > shown.length ? <button type="button" onClick={() => setShowAll(true)} className="min-h-12 rounded-[12px] border border-dashed border-control px-3 text-[15px] text-text-2 hover:bg-subtle">{t("Others")} ({order.length - shown.length})</button> : null}
-                      </div>
-                    </div>
-                  </>
+                  </div>
                 ) : null}
 
                 {step === "hungup" ? (
@@ -446,23 +454,43 @@ export function ActiveSession({ id, listId, onEnd }: { id: string; listId: strin
         </>
       )}
 
-      <CallLog sessionId={id} title="This session's calls" />
+      {inCall ? null : <CallLog sessionId={id} title="This session's calls" />}
     </div>
   );
 }
 
-function BigChoice({ onClick, tone, hint, children }: { onClick: () => void; tone?: "win"; hint: string; children: React.ReactNode }) {
+/** Every objection at once, grouped (brush-offs, then real objections), each with its letter: no scrolling, no "Others". */
+function ObjectionList({ groups, on, focus, onToggle, className }: { groups: { type: ObjectionType; keys: Objection[] }[]; on: Objection[]; focus: Objection | null; onToggle: (o: Objection) => void; className?: string }) {
+  const t = useT();
   return (
-    <button type="button" onClick={onClick} className={cn("flex min-h-[96px] flex-col items-center justify-center rounded-[18px] border-2 text-[22px] font-semibold transition-colors", tone === "win" ? "border-win bg-win text-panel hover:opacity-90" : "border-ink bg-panel text-ink hover:bg-subtle")}>
-      {children}<span className={cn("text-[13px] font-normal", tone === "win" ? "text-panel/80" : "text-text-3")}>{hint}</span>
-    </button>
+    <div className={cn("flex flex-col gap-3", className)} role="group" aria-label={t("Objections")}>
+      {groups.map((g) => (
+        <div key={g.type}>
+          <p className="mb-1.5 text-[12px] font-semibold uppercase tracking-wide text-text-3">{g.type === "brush_off" ? t("Brush-offs: test them") : t("Real objections: explore")}</p>
+          <div className="grid grid-cols-2 gap-1.5">
+            {g.keys.map((k) => {
+              const gd = guideOf(k)!;
+              const sel = on.includes(k);
+              return (
+                <button key={k} type="button" aria-pressed={sel} onClick={() => onToggle(k)} title={t(gd.meaning)}
+                  className={cn("flex min-h-11 items-center justify-between gap-2 rounded-[12px] border px-3 py-1 text-left text-[14px] font-medium leading-tight transition-colors", sel ? "border-ink bg-ink text-panel" : "border-control bg-panel hover:bg-subtle", focus === k && "ring-2 ring-sales ring-offset-2 ring-offset-panel")}>
+                  <span>{t(OBJECTION_LABELS[k])}</span><span className={cn("shrink-0 rounded border px-1 text-[11px] uppercase", sel ? "border-panel/40 text-panel/70" : "border-hairline text-text-3")}>{gd.hotkey}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+      <p className="text-[12px] text-text-3">{t("Tap an objection or its letter: its reply shows at once. ← → other reply.")}</p>
+    </div>
   );
 }
 
-function MailToggle({ onClick, sent, label }: { onClick: () => void; sent: number; label: string }) {
-  const t = useT();
+function BigChoice({ onClick, tone, hint, disabled, children }: { onClick: () => void; tone?: "win"; hint: string; disabled?: boolean; children: React.ReactNode }) {
   return (
-    <Button variant="outline" size="lg" onClick={onClick} className="min-h-12"><Mail /> {label}{sent ? <span className="text-[12px] text-win">· {t("{n} sent", { n: sent })}</span> : null} <span className="text-[11px] opacity-60">M</span></Button>
+    <button type="button" onClick={onClick} disabled={disabled} className={cn("flex min-h-[96px] flex-col disabled:opacity-50 items-center justify-center rounded-[18px] border-2 text-[22px] font-semibold transition-colors", tone === "win" ? "border-win bg-win text-panel hover:opacity-90" : "border-ink bg-panel text-ink hover:bg-subtle")}>
+      {children}<span className={cn("text-[13px] font-normal", tone === "win" ? "text-panel/80" : "text-text-3")}>{hint}</span>
+    </button>
   );
 }
 
@@ -486,9 +514,9 @@ function PitchCard({ offer, pb, lang, vars, onAnswer }: { offer: LadderOffer; pb
   const item = pb ? findItem(pb.items, "opener", offer === "local" ? "pitch_local" : "pitch_thirty", lang) : null;
   const lines = item ? fill(item.body, vars).split("\n").filter((l) => l.trim()) : [];
   return (
-    <div className="rounded-[18px] border-2 border-ink bg-panel p-5" aria-live="assertive">
+    <div className="flex h-full flex-col rounded-[18px] border-2 border-ink bg-panel p-4" aria-live="assertive">
       <p className="mb-3 text-[15px] font-semibold">{offer === "local" ? t("Offer Local · {price} per month", { price: pb?.localPrice ?? "100 €" }) : t("Offer 30/30")}</p>
-      <ol className="mb-4 flex flex-col gap-2">{lines.map((l, i) => <li key={i} className={cn("text-[20px] leading-[1.35]", i === 1 && "font-semibold")}>{l}</li>)}</ol>
+      <ol className="mb-3 flex flex-1 flex-col gap-2">{lines.map((l, i) => <li key={i} className={cn("text-[19px] leading-[1.35]", i === 1 && "font-semibold")}>{l}</li>)}</ol>
       <div className="grid grid-cols-2 gap-2">
         <button type="button" onClick={() => onAnswer(true)} className="flex min-h-14 items-center justify-center gap-2 rounded-[14px] border-2 border-win bg-win text-[17px] font-semibold text-panel hover:opacity-90">{offer === "local" ? t("Yes Local") : t("Yes 30/30")} <span className="text-[12px] font-normal opacity-80">Y</span></button>
         <button type="button" onClick={() => onAnswer(false)} className="flex min-h-14 items-center justify-center gap-2 rounded-[14px] border-2 border-hairline bg-panel text-[17px] font-semibold hover:bg-subtle">{t("No")} <span className="text-[12px] font-normal text-text-3">N</span></button>
@@ -535,8 +563,8 @@ function ReplyCard({ objection, lang, variant, onCycle, pb, vars, stats, best, o
   const steps = item ? replySteps(fill(item.body, vars)) : [];
   const g = guideOf(objection);
   return (
-    <div className="rounded-[18px] border-2 border-ink bg-panel p-5" aria-live="assertive">
-      <div className="mb-4 flex items-center justify-between gap-2">
+    <div className="h-full overflow-hidden rounded-[18px] border-2 border-ink bg-panel p-4" aria-live="assertive">
+      <div className="mb-3 flex items-center justify-between gap-2">
         <p className="text-[15px] font-semibold">« {t(OBJECTION_LABELS[objection])} »{g?.type === "brush_off" ? <span className="ml-2 text-[13px] font-normal text-text-2">{t("brush-off: test it")}</span> : null}</p>
         <span className="flex items-center gap-1 text-[12px] text-text-3">
           <button type="button" aria-label={t("Previous reply")} onClick={() => onCycle(-1)} className="rounded p-1.5 hover:bg-subtle"><ChevronLeft className="size-5" /></button>
@@ -545,13 +573,13 @@ function ReplyCard({ objection, lang, variant, onCycle, pb, vars, stats, best, o
           <button type="button" aria-label={t("Close")} onClick={onClose} className="rounded p-1.5 hover:bg-subtle"><X className="size-5" /></button>
         </span>
       </div>
-      <ol className="flex flex-col gap-4">
+      <ol className="flex flex-col gap-3">
         {steps.map((line, i) => (
           <li key={i} className="flex gap-3">
             <span className={cn("mt-1 flex size-7 shrink-0 items-center justify-center rounded-full text-[13px] font-semibold", i === 1 ? "bg-ink text-panel" : "bg-subtle text-text-2")}>{i + 1}</span>
             <span>
               <span className="block text-[12px] font-semibold uppercase tracking-wide text-text-3">{t(STEP_NAMES[i] ?? "")}</span>
-              <span className={cn("block text-[22px] leading-[1.35]", i === 1 ? "font-semibold" : "font-normal")}>{line}</span>
+              <span className={cn("block text-[19px] leading-[1.35]", i === 1 ? "font-semibold" : "font-normal")}>{line}</span>
             </span>
           </li>
         ))}

@@ -3,16 +3,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { EmptyState, ErrorState, Field, Input, Panel, PanelTitle, SegmentedSwitch, Select, Skeleton } from "@/components/ui/form";
-import type { Cost } from "@/domain/cac";
-import { SeoView } from "./marketing-seo";
+import { EmptyState, ErrorState, Field, Input, Panel, PanelTitle, Select, Skeleton } from "@/components/ui/form";
 import { BRANDS, BRAND_LABELS } from "@/domain/constants";
 import { classifyTraffic, type TrafficGroup } from "@/domain/marketing";
 import { api } from "@/lib/api";
 import { cn, formatEur } from "@/lib/utils";
 import type { marketingOverview } from "@/server/services/marketing";
 import { Bars } from "./charts";
-import { StatStrip, StepFunnel, useCostStat, useFunnels, type Days, type GrowthFilter } from "./growth-common";
+import { StatStrip, StepFunnel, addCosts, useCostStat, useFunnels, type Days, type GrowthFilter, type Stat } from "./growth-common";
 import { useDateTag, useT } from "@/i18n/react";
 
 type Overview = Awaited<ReturnType<typeof marketingOverview>>;
@@ -24,37 +22,24 @@ export function useMarketingOverview(days: Days) {
 }
 
 /**
- * Growth › Web: two views. Visits = browser visits (search, direct, referral, paid) and AI engines, each with its funnel →
- * where visits come from → GA4 import. SEO (round 9) = Search Console data, optimisation points, site audit, AI engines checklist.
+ * Growth › Web drawer › Visits (round 10, D077): browser visits and AI engines, each with its funnel → where visits come from
+ * → countries. SEO and "Add website numbers" are the drawer's other tabs; the cost is in the drawer band.
  */
-export function WebsiteTab({ filter }: { filter: GrowthFilter }) {
-  const t = useT();
-  const [view, setView] = React.useState<"visits" | "seo">("visits");
+export function WebVisits({ filter }: { filter: GrowthFilter }) {
+  const costStat = useCostStat();
   const q = useMarketingOverview(filter.days);
   const f = useFunnels(filter);
   const src = (k: string) => f.data?.sources?.find((c) => c.key === k)?.steps ?? [];
-  return (
-    <div className="flex flex-col gap-5">
-      <div><SegmentedSwitch size="sm" label={t("View")} value={view} onChange={setView} options={[{ value: "visits", label: t("Visits") }, { value: "seo", label: "SEO" }]} /></div>
-      {view === "seo" ? <SeoView days={filter.days} /> : (
-        <>
-          {q.isPending ? <Skeleton className="h-[420px]" /> : q.isError ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : (
-            <WebsiteBody d={q.data} web={src("web")} ai={src("ai")} cost={f.data?.costs?.web} />
-          )}
-          <div className="pt-2"><h2 className="text-lg font-semibold tracking-tight">{t("Add website numbers")}</h2><p className="text-sm text-text-2">{t("Import a GA4 export once a week, or type the numbers of a day.")}</p></div>
-          <TrafficTab />
-        </>
-      )}
-    </div>
-  );
+  if (q.isPending) return <Skeleton className="h-[420px]" />;
+  if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
+  return <div className="flex flex-col gap-5"><WebsiteBody d={q.data} web={src("web")} ai={src("ai")} cost={costStat(addCosts(f.data?.costs?.web, f.data?.costs?.ai))} /></div>;
 }
 
 /** Web sub-split labels, in the order shown. */
 const KIND_LABELS = [["search", "Search engines"], ["paid", "Paid search"], ["direct", "Direct"], ["referral", "Referral sites"], ["other", "Other (email, campaigns)"], ["ai", "AI engines"]] as const;
 
-function WebsiteBody({ d, web, ai, cost }: { d: Overview; web: { label: string; value: number }[]; ai: { label: string; value: number }[]; cost: Cost | undefined }) {
+function WebsiteBody({ d, web, ai, cost }: { d: Overview; web: { label: string; value: number }[]; ai: { label: string; value: number }[]; cost: Stat }) {
   const t = useT();
-  const costStat = useCostStat();
   const tag = useDateTag();
   const g = d.split?.groups;
   const browser = g ? { sessions: g.web.sessions + g.ai.sessions, leads: g.web.leads + g.ai.leads, purchases: g.web.purchases + g.ai.purchases, revenue: g.web.revenue_minor + g.ai.revenue_minor } : { sessions: d.totals.sessions, leads: d.totals.leads, purchases: d.totals.purchases, revenue: d.totals.revenue_minor };
@@ -65,37 +50,37 @@ function WebsiteBody({ d, web, ai, cost }: { d: Overview; web: { label: string; 
   return (
     <>
       <StatStrip stats={[
-        { label: t("Web visits"), value: (g?.web.sessions ?? d.totals.sessions).toLocaleString(tag), note: d.hasTraffic ? t("search, direct, referral and paid") : t("import GA4 below to see this") },
+        { label: t("Web visits"), value: (g?.web.sessions ?? d.totals.sessions).toLocaleString(tag), note: d.hasTraffic ? t("search, direct, referral and paid") : t("import GA4 in “Add numbers” to see this") },
         { label: t("From AI engines"), value: (g?.ai.sessions ?? 0).toLocaleString(tag), note: topEngine ? `${topEngine.engine} · ${t("{n} visits", { n: topEngine.sessions })}` : t("ChatGPT, Perplexity, Claude, Gemini…") },
         { label: t("Leads"), value: browser.leads.toLocaleString(tag), note: t("forms and calls from the website") },
         { label: t("Visit → lead or sale"), value: pct(conv, 1), note: browser.revenue ? `${t("{n} purchases", { n: browser.purchases })} · ${formatEur(browser.revenue)}` : t("{n} purchases", { n: browser.purchases }), result: browser.purchases > 0 },
-        costStat(cost),
-      ]} />
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <StepFunnel title={t("Web (browser)")} steps={web} empty={t("No website traffic in this period: import a GA4 export below.")} footnote={t("Search engines, direct visits, referral sites and paid search. The % is the share kept from the step before.")} />
+        cost,
+      ]} size="sm" />
+      <div className="grid grid-cols-1 gap-5">
+        <StepFunnel title={t("Web (browser)")} steps={web} empty={t("No website traffic in this period: import a GA4 export in “Add numbers”.")} footnote={t("Search engines, direct visits, referral sites and paid search. The % is the share kept from the step before.")} />
         <StepFunnel title={t("AI engines")} steps={ai} empty={t("No visit from an AI engine in this period. They show up when GA4 sees chatgpt.com, perplexity.ai, claude.ai, gemini.google.com… as source.")} footnote={t("ChatGPT, Perplexity, Claude, Gemini, Copilot, DeepSeek, Mistral, You.com, Phind and Grok. The % is the share kept from the step before.")} />
       </div>
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5">
         <Panel>
           <PanelTitle>{t("Where visits come from")}</PanelTitle>
-          {kinds.length ? <Bars tone="sales" data={kinds.map((x) => ({ label: x.label, value: x.sessions, sub: t("{pct} convert · {n}", { pct: pct(x.sessions ? (x.leads + x.purchases) / x.sessions : null, 1), n: x.leads + x.purchases }) }))} /> : <p className="text-sm text-text-2">{t("No website traffic in this period: import a GA4 export below.")}</p>}
+          {kinds.length ? <Bars tone="sales" data={kinds.map((x) => ({ label: x.label, value: x.sessions, sub: t("{pct} convert · {n}", { pct: pct(x.sessions ? (x.leads + x.purchases) / x.sessions : null, 1), n: x.leads + x.purchases }) }))} /> : <p className="text-sm text-text-2">{t("No website traffic in this period: import a GA4 export in “Add numbers”.")}</p>}
           {d.split?.engines.length ? (
             <ul className="mt-4 flex flex-col gap-1 border-t border-hairline pt-3 text-sm">
               {d.split.engines.map((e) => <li key={e.engine} className="flex justify-between gap-3"><span className="text-text-2">{e.engine}</span><span className="num">{e.sessions.toLocaleString(tag)} <span className="text-[12px] text-text-3">· {t("{n} leads", { n: e.leads })}</span></span></li>)}
             </ul>
           ) : null}
-          {g?.social.sessions ? <p className="mt-3 text-[12px] text-text-3">{t("Plus {n} visits from social networks, shown in the LinkedIn and Instagram tabs.", { n: g.social.sessions })}</p> : null}
+          {g?.social.sessions ? <p className="mt-3 text-[12px] text-text-3">{t("Plus {n} visits from social networks, shown in the Social networks details.", { n: g.social.sessions })}</p> : null}
         </Panel>
         <Panel>
           <PanelTitle>{t("Visits by country")}</PanelTitle>
-          {d.countries.length ? <Bars data={d.countries.map((c) => ({ label: `${t(c.country)}${c.target ? "" : ` · ${t("outside target")}`}`, value: c.sessions, tone: c.target ? ("sales" as const) : ("muted" as const), sub: t("{n} conversions", { n: c.conversions }) }))} /> : <p className="text-sm text-text-2">{t("No website traffic in this period: import a GA4 export below.")}</p>}
+          {d.countries.length ? <Bars data={d.countries.map((c) => ({ label: `${t(c.country)}${c.target ? "" : ` · ${t("outside target")}`}`, value: c.sessions, tone: c.target ? ("sales" as const) : ("muted" as const), sub: t("{n} conversions", { n: c.conversions }) }))} /> : <p className="text-sm text-text-2">{t("No website traffic in this period: import a GA4 export in “Add numbers”.")}</p>}
           {d.countries.length ? <p className="mt-3 text-[12px] text-text-3">{t("Grey = outside the target markets.")}</p> : null}
         </Panel>
       </div>
       <Panel>
         <PanelTitle>{t("Are we reaching the right countries?")}</PanelTitle>
         {fits.length === 0 ? (
-          <EmptyState title={t("No audience country data yet")}>{t("In the LinkedIn or Instagram tab, select an account and use “Enter country split”, or import the LinkedIn follower export.")}</EmptyState>
+          <EmptyState title={t("No audience country data yet")}>{t("In the LinkedIn or Social networks details, select an account and use “Enter country split”, or import the LinkedIn follower export.")}</EmptyState>
         ) : (
           <ul className="flex flex-col gap-4">
             {fits.map((f) => (
@@ -151,7 +136,7 @@ export function TrafficTab() {
     onSuccess: () => { for (const k of ["marketing-overview", "funnels"]) qc.invalidateQueries({ queryKey: [k] }); toast(t("Saved")); },
   });
   return (
-    <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-5">
       <Panel className="flex flex-col gap-3">
         <PanelTitle>{t("Import a GA4 export")}</PanelTitle>
         <p className="text-[13px] text-text-2">{t("GA4 › Reports › Acquisition › Traffic acquisition, add “Country” as secondary dimension, then Share › Download CSV. Columns are matched by name; re-importing adds nothing.")}</p>

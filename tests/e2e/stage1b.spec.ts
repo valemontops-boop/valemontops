@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { es, fr, signIn } from "./helpers";
+import { es, fr, re, signIn } from "./helpers";
 
 test.describe.configure({ mode: "serial" });
 
@@ -84,19 +84,23 @@ test("scenario 23: Command Center Now shows exactly five primary numbers", async
 });
 
 test("call mode: new call → picked up / not picked up, objections, instant mail while on the phone, downsell ladder, hung up → outcome", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 }); // a laptop: the whole call fits, no scrolling (D076)
   await signIn(page, "theo");
   await page.goto("/call");
   await page.getByRole("button", { name: fr("Start free session") }).click();
   const outcome = (o: string) => page.getByRole("button", { name: new RegExp(`^${fr(o)}`) });
   const newCall = page.getByRole("button", { name: new RegExp(`^${fr("New call")}`) });
-  // Not picked up: Enter = new call, 2 = not picked up, then no answer / voicemail. Undo for 10 seconds.
+  const back = page.getByRole("button", { name: new RegExp(`^${fr("Back")}`) });
+  // Not picked up: Enter = new call, 2 = not picked up, logged at once; back on [New call], focused. Undo for 10 seconds.
   await expect(newCall).toBeVisible();
   await page.keyboard.press("Enter");
   await expect(outcome("They picked up")).toBeVisible();
+  await back.click(); // "← Back": nothing logged
+  await expect(newCall).toBeFocused();
+  await page.keyboard.press("Enter");
   await page.keyboard.press("Digit2");
-  await outcome("No answer").click();
-  await expect(newCall).toBeVisible();
-  await page.getByRole("button", { name: new RegExp(`^${fr("Undo")}`) }).click();
+  await expect(newCall).toBeFocused();
+  await page.getByRole("button", { name: new RegExp(`^${fr("Undo the last call")}`) }).click();
   await expect(page.getByText(fr("Undone: the call no longer counts."))).toBeVisible();
 
   // Picked up: G = too expensive (reply card), O = offer Local, N = no → 30/30, N = no; X hung up; 4 = not interested.
@@ -105,7 +109,11 @@ test("call mode: new call → picked up / not picked up, objections, instant mai
   await expect(page.getByRole("button", { name: new RegExp(`^${fr("Hung up")}`) })).toBeVisible();
   await page.keyboard.press("g");
   await expect(page.getByRole("button", { name: new RegExp(`^${fr("Too expensive")}`) })).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByText(/paie les 99 €/)).toBeVisible(); // live three-step reply from the playbook
+  await expect(page.getByText(/rembourser l'investissement/)).toBeVisible(); // live three-step reply from the playbook
+  // Every objection is on screen at once and the page does not scroll on a laptop.
+  await expect(page.getByRole("group", { name: fr("Objections") }).getByRole("button")).toHaveCount(12);
+  // (#main's bottom, padding included: the DEMO banner above the shell already takes its own 32px.)
+  expect(await page.evaluate(() => document.getElementById("main")!.getBoundingClientRect().bottom <= window.innerHeight)).toBe(true);
   await page.keyboard.press("o");
   await expect(page.getByText(/Valemont Local, 100 € par mois/)).toBeVisible(); // Local pitch, price from the setting
   await page.keyboard.press("n");
@@ -115,24 +123,32 @@ test("call mode: new call → picked up / not picked up, objections, instant mai
   await page.keyboard.press("x");
   await expect(outcome("Yes Local")).toBeVisible(); // offered on the ladder, so it is an outcome
   await expect(outcome("Yes 30/30")).toBeVisible();
+  await page.keyboard.press("Escape"); // back to the call, nothing logged
+  await expect(page.getByRole("button", { name: new RegExp(`^${fr("Hung up")}`) })).toBeVisible();
+  await page.keyboard.press("x");
   await page.keyboard.press("Digit4");
-  await expect(newCall).toBeVisible();
+  await expect(newCall).toBeFocused();
 
-  // "Send me info" while on the phone: the instant mail opens, the address is typed as they spell it, one click sends.
+  // "Send me info" while on the phone: the deck chip shows exactly what goes out, the address is typed as they spell
+  // it, Enter sends; then "Mail sent to …: subject".
   await page.keyboard.press("Enter");
   await page.keyboard.press("Digit1");
   await page.keyboard.press("d");
   const mail = page.getByRole("group", { name: fr("Instant mail") });
   await mail.getByRole("button", { name: fr("Deck"), exact: true }).click();
-  await mail.getByLabel(fr("Their email address")).fill("contact@carrosserie-e2e.example.com");
-  await mail.getByLabel(fr("Business"), { exact: true }).fill("Carrosserie Rapide (e2e)");
+  const preview = page.getByRole("form", { name: fr("Mail preview") });
+  await expect(preview.getByLabel(fr("Subject"))).not.toHaveValue("");
+  await expect(preview.getByLabel(fr("Message"))).toHaveValue(/Théo/); // the founder's language and signature
+  await preview.getByLabel(fr("To"), { exact: true }).fill("contact@carrosserie-e2e.example.com");
+  await preview.getByLabel(fr("Business"), { exact: true }).fill("Carrosserie Rapide (e2e)");
   await page.context().route("https://mail.google.com/**", (r) => r.fulfill({ body: "Gmail (e2e stub)", contentType: "text/plain" }));
   const popup = page.waitForEvent("popup");
-  await mail.getByRole("button", { name: new RegExp(`^${fr("Send · {name}", { name: fr("Deck") })}`) }).click();
+  await preview.getByLabel(fr("Subject")).press("Enter");
   await (await popup).close();
   await page.getByRole("button", { name: new RegExp(`^${fr("Yes, sent")}`) }).click();
   await expect(page.getByText(fr("Email sent and logged"))).toBeVisible();
   await expect(page.getByRole("button", { name: `${fr("Deck")} · ${fr("sent")}` })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: re(fr("Mail sent to {name}: {subject}", { name: "Carrosserie Rapide (e2e)", subject: "" })) })).toBeVisible();
   // Still on the phone: hang up, 1 = meeting; the business typed for the mail is already there.
   await page.keyboard.press("x");
   await page.keyboard.press("Digit1");
@@ -140,7 +156,7 @@ test("call mode: new call → picked up / not picked up, objections, instant mai
   await page.getByRole("button", { name: fr("Save · {outcome}", { outcome: fr("Meeting booked") }) }).click();
   await expect(page.getByText(fr("{outcome}: added to your pipeline", { outcome: fr("Meeting booked") }))).toBeVisible();
   await expect(newCall).toBeVisible();
-  await expect(page.getByRole("button", { name: new RegExp(`^${fr("Write")}`) })).toHaveCount(0); // the mail already went out: nothing more suggested
+  await expect(page.getByRole("button", { name: new RegExp(`^${fr("See and send")}`) })).toHaveCount(0); // the mail already went out: nothing more suggested
 
   // A yes to Local: Y on the ladder, then Enter after hanging up picks "Yes Local"; the message stays folded (E opens it).
   await page.keyboard.press("Enter");

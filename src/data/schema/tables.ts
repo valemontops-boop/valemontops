@@ -21,10 +21,12 @@ import {
   LEGACY_WORK_MODES,
 } from "@/domain/constants";
 import { BANK_CATEGORIES } from "@/domain/bank";
+import { COST_CENTERS, COST_CLASSES } from "@/domain/finance-constants";
 import { INBOX_SOURCES, INBOX_STATUSES } from "@/domain/inbox";
 import { LADDER_STEPS } from "@/domain/calls";
 import { BILLINGS, ITEM_KINDS, PRICE_MODES, QUOTE_STATUSES, UNITS } from "@/domain/quotes";
 import { AUDIT_LANGUAGES, COMPLEXITIES, SECTORS, questionsSchema, summarySchema } from "@/domain/audit";
+import { CONTENT_FORMATS, PIECE_STAGES, SNAPSHOT_CHECKPOINTS, VARIANT_STATUSES } from "@/domain/content-studio";
 import { bool, day, int, iso, json, oneOf, oneOfAlias, oneOfOr, optDay, optInt, optIso, optOneOf, reqText, text } from "./codecs";
 
 /** Revision domains: a mutation in a table bumps its domain token (spec 4.1). */
@@ -984,6 +986,200 @@ export const TABLES = {
   CommercialPolicy: {
     domain: "crm",
     shape: { ...base, key: reqText(60), value: text(5_000), effective_from: day(), changed_by: text(40), note: text(500) },
+  },
+  /* ----- Stage 3 marketing: Content Studio, post checkpoints, snapshot job (D079) ----- */
+  /** One content piece (concept) per row; its FR and ES versions are ContentVariants. Mutable (expected_version). */
+  ContentPieces: {
+    domain: "audience",
+    shape: {
+      ...base,
+      brand: optOneOf(BRANDS),
+      title: reqText(200),
+      format: oneOf(CONTENT_FORMATS),
+      hook: text(500),
+      target_persona: text(200),
+      script: text(20_000),
+      stage: oneOf(PIECE_STAGES),
+      author_founder: founder(),
+      asset_url: text(500),
+      notes: text(2_000),
+    },
+  },
+  /** One language version of a piece (FR / ES) on one network: schedule, caption, UTM, checklist, publication. */
+  ContentVariants: {
+    domain: "audience",
+    shape: {
+      ...base,
+      piece_id: reqText(40),
+      language: oneOf(["FR", "ES"] as const),
+      platform: oneOf(["instagram", "linkedin_page", "linkedin_personal"] as const),
+      account_id: text(40),
+      owner_founder: founder(),
+      status: oneOf(VARIANT_STATUSES),
+      scheduled_date: optDay(),
+      slot_key: text(60),
+      caption: text(5_000),
+      cta: text(300),
+      destination_url: text(1_000),
+      utm_source: text(60),
+      utm_medium: text(60),
+      utm_campaign: text(120),
+      utm_content: text(120),
+      checklist_done: json(z.array(z.string().max(40)).max(40), []),
+      published_at: optIso(),
+      platform_post_url: text(1_000),
+      media_id: text(80),
+    },
+  },
+  /**
+   * Post values at fixed ages (spec 5.6): 24 h, 72 h, 7 d, 30 d, plus "live" captures of stories (one per 6-hour slot,
+   * kept after Instagram stops serving them). Append-only for the API: id = UUIDv5(account, media, checkpoint[, slot]).
+   * A hand-entered checkpoint (source manual) has id UUIDv5(variant, checkpoint, manual) and can be corrected.
+   */
+  SocialPostSnapshots: {
+    domain: "audience",
+    shape: {
+      ...base,
+      account_id: text(40),
+      variant_id: text(40),
+      media_id: text(80),
+      permalink: text(1_000),
+      media_kind: oneOf(["reel", "post", "story", "linkedin"] as const),
+      checkpoint: oneOf(SNAPSHOT_CHECKPOINTS),
+      slot: text(20),
+      age_hours: optInt(),
+      captured_at: iso(),
+      availability: oneOf(["ok", "not_available"] as const),
+      views: optInt(),
+      impressions: optInt(),
+      reach: optInt(),
+      likes: optInt(),
+      comments: optInt(),
+      saves: optInt(),
+      shares: optInt(),
+      profile_visits: optInt(),
+      link_clicks: optInt(),
+      site_visits: optInt(),
+      leads: optInt(),
+      follows: optInt(),
+      source: oneOf(["api", "manual"] as const),
+    },
+  },
+  /** Snapshot job runs (spec 4.11): one "done" row per 6-hour slot (id = UUIDv5(slot, done)); errors are extra rows. */
+  SnapshotRuns: {
+    domain: "audience",
+    shape: {
+      ...base,
+      slot: reqText(20),
+      trigger: oneOf(["scheduler", "first_request", "founder"] as const),
+      status: oneOf(["done", "error"] as const),
+      started_at: iso(),
+      finished_at: iso(),
+      accounts: int(),
+      daily_rows: int(),
+      post_rows: int(),
+      story_rows: int(),
+      error: text(500),
+    },
+  },
+  /* ----- Stage 3 finance (D078): ledger, allocations, contracts, revenue schedule, ECB rates ----- */
+  /**
+   * Manual ledger entries for money that did not go through Wise or Stripe (append-only: a correction is a reversing
+   * entry with corrects_id). Amount ex VAT and VAT in the original currency (signed: income +, expense −), the EUR
+   * equivalent locked with its rate, rate date and source at entry time.
+   */
+  LedgerEntries: {
+    domain: "finance",
+    shape: {
+      ...base,
+      date: day(),
+      kind: oneOf(["income", "expense", "adjustment"] as const),
+      category: oneOf(BANK_CATEGORIES),
+      cost_center: oneOf(COST_CENTERS),
+      cost_class: oneOfOr(["", ...COST_CLASSES] as const, ""),
+      currency: reqText(3),
+      amount_minor: int(),
+      vat_minor: int(),
+      fx_rate: text(20),
+      fx_date: optDay(),
+      fx_source: text(20),
+      eur_minor: int(),
+      eur_vat_minor: int(),
+      counterparty: text(200),
+      reference: text(120),
+      receipt_url: text(1_000),
+      project_id: text(40),
+      contract_id: text(40),
+      service_from: optDay(),
+      service_to: optDay(),
+      corrects_id: text(40),
+      note: text(500),
+    },
+  },
+  /** How a bank movement is read (one row per movement, id = UUIDv5("alloc", bank tx id), version-checked edits). */
+  FinanceAllocations: {
+    domain: "finance",
+    shape: {
+      ...base,
+      bank_tx_id: reqText(40),
+      cost_center: oneOf(COST_CENTERS),
+      cost_class: oneOfOr(["", ...COST_CLASSES] as const, ""),
+      vat_minor: int(),
+      service_from: optDay(),
+      service_to: optDay(),
+      contract_id: text(40),
+      project_id: text(40),
+      receipt_url: text(1_000),
+      reference: text(120),
+      reconciled: bool(),
+      note: text(500),
+    },
+  },
+  /** Client contracts (from projects or entered): one-off with milestones, or subscription (recurring per billing period). */
+  Contracts: {
+    domain: "finance",
+    shape: {
+      ...base,
+      client_id: text(40),
+      project_id: text(40),
+      quote_id: text(40),
+      name: reqText(200),
+      cost_center: oneOf(COST_CENTERS),
+      kind: oneOf(["subscription", "one_off"] as const),
+      currency: reqText(3),
+      setup_minor: int(),
+      one_off_minor: int(),
+      recurring_minor: int(),
+      billing_months: int(),
+      start_date: day(),
+      end_date: optDay(),
+      status: oneOf(["active", "paused", "ended"] as const),
+      source: oneOf(["project", "manual"] as const),
+      notes: text(1_000),
+    },
+  },
+  /** Revenue schedule lines of a contract (milestones, set-up fee, manual lines). Recognized once earned. */
+  RevenueSchedules: {
+    domain: "finance",
+    shape: {
+      ...base,
+      contract_id: reqText(40),
+      line_key: reqText(80),
+      label: reqText(200),
+      kind: oneOf(["milestone", "setup", "one_off", "manual"] as const),
+      milestone_id: text(40),
+      period_start: day(),
+      period_end: day(),
+      amount_minor: int(),
+      currency: reqText(3),
+      status: oneOf(["planned", "earned", "cancelled"] as const),
+      earned_on: optDay(),
+    },
+  },
+  /** ECB reference rates (1 EUR = rate × currency), cached per publication date; demo rates are labelled "demo". */
+  FxRates: {
+    domain: "finance",
+    shape: { ...base, base: reqText(3), quote: reqText(3), rate: reqText(20), rate_date: day(), source: oneOf(["ecb", "manual", "demo"] as const), fetched_at: iso() },
   },
   /* ----- private founder spreadsheets only (spec 4.7) ----- */
   PrivateTasks: { domain: "private", shape: taskShape() },

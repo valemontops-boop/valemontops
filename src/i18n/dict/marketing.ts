@@ -131,7 +131,7 @@ export const entries: Record<string, readonly [string, string]> = {
   "Market": ["Marché", "Mercado"],
   "Personal profile statistics are visible to you only and are never tagged with a brand.": ["Les statistiques du profil perso ne sont visibles que par toi et ne sont jamais rattachées à une marque.", "Las estadísticas del perfil personal solo las ves tú y nunca se asocian a una marca."],
   "Audience, latest figures": ["Audience, derniers chiffres", "Audiencia, últimas cifras"],
-  "No team account yet. Add them in Marketing.": ["Aucun compte d'équipe pour l'instant. Ajoute-les dans Marketing.", "Aún no hay cuentas de equipo. Añádelas en Marketing."],
+  "No team account yet. Add them in Growth.": ["Aucun compte d'équipe pour l'instant. Ajoute-les dans Croissance.", "Aún no hay cuentas de equipo. Añádelas en Crecimiento."],
   "Content planning and weekly content targets arrive in Stage 3.": ["Le planning de contenu et les objectifs hebdo de contenu arrivent à l'étape 3.", "La planificación de contenido y los objetivos semanales de contenido llegan en la fase 3."],
   "no data": ["pas de données", "sin datos"],
   "Followers": ["Abonnés", "Seguidores"],

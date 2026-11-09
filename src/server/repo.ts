@@ -9,12 +9,14 @@ import { getConfig, type AppConfig } from "./config";
 import { seedBaseline } from "./services/baseline";
 import { seedDemo } from "./services/demo-seed";
 import { seedDemoLinkedIn } from "./services/demo-linkedin";
+import { seedDemoContent } from "./services/demo-content";
 import type { AppContext } from "./context";
 import { GoogleHttp } from "@/data/google/http";
 import { GmailSender, GoogleCalendarAdapter, GoogleDriveAdapter, GoogleDriveUploader } from "@/data/google/adapters";
 import { MemoryBank, demoWiseStore } from "@/fake-wise/store";
 import { WiseAdapter } from "@/data/bank/wise";
 import { StripeAdapter } from "@/data/bank/stripe";
+import { instagramFromEnv } from "@/data/instagram/graph";
 import { MemoryStripe, demoStripeStore } from "@/fake-stripe";
 import { MemoryCalendar, MemoryDrive, MemoryDriveUploader, MemoryMailer } from "@/fake-google/store";
 import { demoGoogleStore } from "./services/demo-google";
@@ -43,6 +45,7 @@ async function build(cfg: AppConfig): Promise<DataRepository> {
       await seedBaseline(repo, tz);
       await seedDemo(repo);
       await seedDemoLinkedIn(repo);
+      await seedDemoContent(repo);
       return repo;
     }
     const client = new SheetsClient({ baseUrl: cfg.demo.fakeUrl, spreadsheetId: cfg.demo.fakeSpreadsheetId, getToken: async () => "fake-demo-token" });
@@ -51,6 +54,7 @@ async function build(cfg: AppConfig): Promise<DataRepository> {
     await seedBaseline(repo, tz);
     await seedDemo(repo);
     await seedDemoLinkedIn(repo);
+    await seedDemoContent(repo);
     return repo;
   }
   // LIVE: never seeds demo data and never creates the spreadsheet; setup:sheets prepares it.
@@ -135,6 +139,8 @@ async function buildContext(cfg: AppConfig): Promise<AppContext> {
     mailerFor: (_f, grant) => (grant ? new GmailSender(new GoogleHttp(api, async () => grant)) : null),
     bank: wiseFromEnv(),
     payments: process.env.STRIPE_API_KEY ? new StripeAdapter(process.env.STRIPE_API_BASE_URL || "https://api.stripe.com", process.env.STRIPE_API_KEY) : null,
+    // Instagram Graph (read-only) only in LIVE with credentials in env; otherwise manual entry (D079).
+    instagram: instagramFromEnv(),
     baseUrl: cfg.baseUrl,
     mode: "live",
   };

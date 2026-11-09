@@ -230,7 +230,7 @@ function Diagnostics() {
 }
 
 const ROADMAP: [string, string][] = [
-  ["Stage 3", "Managerial P&L, MRR/ARR, EBITDA estimate, EUR/USD with ECB rates, content planning FR/ES, Instagram adapter and snapshot job."],
+  ["Stage 3", "Instagram numbers through the API as soon as the Meta app and its token are set (manual entry in the Content Studio until then)."],
   ["Stage 4", "Integration Hub, website webhooks, optional Calendar/Gmail OAuth, backups with tested restore, security hardening, deployment."],
 ];
 function Roadmap() {

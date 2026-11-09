@@ -22,6 +22,13 @@ type Via = "gmail" | "mail_app" | "whatsapp";
 /** A message opened in Gmail or WhatsApp, waiting for the founder's "Yes, sent". */
 export type PendingSend = { id: string; channel: Channel; target: SendTarget; template: TemplateKey; key: string; to: string; subject: string; body: string; business: string; saveAddress?: boolean };
 export type Draft = Omit<PendingSend, "id">;
+/** A message confirmed as sent (Gmail sent it, or the founder said "Yes, sent"). */
+export type LastSent = { id: string; channel: Channel; to: string; name: string; subject: string; body: string; template: TemplateKey; accountId: string; via: Via };
+const NO_PREVIEW_KEY = "vos-mail-no-preview";
+const noPreviewListeners = new Set<() => void>();
+const readNoPreview = () => { try { return localStorage.getItem(NO_PREVIEW_KEY) === "1"; } catch { return false; } };
+const subscribeNoPreview = (cb: () => void) => { noPreviewListeners.add(cb); return () => { noPreviewListeners.delete(cb); }; };
+const setNoPreview = (v: boolean) => { try { localStorage.setItem(NO_PREVIEW_KEY, v ? "1" : "0"); } catch { /* convenience only */ } noPreviewListeners.forEach((l) => l()); };
 
 const isTyping = (el: EventTarget | null) => el instanceof HTMLElement && (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || el.isContentEditable);
 
@@ -39,6 +46,10 @@ export function useInstantSend(sessionId?: string) {
   const gmail = useQuery({ queryKey: ["gmail-status"], queryFn: () => api<{ connected: boolean }>("/api/email/status") });
   const [pending, setPending] = React.useState<PendingSend[]>([]);
   const [returned, setReturned] = React.useState(false);
+  // The last message that really went out, shown as "Mail sent to X: subject" with the full text one click away (D076).
+  const [lastSent, setLastSent] = React.useState<LastSent | null>(null);
+  // "Send without preview" (D076): off by default; a per-browser convenience, not business data.
+  const noPreview = React.useSyncExternalStore(subscribeNoPreview, readNoPreview, () => false);
   const refresh = () => ["call-summary", "my-day", "email-sends", "email-queue", "call-log"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
   const payload = (d: Draft, via: Via, checkOnly = false) => ({
     save_address: Boolean(d.saveAddress),
@@ -49,6 +60,7 @@ export function useInstantSend(sessionId?: string) {
   const record = useMutation({
     mutationFn: (a: { d: Draft; via: Via; pendingId?: string }) => api<{ send: { account_id: string } | null }>("/api/email/send", { body: payload(a.d, a.via) }),
     onSuccess: (_r, a) => {
+      setLastSent({ id: crypto.randomUUID(), channel: a.d.channel, to: a.d.to.trim(), name: a.d.target.contact || a.d.target.name || a.d.to.trim(), subject: a.d.subject, body: a.d.body, template: a.d.template, accountId: a.d.target.accountId, via: a.via });
       toast(a.via === "gmail" ? t("Email sent to {name}", { name: a.d.target.contact || a.d.target.name || a.d.to }) : a.d.channel === "email" ? t("Email sent and logged") : t("WhatsApp logged"));
       if (a.pendingId) setPending((p) => p.filter((x) => x.id !== a.pendingId));
       refresh();
@@ -92,7 +104,7 @@ export function useInstantSend(sessionId?: string) {
   const confirm = (p: PendingSend) => record.mutate({ d: p, via: p.channel === "email" ? "mail_app" : "whatsapp", pendingId: p.id });
   const dismiss = (p: PendingSend) => setPending((x) => x.filter((y) => y.id !== p.id));
   return {
-    send, pending, returned, confirm, dismiss, busy: record.isPending, ready: Boolean(pb.data), gmailConnected: Boolean(gmail.data?.connected), gmailKnown: gmail.isSuccess, playbook: pb.data ?? null, lang,
+    send, pending, returned, confirm, dismiss, busy: record.isPending, lastSent, clearLast: () => setLastSent(null), noPreview, setNoPreview, ready: Boolean(pb.data), gmailConnected: Boolean(gmail.data?.connected), gmailKnown: gmail.isSuccess, playbook: pb.data ?? null, lang,
   };
 }
 export type InstantSend = ReturnType<typeof useInstantSend>;
@@ -311,79 +323,179 @@ export function MessageCard({ s, target, chips, suggested, sendKey, needsBusines
 export const templateLabel = (k: TemplateKey) => EMAIL_TEMPLATE_LABELS[k];
 
 /**
- * Instant mail while still on the phone (D071): one click on a chip sends it to the prospect's address (Gmail when
- * connected, else Gmail opens in a tab and "Sent?" comes back on return). No address known: an inline field takes the
- * one the prospect is spelling out (kept on the business), then the chip sends. Digits 1–n send while `keys`.
- * Logged in EmailSends with the call session and the business; one idempotency key per chip and call.
+ * "Mail sent to X: subject", with the exact text one click away ("See it", a floating card: no layout jump).
+ * `up` opens the card above the line (used low on the call screen).
  */
-export function InCallMail({ s, target, chips, suggested, sent, keys, needsBusiness, onSent }: {
+export function SentLine({ s, up = false }: { s: InstantSend; up?: boolean }) {
+  const t = useT();
+  const l = s.lastSent;
+  const [show, setShow] = React.useState<string | null>(null);
+  if (!l) return null;
+  const open = show === l.id;
+  return (
+    <div role="status" aria-live="polite" className="relative flex min-h-9 items-center gap-2 rounded-[12px] bg-win/10 px-3 text-[13px]">
+      <Check className="size-4 shrink-0 text-win" />
+      <span className="min-w-0 flex-1 truncate">{l.channel === "email" ? t("Mail sent to {name}: {subject}", { name: l.name, subject: l.subject || t(TEMPLATE_SHORT[l.template]) }) : t("WhatsApp sent to {name}", { name: l.name })}</span>
+      <button type="button" aria-expanded={open} onClick={() => setShow(open ? null : l.id)} className="shrink-0 font-medium underline">{open ? t("Hide") : t("See it")}</button>
+      <button type="button" aria-label={t("Close")} onClick={() => { setShow(null); s.clearLast(); }} className="shrink-0 rounded p-1 text-text-2 hover:bg-panel"><X className="size-4" /></button>
+      {open ? (
+        <div className={cn("absolute inset-x-0 z-30 max-h-80 overflow-auto rounded-[14px] border border-hairline bg-panel p-3 text-[13px] shadow-[0_8px_24px_rgba(0,0,0,0.12)]", up ? "bottom-full mb-1" : "top-full mt-1")}>
+          <p><span className="text-text-3">{t("To")}</span> {l.to}</p>
+          {l.subject ? <p className="font-semibold">{l.subject}</p> : null}
+          <p className="mt-2 whitespace-pre-line leading-relaxed">{l.body}</p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+type PreviewValues = { to: string; business: string; subject: string; body: string };
+/**
+ * Exactly what goes out, before it goes (D076): recipient, subject and full text in the founder's language with their
+ * signature, all editable in place. Send = Enter (the Send button has the focus; Ctrl/⌘ + Enter from the text);
+ * Cancel = Esc. A missing address (or business, in free dialling) gets the focus first.
+ */
+export function MailPreview({ s, template, initial, needsBusiness, busy, onSend, onCancel, className }: {
+  s: InstantSend; template: TemplateKey; initial: PreviewValues; needsBusiness: boolean; busy: boolean; onSend: (v: PreviewValues) => void; onCancel: () => void; className?: string;
+}) {
+  const t = useT();
+  const [v, setV] = React.useState(initial);
+  const okTo = isEmail(v.to);
+  const okBiz = !needsBusiness || Boolean(v.business.trim());
+  const id = React.useId();
+  const submit = () => {
+    if (!okTo) { if (v.to.trim()) toast(t("Check the email address.")); document.getElementById(`${id}-to`)?.focus(); return; }
+    if (!okBiz) { document.getElementById(`${id}-biz`)?.focus(); return; }
+    onSend(v);
+  };
+  return (
+    <form aria-label={t("Mail preview")} onSubmit={(e) => { e.preventDefault(); submit(); }} className={cn("flex flex-col gap-2 rounded-[18px] border-2 border-sales bg-panel p-3", className)}>
+      <p className="flex flex-wrap items-center gap-x-2 text-[13px]">
+        <Mail className="size-4 text-text-2" />
+        <span className="font-semibold">{t(EMAIL_TEMPLATE_LABELS[template])}</span>
+        <span className="ml-auto text-text-3">{t("Signed {name}", { name: s.playbook?.founderName ?? "" })} · {s.lang === "ES" ? t("in Spanish") : t("in French")}</span>
+      </p>
+      <div className={cn("grid grid-cols-[auto_1fr] items-center gap-x-2 gap-y-1.5", needsBusiness && "sm:grid-cols-[auto_1fr_auto_1fr]")}>
+        <label htmlFor={`${id}-to`} className="text-[12px] font-medium text-text-2">{t("To")}</label>
+        <Input id={`${id}-to`} type="email" inputMode="email" autoComplete="off" value={v.to} placeholder={t("Their email address")} autoFocus={!okTo}
+          onChange={(e) => setV({ ...v, to: e.target.value })} className={cn("h-9", !okTo && v.to.trim() && "border-bad")} />
+        {needsBusiness ? (
+          <>
+            <label htmlFor={`${id}-biz`} className="text-[12px] font-medium text-text-2">{t("Business")}</label>
+            <Input id={`${id}-biz`} value={v.business} placeholder={t("Business name (required to follow up)")} autoFocus={okTo && !okBiz} onChange={(e) => setV({ ...v, business: e.target.value })} className="h-9" />
+          </>
+        ) : null}
+        <label htmlFor={`${id}-subj`} className="text-[12px] font-medium text-text-2">{t("Subject")}</label>
+        <Input id={`${id}-subj`} value={v.subject} onChange={(e) => setV({ ...v, subject: e.target.value })} className={cn("h-9 font-medium", needsBusiness && "sm:col-span-3")} />
+      </div>
+      <Textarea aria-label={t("Message")} rows={5} value={v.body} onChange={(e) => setV({ ...v, body: e.target.value })}
+        onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); } }} className="min-h-[120px] flex-1 resize-none text-[13px] leading-relaxed" />
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="submit" variant="primary" disabled={busy || !s.playbook} autoFocus={okTo && okBiz}>
+          {s.gmailConnected ? <Send /> : <Mail />} {busy ? t("Sending…") : s.gmailConnected ? t("Send with Gmail") : t("Open in Gmail")} <span className="text-[11px] opacity-70">↵</span>
+        </Button>
+        <Button type="button" variant="ghost" onClick={onCancel}>{t("Cancel")} <span className="text-[11px] opacity-60">Esc</span></Button>
+        <span className="ml-auto text-[12px] text-text-3">{s.gmailConnected ? t("sent by Gmail") : t("opens Gmail")}</span>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * Instant mail while still on the phone (D071, round 10 D076). Hovering or focusing a chip shows what it sends
+ * (floating card, no layout jump); a click (or its digit, or M for the suggested one) opens the editable preview with
+ * Send (Enter) / Cancel (Esc). "Send without preview" (… menu, off by default) sends at once when the address is known.
+ * No address known: the preview asks for it (kept on the business, `save_address`). Logged in EmailSends with the call
+ * session and the business; one idempotency key per chip and call. `layout` places the preview and the chips.
+ */
+export function InCallMail({ s, target, chips, suggested, sent, keys, needsBusiness, onSent, onPreview, layout }: {
   s: InstantSend; target: SendTarget; chips: TemplateKey[]; suggested: TemplateKey | null; sent: readonly TemplateKey[]; keys: boolean; needsBusiness: boolean;
   onSent: (k: TemplateKey, r: { accountId: string; email: string; business: string }) => void;
+  onPreview?: (open: boolean) => void;
+  layout?: (p: { chips: React.ReactNode; preview: React.ReactNode | null }) => React.ReactNode;
 }) {
   const t = useT();
   const pb = s.playbook;
   const [email, setEmail] = React.useState(target.email);
   const [business, setBusiness] = React.useState(target.name);
-  const [ask, setAsk] = React.useState<TemplateKey | null>(null); // chip waiting for the address
+  const [open, setOpenState] = React.useState<TemplateKey | null>(null);
+  const [peek, setPeek] = React.useState<TemplateKey | null>(null);
   const [busy, setBusy] = React.useState<TemplateKey | null>(null);
   const [keyOf] = React.useState(() => new Map<TemplateKey, string>());
   const idem = (k: TemplateKey) => { if (!keyOf.has(k)) keyOf.set(k, crypto.randomUUID()); return keyOf.get(k)!; };
-  const typed = email.trim() !== target.email.trim();
-  const go = async (k: TemplateKey) => {
-    if (busy || !pb || sent.includes(k)) return;
-    if (!isEmail(email) || (needsBusiness && !business.trim())) {
-      setAsk(k);
-      if (email.trim() && !isEmail(email)) toast(t("Check the email address."));
-      setTimeout(() => document.getElementById(!isEmail(email) ? "icm-to" : "icm-biz")?.focus(), 0);
-      return;
-    }
-    const msg = messageFor(pb, s.lang, "email", k, { name: business, contact: target.contact });
-    if (missingInfo("email", email, { body: msg.body }).includes("link")) { toast(t("A link is missing. Add it in Settings › Workspace.")); return; }
+  const textOf = (k: TemplateKey) => (pb ? messageFor(pb, s.lang, "email", k, { name: business, contact: target.contact }) : { subject: "", body: "" });
+  // The caller hears about it at once (not after the next render), so a key pressed right after Esc is not swallowed.
+  // `onPreview` must be stable (useCallback).
+  const setOpen = (k: TemplateKey | null) => { setOpenState(k); onPreview?.(k !== null); };
+  React.useEffect(() => () => onPreview?.(false), [onPreview]);
+  const send = async (k: TemplateKey, v: PreviewValues) => {
+    if (busy || !pb) return;
+    if (missingInfo("email", v.to, { body: v.body }).includes("link")) { toast(t("A link is missing. Add it in Settings › Workspace.")); return; }
     setBusy(k);
-    const r = await s.send({ channel: "email", target: { ...target, name: business, email }, template: k, key: idem(k), to: email.trim(), subject: msg.subject, body: msg.body, business, saveAddress: typed });
+    const to = v.to.trim();
+    const r = await s.send({ channel: "email", target: { ...target, name: v.business, email: to }, template: k, key: idem(k), to, subject: v.subject, body: v.body, business: v.business, saveAddress: to !== target.email.trim() });
     setBusy(null);
-    if (r) { setAsk(null); onSent(k, { accountId: r.accountId, email: email.trim(), business }); }
+    if (r) { setEmail(to); setBusiness(v.business); setOpen(null); onSent(k, { accountId: r.accountId, email: to, business: v.business }); }
+  };
+  const choose = (k: TemplateKey | undefined) => {
+    if (!k || busy || !pb || sent.includes(k)) return;
+    setPeek(null);
+    if (s.noPreview && isEmail(email) && (!needsBusiness || business.trim())) { void send(k, { to: email, business, ...textOf(k) }); return; }
+    setOpen(k);
   };
   React.useEffect(() => {
-    if (!keys) return;
     const onKey = (e: KeyboardEvent) => {
-      if (isTyping(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (open) {
+        if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); setOpen(null); }
+        return;
+      }
+      if (!keys || isTyping(e.target)) return;
       const d = /^(Digit|Numpad)([1-9])$/.exec(e.code)?.[2];
-      if (d && Number(d) <= chips.length) { e.preventDefault(); e.stopImmediatePropagation(); void go(chips[Number(d) - 1]); }
+      if (d && Number(d) <= chips.length) { e.preventDefault(); e.stopImmediatePropagation(); choose(chips[Number(d) - 1]); }
+      else if (e.key.toLowerCase() === "m") { e.preventDefault(); e.stopImmediatePropagation(); choose(suggested ?? chips.find((k) => !sent.includes(k))); }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   });
-  return (
-    <div className="flex flex-col gap-2 rounded-[14px] border-2 border-sales bg-panel p-3" role="group" aria-label={t("Instant mail")}>
-      <p className="flex flex-wrap items-center gap-2 text-[13px] text-text-2">
-        <Mail className="size-4" />
+  const peekText = peek && !open ? textOf(peek) : null;
+  const chipsEl = (
+    <div className="relative flex flex-col gap-1" role="group" aria-label={t("Instant mail")}>
+      <p className="flex items-center gap-2 text-[12px] text-text-2">
+        <Mail className="size-4 shrink-0" />
         <span className="font-medium text-ink">{t("Instant mail")}</span>
-        <span className="truncate">{isEmail(email) ? `→ ${email}` : t("No email yet: type it as they spell it")}</span>
-        <span className="ml-auto">{s.gmailConnected ? t("sent by Gmail") : t("opens Gmail")}</span>
+        <span className="min-w-0 truncate">{isEmail(email) ? `→ ${email}` : t("No email yet: type it as they spell it")}</span>
+        <span className="ml-auto hidden shrink-0 text-[12px] text-text-3 lg:inline">{t("hover = preview")}</span>
       </p>
       <div className="flex flex-wrap gap-1.5">
         {chips.map((k, i) => {
           const done = sent.includes(k);
           return (
-            <button key={k} type="button" disabled={done || busy !== null} onClick={() => void go(k)} aria-label={`${t(TEMPLATE_SHORT[k])}${done ? ` · ${t("sent")}` : ""}`}
-              className={cn("flex min-h-11 items-center gap-1.5 rounded-full border px-3.5 text-[14px] font-medium transition-colors disabled:cursor-default",
-                done ? "border-win bg-win/10 text-ink" : k === suggested ? "border-ink bg-ink text-panel hover:opacity-90" : ask === k ? "border-ink bg-subtle" : "border-control bg-panel hover:bg-subtle")}>
+            <button key={k} type="button" disabled={done || busy !== null} onClick={() => choose(k)} aria-label={`${t(TEMPLATE_SHORT[k])}${done ? ` · ${t("sent")}` : ""}`} aria-expanded={open === k}
+              onMouseEnter={() => setPeek(k)} onMouseLeave={() => setPeek((p) => (p === k ? null : p))} onFocus={() => setPeek(k)} onBlur={() => setPeek((p) => (p === k ? null : p))}
+              className={cn("flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium transition-colors disabled:cursor-default",
+                done ? "border-win bg-win/10 text-ink" : open === k ? "border-sales bg-sales/10" : k === suggested ? "border-ink bg-ink text-panel hover:opacity-90" : "border-control bg-panel hover:bg-subtle")}>
               {done ? <Check className="size-4" /> : busy === k ? <Send className="size-4 animate-pulse" /> : null}
               {t(TEMPLATE_SHORT[k])}
-              {keys && !done ? <span className={cn("text-[11px]", k === suggested ? "text-panel/70" : "text-text-3")}>{i + 1}</span> : null}
+              {keys && !done ? <span className={cn("text-[11px]", k === suggested && open !== k ? "text-panel/70" : "text-text-3")}>{i + 1}</span> : null}
             </button>
           );
         })}
       </div>
-      {ask || !isEmail(email) ? (
-        <form className="flex flex-wrap items-center gap-2" onSubmit={(e) => { e.preventDefault(); if (ask) void go(ask); }}>
-          <Input id="icm-to" type="email" inputMode="email" autoComplete="off" aria-label={t("Their email address")} placeholder={t("Their email address")} value={email} onChange={(e) => setEmail(e.target.value)}
-            autoFocus={Boolean(ask)} className={cn("h-10 min-w-56 flex-1", ask && !isEmail(email) && "border-bad")} />
-          {needsBusiness ? <Input id="icm-biz" aria-label={t("Business")} placeholder={t("Business name (required to follow up)")} value={business} onChange={(e) => setBusiness(e.target.value)} className={cn("h-10 min-w-48 flex-1", ask && !business.trim() && "border-bad")} /> : null}
-          {ask ? <Button type="submit" variant="primary" disabled={busy !== null}><Send /> {t("Send · {name}", { name: t(TEMPLATE_SHORT[ask]) })} <span className="text-[11px] opacity-70">↵</span></Button> : null}
-        </form>
+      {peekText && peek ? (
+        <div aria-hidden className="pointer-events-none absolute bottom-full left-0 z-30 mb-2 w-full max-w-xl rounded-[14px] border border-hairline bg-panel p-3 text-[13px] shadow-[0_8px_24px_rgba(0,0,0,0.12)]">
+          <p className="text-text-2">{t(EMAIL_TEMPLATE_LABELS[peek])} · <span className="text-text-3">{t("To")}</span> {isEmail(email) ? email : t("address asked before sending")}</p>
+          <p className="mt-1 font-semibold">{peekText.subject}</p>
+          <p className="mt-1 line-clamp-6 whitespace-pre-line leading-relaxed">{peekText.body}</p>
+          <p className="mt-2 text-[12px] text-text-3">{t("Click: check and send")}</p>
+        </div>
       ) : null}
     </div>
   );
+  const preview = open && pb ? (
+    <MailPreview key={open} s={s} template={open} initial={{ to: email, business, ...textOf(open) }} needsBusiness={needsBusiness} busy={busy !== null || s.busy}
+      onSend={(v) => void send(open, v)} onCancel={() => setOpen(null)} className="h-full" />
+  ) : null;
+  if (layout) return <>{layout({ chips: chipsEl, preview })}</>;
+  return <div className="flex flex-col gap-2">{preview}{chipsEl}</div>;
 }

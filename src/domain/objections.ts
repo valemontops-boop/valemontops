@@ -31,6 +31,16 @@ export const OBJECTION_GUIDE: ObjectionInfo[] = [
 ];
 export const OBJECTION_TYPE_LABEL: Record<ObjectionType, string> = { brush_off: "Brush-off", real: "Real objection" };
 export const guideOf = (k: string) => OBJECTION_GUIDE.find((g) => g.key === k) ?? null;
+/**
+ * The live objection list (round 10, D076): every objection visible at once, in two groups (brush-offs, then real
+ * objections), each group in the given order (the founder's most frequent first). Unknown keys are dropped.
+ */
+export function objectionGroups(order: readonly string[]): { type: ObjectionType; keys: Objection[] }[] {
+  const known = [...new Set(order)].map(guideOf).filter((g): g is ObjectionInfo => Boolean(g));
+  const rest = OBJECTION_GUIDE.filter((g) => !known.includes(g));
+  const all = [...known, ...rest];
+  return (["brush_off", "real"] as const).map((type) => ({ type, keys: all.filter((g) => g.type === type).map((g) => g.key) }));
+}
 export const REPLY_STEPS = ["Label", "Ask", "Next step"] as const;
 export const VARIANTS = 2;
 
@@ -58,9 +68,9 @@ const REPLIES: [Objection, R[], R[]][] = [
     [["Muy bien, eso significa que el tema le importa.", "¿Qué le gustaría que hiciera mejor?", "Le enseño en 15 minutos lo que hacemos además; si no es mejor, se queda con el suyo."],
      ["Perfecto.", "¿También hace seguimiento de los presupuestos y pide la reseña en Google después del trabajo?", "Si no, con 15 minutos lo comparamos. ¿Martes o jueves?"]]],
   ["too_expensive",
-    [["On dirait que le prix vous freine avant même de voir ce que ça rapporte.", "Combien vous rapporte un chantier moyen ?", "Un seul client récupéré par mois paie les 99 €. On regarde vos chiffres ensemble en 15 minutes ?"],
+    [["On dirait que le prix vous freine avant même de voir ce que ça rapporte.", "Combien vous rapporte un chantier moyen ?", "Quelques clients récupérés suffisent à rembourser l'investissement. On regarde vos chiffres ensemble en 15 minutes ?"],
      ["C'est normal de faire attention à chaque euro.", "Trop cher par rapport à quoi : votre budget, ou ce que vous perdez aujourd'hui ?", "Je vous montre le calcul avec vos chiffres ; si ça ne tient pas, je vous le dirai moi-même."]],
-    [["Parece que el precio le frena antes de ver lo que le aporta.", "¿Cuánto le deja un trabajo medio?", "Un solo cliente recuperado al mes paga los 99 €. ¿Lo miramos con sus números en 15 minutos?"],
+    [["Parece que el precio le frena antes de ver lo que le aporta.", "¿Cuánto le deja un trabajo medio?", "Unos pocos clientes recuperados bastan para amortizar la inversión. ¿Lo miramos con sus números en 15 minutos?"],
      ["Es normal mirar cada euro.", "¿Caro comparado con qué: su presupuesto, o lo que pierde hoy?", "Le enseño el cálculo con sus números; si no sale, se lo diré yo mismo."]]],
   ["no_need",
     [["Ça a l'air de bien tourner pour vous.", "Combien d'appels vous ratez par semaine, à votre avis ?", "Si c'est zéro, je vous laisse tranquille. Sinon, 15 minutes pour voir ce que ça vous coûte."],

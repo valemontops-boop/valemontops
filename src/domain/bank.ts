@@ -6,15 +6,21 @@
 export const BANK_CATEGORIES = [
   "revenue", "founder_contribution", "internal_transfer", "other_income",
   "software", "ads", "contractors", "telecom", "travel", "bank_fees", "taxes", "salaries", "other_expense",
+  // Stage 3 finance (D078, spec 5.10): client refunds, API tokens, hosting, marketing, sales commissions, reimbursements, VAT, loans.
+  "refund", "api_tokens", "hosting", "marketing", "sales_commissions", "reimbursement", "vat", "loan",
 ] as const;
 export type BankCategory = (typeof BANK_CATEGORIES)[number];
 export const CATEGORY_LABELS: Record<BankCategory, string> = {
   revenue: "Client revenue", founder_contribution: "Founder contribution", internal_transfer: "Transfer between our balances", other_income: "Other income",
   software: "Software & tools", ads: "Advertising", contractors: "Contractors", telecom: "Phone & internet", travel: "Travel", bank_fees: "Bank fees",
   taxes: "Taxes", salaries: "Salaries", other_expense: "Other expense",
+  refund: "Refund to a client", api_tokens: "API and AI tokens", hosting: "Domain and hosting", marketing: "Marketing", sales_commissions: "Sales commissions",
+  reimbursement: "Expense reimbursement", vat: "VAT paid or refunded", loan: "Loan",
 };
-export const NEUTRAL: readonly BankCategory[] = ["founder_contribution", "internal_transfer"];
-export const isIncome = (c: BankCategory) => c === "revenue" || c === "other_income";
+/** Neither income nor expense: founder contributions, transfers between our balances, loans (spec 5.10). */
+export const NEUTRAL: readonly BankCategory[] = ["founder_contribution", "internal_transfer", "loan"];
+/** Income side: a refund to a client is negative income, never an expense. */
+export const isIncome = (c: BankCategory) => c === "revenue" || c === "other_income" || c === "refund";
 
 const RULES: [RegExp, BankCategory][] = [
   [/\b(google ads|meta ads|facebook|instagram ads|linkedin ads|tiktok ads|fb\.me)\b/i, "ads"],

@@ -25,7 +25,9 @@ const patterns = [...exact.entries()]
   })
   .sort((a, b) => b.len - a.len); // most specific first
 
-const fill = (s: string, vars?: Vars) => (vars ? s.replace(/\{([a-zA-Z_]+)\}/g, (m, n: string) => (vars[n] === undefined || vars[n] === null ? m : String(vars[n]))) : s);
+// Decimal numbers use the French/Spanish comma (1,3 not 1.3); integers are left as they are.
+const show = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && !Number.isInteger(v) ? String(Math.round(v * 100) / 100).replace(".", ",") : String(v));
+const fill = (s: string, vars?: Vars) => (vars ? s.replace(/\{([a-zA-Z_]+)\}/g, (m, n: string) => (vars[n] === undefined || vars[n] === null ? m : show(vars[n]))) : s);
 const idx = (l: Locale) => (l === "fr" ? 0 : 1);
 
 /** Missing keys seen at runtime (dev/test aid). */

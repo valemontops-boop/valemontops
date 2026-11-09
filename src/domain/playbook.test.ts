@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_PLAYBOOK, fill, findItem, gmailComposeLink, hasMissingLink, mailtoLink, mergePlaybook, suggestedFollowUp, whatsappLink } from "./playbook";
-import { OBJECTION_GUIDE, pickVariant, replySteps, replyStats } from "./objections";
+import { OBJECTION_GUIDE, objectionGroups, pickVariant, replySteps, replyStats } from "./objections";
 import { emailBenchmarks, type SendRow } from "./email";
 
 describe("playbook", () => {
@@ -76,5 +76,16 @@ describe("email benchmarks", () => {
     expect(url.searchParams.get("to")).toBe("a+b@example.com");
     expect(url.searchParams.get("su")).toBe("Suite à notre appel");
     expect(url.searchParams.get("body")).toBe("Bonjour,\nmerci & à bientôt");
+  });
+});
+
+describe("live objection list (D076)", () => {
+  it("shows every objection in two groups, brush-offs first, each in the founder's order", () => {
+    const g = objectionGroups(["too_expensive", "send_info", "nope", "no_time"]);
+    expect(g.map((x) => x.type)).toEqual(["brush_off", "real"]);
+    expect(g[0].keys.slice(0, 2)).toEqual(["send_info", "no_time"]);
+    expect(g[1].keys[0]).toBe("too_expensive");
+    expect(g[0].keys.length + g[1].keys.length).toBe(OBJECTION_GUIDE.length);
+    expect(new Set([...g[0].keys, ...g[1].keys]).size).toBe(OBJECTION_GUIDE.length);
   });
 });

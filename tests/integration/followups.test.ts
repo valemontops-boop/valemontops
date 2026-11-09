@@ -144,13 +144,13 @@ describe("Follow-ups: Gmail send, WhatsApp, benchmarks", () => {
 describe("Playbook", () => {
   it("serves FR/ES defaults, lets a founder override one, and resets it with an empty body", async () => {
     let p = await getPlaybook(ctx, "theo");
-    expect(p.items.find((i) => i.kind === "objection" && i.key === "too_expensive#1" && i.language === "ES")?.body).toMatch(/99 €/);
+    expect(p.items.find((i) => i.kind === "objection" && i.key === "too_expensive#1" && i.language === "ES")?.body).toMatch(/amortizar la inversión/);
     await savePlaybookItem(ctx, "pablo", { kind: "objection", key: "too_expensive#1", language: "ES", subject: "", body: "Nuestra respuesta" });
     p = await getPlaybook(ctx, "theo");
     expect(p.items.find((i) => i.kind === "objection" && i.key === "too_expensive#1" && i.language === "ES")?.body).toBe("Nuestra respuesta");
     await savePlaybookItem(ctx, "pablo", { kind: "objection", key: "too_expensive#1", language: "ES", subject: "", body: "" });
     p = await getPlaybook(ctx, "theo");
-    expect(p.items.find((i) => i.kind === "objection" && i.key === "too_expensive#1" && i.language === "ES")?.body).toMatch(/99 €/);
+    expect(p.items.find((i) => i.kind === "objection" && i.key === "too_expensive#1" && i.language === "ES")?.body).toMatch(/amortizar la inversión/);
   });
 });
 

@@ -67,7 +67,7 @@ function SeoBody({ d }: { d: Seo }) {
         </Panel>
       ) : null}
       {d.hasData ? (
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-5">
           <TopTable title={t("Top queries")} rows={s.topQueries} />
           <TopTable title={t("Top pages")} rows={s.topPages} page />
         </div>
@@ -181,7 +181,7 @@ function GscImport() {
     onSuccess: () => { done(); toast(t("Saved")); setV({ ...v, key: "", clicks: "", impressions: "", position: "" }); },
   });
   return (
-    <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-5">
       <Panel className="flex flex-col gap-3">
         <PanelTitle>{t("Import a Search Console export")}</PanelTitle>
         <div className="grid grid-cols-3 gap-3">

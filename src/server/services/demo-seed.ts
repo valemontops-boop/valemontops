@@ -76,6 +76,7 @@ export async function seedDemo(repo: DataRepository) {
   );
   await seedDemoCommercial(repo); // Stage 2A (D074): demo legal details for the quote PDF
   await seedDemoDelivery(repo); // Stage 2B (D075): won deals → clients and projects, contractor, tool, template, Local usage
+  await (await import("./demo-finance")).seedDemoFinance(repo); // Stage 3 (D078): demo FX rates, contracts, schedule, two manual entries
   return true;
 }
 

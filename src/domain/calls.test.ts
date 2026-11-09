@@ -44,6 +44,8 @@ describe("live call click path (D071)", () => {
     expect(nextStep("live", "not_picked_up")).toBe("live"); // no way back to "missed" once on the phone
     expect(nextStep("hungup", "back")).toBe("live");
     expect(nextStep("missed", "back")).toBe("ringing");
+    expect(nextStep("live", "back")).toBe("ringing"); // "picked up" tapped by mistake: back, nothing logged
+    expect(nextStep("ringing", "back")).toBe("ready");
     for (const s of ["ringing", "missed", "live", "hungup"] as const) expect(nextStep(s, "logged")).toBe("ready");
     expect(nextStep("ready", "hang_up")).toBe("ringing"); // "Already called? Log the outcome"
   });

@@ -5,8 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState, Panel, PanelTitle, Skeleton } from "@/components/ui/form";
 import { Bars, Columns } from "./charts";
-import { InboxList } from "./inbox-panel";
-import { StatStrip, StepFunnel, addCosts, pctOf, useCostStat, useFunnels, type GrowthFilter } from "./growth-common";
+import { StepFunnel, useFunnels, type GrowthFilter } from "./growth-common";
 import type { EmailBenchmarks, Rate } from "@/domain/email";
 import { EMAIL_TEMPLATE_LABELS } from "@/domain/playbook";
 import { api } from "@/lib/api";
@@ -24,38 +23,30 @@ const weekdayName = (key: string, tag: string) => {
   return i < 0 ? key : new Intl.DateTimeFormat(tag, { weekday: "short", timeZone: "UTC" }).format(new Date(Date.UTC(2023, 0, 1 + i)));
 };
 
-/** Growth › Messages: email and WhatsApp numbers for the period → both funnels → what we still have to reply to → who still owes a reply → are our emails good. */
-export function MessagesTab({ filter }: { filter: GrowthFilter }) {
+/** Growth › Messages drawer › Results (round 10, D077): the email and WhatsApp funnels (the cost is in the drawer band). */
+export function MessagesResults({ filter }: { filter: GrowthFilter }) {
   const t = useT();
-  const tag = useDateTag();
   const f = useFunnels(filter);
-  const status = useQuery({ queryKey: ["gmail-status"], queryFn: () => api<{ connected: boolean; mode: string }>("/api/email/status") });
-  const b = useQuery({ queryKey: ["email-benchmarks"], queryFn: () => api<EmailBenchmarks>("/api/email/benchmarks") });
-  const qc = useQueryClient();
-  const disconnect = useMutation({ mutationFn: () => api("/api/email/status", { method: "DELETE" }), onSuccess: () => qc.invalidateQueries({ queryKey: ["gmail-status"] }) });
-  const email = f.data?.all.find((c) => c.key === "email");
-  const wa = f.data?.all.find((c) => c.key === "whatsapp");
-  const v = (c: typeof email, i: number) => c?.steps[i]?.value ?? 0;
-  const n = (x: number) => (f.data ? x.toLocaleString(tag) : "…");
-  const costStat = useCostStat(); // round 9 (D072): CAC of email + WhatsApp
+  if (f.isPending) return <Skeleton className="h-64" />;
+  if (f.isError) return <ErrorState error={f.error} onRetry={() => f.refetch()} />;
+  const email = f.data.all.find((c) => c.key === "email");
+  const wa = f.data.all.find((c) => c.key === "whatsapp");
   return (
     <div className="flex flex-col gap-5">
-      {f.isError ? <ErrorState error={f.error} onRetry={() => f.refetch()} /> : (
-        <>
-          <StatStrip stats={[
-            { label: t("Emails sent"), value: n(v(email, 0)), note: t("{n} replies · {pct} reply rate", { n: v(email, 1), pct: pctOf(v(email, 1), v(email, 0)) }) },
-            { label: t("WhatsApp sent"), value: n(v(wa, 0)), note: t("{n} replies · {pct} reply rate", { n: v(wa, 1), pct: pctOf(v(wa, 1), v(wa, 0)) }) },
-            { label: t("Interested replies"), value: n(v(email, 2) + v(wa, 2)), note: t("marked “Interested” below") },
-            { label: t("Meetings"), value: n((email?.meetings ?? 0) + (wa?.meetings ?? 0)), note: t("credited to email or WhatsApp (last touch)"), result: true },
-            costStat(addCosts(f.data?.costs?.email, f.data?.costs?.whatsapp)),
-          ]} />
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-            <StepFunnel title={t("Email")} steps={email?.steps ?? []} hours={email?.hours} empty={t("No email sent in this period. Send follow-ups from Call mode (key E or P).")} />
-            <StepFunnel title="WhatsApp" steps={wa?.steps ?? []} hours={wa?.hours} empty={t("No WhatsApp message in this period. Send them from Call mode › Messages.")} />
-          </div>
-        </>
-      )}
-      <InboxList />
+      <StepFunnel title={t("Email")} steps={email?.steps ?? []} hours={email?.hours} empty={t("No email sent in this period. Send follow-ups from Call mode (key E or P).")} />
+      <StepFunnel title="WhatsApp" steps={wa?.steps ?? []} hours={wa?.hours} empty={t("No WhatsApp message in this period. Send them from Call mode › Messages.")} />
+    </div>
+  );
+}
+
+/** Growth › Messages drawer › Waiting: who still owes a reply (one tap records it) and the Gmail connection. */
+export function MessagesWaiting() {
+  const t = useT();
+  const status = useQuery({ queryKey: ["gmail-status"], queryFn: () => api<{ connected: boolean; mode: string }>("/api/email/status") });
+  const qc = useQueryClient();
+  const disconnect = useMutation({ mutationFn: () => api("/api/email/status", { method: "DELETE" }), onSuccess: () => qc.invalidateQueries({ queryKey: ["gmail-status"] }) });
+  return (
+    <div className="flex flex-col gap-5">
       <SendsList />
       <Panel className="flex flex-wrap items-center justify-between gap-3">
         <div className="max-w-2xl">
@@ -64,11 +55,18 @@ export function MessagesTab({ filter }: { filter: GrowthFilter }) {
         </div>
         {status.data?.connected ? <Button variant="ghost" onClick={() => disconnect.mutate()}>{t("Disconnect")}</Button> : <Button asChild variant="outline"><a href="/api/auth/google/gmail?back=/marketing">{t("Connect Gmail")}</a></Button>}
       </Panel>
-      {b.isPending ? <Skeleton className="h-64" /> : b.isError ? <ErrorState error={b.error} onRetry={() => b.refetch()} /> : b.data.overall.sent === 0 ? (
-        <EmptyState title={t("No email sent yet")}>{t("Send a follow-up from call mode (key E or P). Benchmarks appear here as soon as emails go out.")}</EmptyState>
-      ) : <Benchmarks d={b.data} />}
     </div>
   );
+}
+
+/** Growth › Messages drawer › Email quality: reply rates against public ranges, by weekday and niche. */
+export function EmailQuality() {
+  const t = useT();
+  const b = useQuery({ queryKey: ["email-benchmarks"], queryFn: () => api<EmailBenchmarks>("/api/email/benchmarks") });
+  if (b.isPending) return <Skeleton className="h-64" />;
+  if (b.isError) return <ErrorState error={b.error} onRetry={() => b.refetch()} />;
+  if (b.data.overall.sent === 0) return <EmptyState title={t("No email sent yet")}>{t("Send a follow-up from call mode (key E or P). Benchmarks appear here as soon as emails go out.")}</EmptyState>;
+  return <div className="flex flex-col gap-5"><Benchmarks d={b.data} /></div>;
 }
 
 function Benchmarks({ d }: { d: EmailBenchmarks }) {
@@ -168,7 +166,8 @@ function SendsList() {
     onError: (e) => toast((e as Error).message),
   });
   const [all, setAll] = React.useState(false);
-  if (!q.data?.length) return null;
+  if (q.isPending) return <Skeleton className="h-32" />;
+  if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
   const rows = all ? q.data : q.data.filter((r) => !r.reply_kind);
   return (
     <Panel>

@@ -1,6 +1,7 @@
 import type { DataRepository } from "@/data/repository";
 import type { BankPort } from "@/data/bank/wise";
 import type { StripePort } from "@/data/bank/stripe";
+import type { InstagramAccount } from "@/data/instagram/graph";
 import type { CalendarPort, DrivePort, DriveUploader, MailSender } from "@/data/google/ports";
 
 /** Everything a service needs, independent of mode (LIVE, DEMO memory, DEMO fake Sheets, browser preview). */
@@ -18,6 +19,8 @@ export interface AppContext {
   bank?: BankPort | null;
   /** Stripe (read-only) when configured; null otherwise. */
   payments?: StripePort | null;
+  /** Instagram Graph accounts (read-only) when configured in env; null/absent = manual entry (D079). */
+  instagram?: InstagramAccount[] | null;
   baseUrl: string;
   mode: "live" | "demo";
 }

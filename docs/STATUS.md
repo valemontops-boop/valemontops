@@ -1,6 +1,14 @@
 # Status
 
-Updated: 2026-11-09 · Stage: **1B complete + Stage 2 (revenue operations) + founder feedback round 9 (fake-verified)** · Next: Stage 3 (finance and marketing).
+Updated: 2026-11-09 · Stage: **Stages 1B, 2 and 3 complete + founder feedback round 10 (fake-verified)** · Next: Stage 4 (integrations, reliability, deployment).
+
+## Stage 3 + feedback round 10 (2026-11-09)
+| Change | Status |
+|---|---|
+| Call screen: mail preview before sending (and after a missed call), visible Back / Undo, back on "New call" after each call, objections all visible without scrolling (two columns, grouped) | VERIFIED_FAKE (e2e at 1280×720, preview) |
+| Growth: one dashboard (5 numbers, one channel chart with Volume / Results / Cost views), detail drawer per channel, ≤3 verdicts | VERIFIED_FAKE (preview FR/ES, phone) |
+| Finance (D078): managerial P&L by month with drill-down, revenue recognition vs cash, contracts and revenue schedule, MRR/ARR, EBITDA estimate, runway, EUR/USD with ECB rates cached per day, manual entries | VERIFIED_FAKE (finance tests, scenarios 8–9) — ECB download untested live |
+| Content Studio (D079): pipeline FR/ES variants, week calendar, batch, publishing checklists, post checkpoints, views → leads path; Instagram Graph adapter; snapshot job without cron | VERIFIED_FAKE (scenarios 10, 22) — needs Meta app + token |
 
 ## Stage 2A · audits, price book, quotes (D074)
 | Feature | Status |

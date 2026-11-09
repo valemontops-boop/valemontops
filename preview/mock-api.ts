@@ -11,6 +11,9 @@ import { isValidTimeZone } from "@/domain/time";
 import { seedBaseline } from "@/server/services/baseline";
 import { seedDemo } from "@/server/services/demo-seed";
 import { DELIVERY_ROUTES } from "@/server/services/delivery-routes";
+import { CONTENT_ROUTES } from "@/server/services/content-routes";
+import { seedDemoContent } from "@/server/services/demo-content";
+import { FINANCE_ROUTES } from "@/server/services/finance-routes";
 import { quoteRoutes } from "./quote-routes";
 import { logActivity, logActivitySchema } from "@/server/services/activities";
 import { getMyDay, getTargetsForEdit, profileSchema, setMode, setModeSchema, setTargets, setTargetsSchema, whatsappReport } from "@/server/services/myday";
@@ -90,6 +93,7 @@ export async function seed() {
   await seedDemoWork(repo, (f) => privates[f] ?? null);
   await seedPreviewRecentCalls(repo);
   await seedDemoLinkedIn(repo);
+  await seedDemoContent(repo);
   // Preview only: every day is a workday so the meters are visible whenever someone opens it.
   for (const f of ["theo", "pablo"] as const) {
     const u = await userRow(repo, f);
@@ -245,6 +249,10 @@ const routes: Record<string, [z.ZodTypeAny | null, Handler]> = {
 
 // Stage 2B (D075): Clients & delivery routes, same table as the Next route handlers.
 for (const [k, [s, h]] of Object.entries(DELIVERY_ROUTES)) routes[k] = [s, (i, f) => h(ctx, f, i as never)];
+// Stage 3 marketing (D079): Content Studio routes, same table as the Next route handlers.
+for (const [k, [s, h]] of Object.entries(CONTENT_ROUTES)) routes[k] = [s, (i, f) => h(ctx, f, i as never)];
+// Stage 3 finance (D078): ledger, P&L, contracts, revenue schedule, rates.
+for (const [k, [s, h]] of Object.entries(FINANCE_ROUTES)) routes[k] = [s, (i, f) => h(ctx, f, i as never)];
 // Stage 2A (D074): audits, quotes, price book, commercial policy.
 Object.assign(routes, quoteRoutes(ctx, (f) => (driveGrant ? `preview-grant-${f}` : null)));
 

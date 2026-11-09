@@ -15,6 +15,7 @@ import { AgendaView } from "@/components/app/agenda-view";
 import { IdeasView } from "@/components/app/ideas-view";
 import { FilesView } from "@/components/app/files-view";
 import { MarketingView } from "@/components/app/marketing-view";
+import { ContentStudio } from "@/components/app/content-studio";
 import { MoneyView } from "@/components/app/money-view";
 import { ClientsView } from "@/components/app/clients-view";
 import { ReportsView } from "@/components/app/reports-view";
@@ -32,6 +33,7 @@ function Page() {
   if (path.startsWith("/agenda")) return <AgendaView />;
   if (path.startsWith("/ideas")) return <IdeasView />;
   if (path.startsWith("/files")) return <FilesView />;
+  if (path.startsWith("/marketing/content")) return <ContentStudio />;
   if (path.startsWith("/marketing")) return <MarketingView />;
   if (path.startsWith("/reports")) return <ReportsView />;
   if (path.startsWith("/money")) return <MoneyView />;

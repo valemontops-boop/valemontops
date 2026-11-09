@@ -9,7 +9,7 @@ const subs = new Set<() => void>();
 
 function routeFromHash() {
   const h = (typeof location !== "undefined" ? location.hash : "").replace(/^#/, "");
-  return ["my-day", "crm", "crm-import", "settings", "command-center", "tasks", "agenda", "ideas", "files", "marketing", "reports", "call", "money", "clients", "crm-deal"].includes(h) ? "/" + h.replace("crm-import", "crm/import").replace("crm-deal", "crm/deal") : "/my-day";
+  return ["my-day", "crm", "crm-import", "settings", "command-center", "tasks", "agenda", "ideas", "files", "marketing", "reports", "call", "money", "clients", "crm-deal", "marketing-content"].includes(h) ? "/" + h.replace("crm-import", "crm/import").replace("crm-deal", "crm/deal").replace("marketing-content", "marketing/content") : "/my-day";
 }
 if (typeof window !== "undefined") {
   window.addEventListener("hashchange", () => {
@@ -17,7 +17,7 @@ if (typeof window !== "undefined") {
     subs.forEach((s) => s());
   });
 }
-export function navigate(href: string) {
+export function navigate(href: string, scroll = true) {
   const [p, q = ""] = href.split("?");
   path = p || "/my-day";
   query = new URLSearchParams(q);
@@ -28,7 +28,7 @@ export function navigate(href: string) {
     /* hash is a convenience only */
   }
   subs.forEach((s) => s());
-  window.scrollTo?.(0, 0);
+  if (scroll) window.scrollTo?.(0, 0);
 }
 const subscribe = (cb: () => void) => (subs.add(cb), () => subs.delete(cb));
 export function usePathname() {
@@ -39,7 +39,7 @@ export function useSearchParams() {
   return useMemo(() => new URLSearchParams(q), [q]);
 }
 export function useRouter() {
-  return { push: navigate, replace: (h: string) => navigate(h), refresh: () => undefined, back: () => history.back() };
+  return { push: (h: string, o?: { scroll?: boolean }) => navigate(h, o?.scroll !== false), replace: (h: string, o?: { scroll?: boolean }) => navigate(h, o?.scroll !== false), refresh: () => undefined, back: () => history.back() };
 }
 export function redirect(href: string): never {
   navigate(href);

@@ -12,11 +12,9 @@ import { api } from "@/lib/api";
 import { cn, formatEur } from "@/lib/utils";
 
 /**
- * Shared pieces of the Growth space (round 7): one period and one scope for every tab, and the same
- * layout everywhere: a strip of at most four numbers, then the channel funnel, then the details.
- * Sober style: values in ink, blue for volumes, green only for results (meetings, won, purchases).
+ * Shared pieces of the Growth space: one period and one scope for the whole dashboard (round 10, D077: one dashboard,
+ * a drawer per channel). Sober style: values in ink, blue for volumes, green only for results (meetings, won, purchases).
  */
-export type GrowthTab = "overview" | "messages" | "linkedin" | "instagram" | "website" | "content";
 export type Days = "7" | "30" | "90";
 export type Scope = "team" | "me";
 export type GrowthFilter = { days: Days; scope: Scope };
@@ -27,17 +25,22 @@ export function useFunnels({ days, scope }: GrowthFilter) {
   return useQuery({ queryKey: ["funnels", days, scope], queryFn: () => api<FunnelData>(`/api/marketing/funnels?days=${days}&scope=${scope}`) });
 }
 
-export type Stat = { label: string; value: React.ReactNode; note?: React.ReactNode; result?: boolean };
-/** At most five numbers in one quiet band (DESIGN ≤ 5); each says what it counts in its note. */
-export function StatStrip({ stats }: { stats: Stat[] }) {
+export type Stat = { label: string; value: React.ReactNode; note?: React.ReactNode; result?: boolean; onClick?: () => void; pressed?: boolean };
+/**
+ * At most five numbers in one quiet band (DESIGN ≤ 5); each says what it counts in its note. A number with `onClick`
+ * is a button (the main dashboard: it switches the view of "Channels compared"). `size="sm"` inside a drawer.
+ */
+export function StatStrip({ stats, size = "md" }: { stats: Stat[]; size?: "sm" | "md" }) {
   const shown = stats.slice(0, 5);
   return (
-    <Panel className="p-0 sm:p-0">
+    <Panel className="overflow-hidden p-0 sm:p-0">
       <dl className={cn("grid grid-cols-2", shown.length >= 5 ? "md:grid-cols-5" : shown.length === 4 ? "md:grid-cols-4" : shown.length === 3 ? "md:grid-cols-3" : "md:grid-cols-2")}>
         {shown.map((s, i) => (
-          <div key={i} className={cn("flex min-w-0 flex-col gap-1 p-5", i > 0 && "md:border-l md:border-hairline", i % 2 === 1 && "border-l border-hairline", i >= 2 && "max-md:border-t max-md:border-hairline")}>
-            <dt className="text-[13px] font-medium text-text-2">{s.label}</dt>
-            <dd className={cn("num text-[32px] font-semibold leading-none tracking-tight", s.result && "text-win")}>{s.value}</dd>
+          <div key={i} className={cn("relative flex min-w-0 flex-col gap-1", size === "sm" ? "p-4" : "p-5", i > 0 && "md:border-l md:border-hairline", i % 2 === 1 && "border-l border-hairline", i >= 2 && "max-md:border-t max-md:border-hairline", s.onClick && "hover:bg-subtle/60", s.pressed && "bg-subtle/60")}>
+            <dt className="text-[13px] font-medium text-text-2">
+              {s.onClick ? <button type="button" onClick={s.onClick} aria-pressed={s.pressed} className="text-left after:absolute after:inset-0 after:content-[''] focus-visible:outline-none focus-visible:after:rounded-[12px] focus-visible:after:ring-2 focus-visible:after:ring-ink">{s.label}</button> : s.label}
+            </dt>
+            <dd className={cn("num font-semibold leading-none tracking-tight", size === "sm" ? "text-[24px]" : "text-[32px]", s.result && "text-win")}>{s.value}</dd>
             {s.note ? <dd className="text-[12px] text-text-3">{s.note}</dd> : null}
           </div>
         ))}

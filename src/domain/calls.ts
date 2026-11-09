@@ -111,6 +111,9 @@ export function callStats(events: CallEv[], tz: string, session?: { started_at: 
 /**
  * The live call, step by step: [New call] → ringing → [Picked up] (live) or [Not picked up] (missed: no answer or
  * voicemail, logged at once) → during the call: objections, instant mail, the ladder → [Hung up] → one outcome.
+ * Round 10 (D076): the ringing screen offers picked up (1), no answer (2) and voicemail (3) side by side, so a missed
+ * call is one tap and the next prospect comes up at once ("missed" stays for older callers). "← Back" goes one step
+ * back (hungup → live → ringing → ready) and never logs anything.
  */
 export type CallStep = "ready" | "ringing" | "missed" | "live" | "hungup";
 export type CallFlowAction = "dial" | "picked_up" | "not_picked_up" | "hang_up" | "back" | "logged";
@@ -120,7 +123,7 @@ export function nextStep(step: CallStep, a: CallFlowAction): CallStep {
     case "ready": return a === "dial" || a === "hang_up" ? "ringing" : step;
     case "ringing": return a === "picked_up" ? "live" : a === "not_picked_up" || a === "hang_up" ? "missed" : a === "back" ? "ready" : step;
     case "missed": return a === "back" ? "ringing" : a === "picked_up" ? "live" : step;
-    case "live": return a === "hang_up" ? "hungup" : step;
+    case "live": return a === "hang_up" ? "hungup" : a === "back" ? "ringing" : step; // "← Back": tapped "picked up" by mistake
     case "hungup": return a === "back" ? "live" : step;
   }
 }

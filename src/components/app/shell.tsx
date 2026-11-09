@@ -192,7 +192,7 @@ function Frame({ children }: { children: React.ReactNode }) {
     <div className="min-h-dvh">
       <ModeBanner />
       <div className="flex">
-        <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r border-hairline bg-panel px-3 py-5 md:flex">
+        <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col overflow-y-auto border-r border-hairline bg-panel px-3 py-5 md:flex">
           <Link href="/my-day" className="mb-6 px-3 text-[17px] font-semibold tracking-tight">Valemont OS</Link>
           <nav aria-label={t("Main")} className="flex flex-col gap-1">
             {NAV.map((n) => <NavLink key={n.href} {...n} path={path} badge={n.href === "/my-day" ? followUps : undefined} />)}
