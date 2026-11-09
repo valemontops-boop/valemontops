@@ -12,6 +12,7 @@ import { useDateTag, useT } from "@/i18n/react";
 import { ApiError, api } from "@/lib/api";
 import { cn, formatMoney } from "@/lib/utils";
 import type { Fin, FinItemView } from "./money-view";
+import { ManualRateForm, RateInUse, UsdAmount, useRateLabel } from "./usd-line";
 
 /** Display currency (spec 3.12): a reporting conversion at the latest rate, never a restatement of stored amounts. */
 export type Fmt = (eurMinor: number | null | undefined) => string;
@@ -221,8 +222,8 @@ export function EntriesPanel({ fin }: { fin: Fin }) {
                 <span className="block text-[12px] text-text-3">{t(CATEGORY_LABELS[r.category])} · {t(COST_CENTER_LABELS[r.cost_center])}{r.kind === "adjustment" ? ` · ${t("reversing entry")}` : ""}{r.reversed ? ` · ${t("reversed")}` : ""}{r.reference ? ` · ${r.reference}` : ""}{r.receipt_url ? <> · <a className="underline" href={r.receipt_url} target="_blank" rel="noreferrer">{t("receipt")}</a></> : null}</span>
               </span>
               <span className="num text-right text-sm">
-                {formatMoney(r.gross_minor, r.currency)}
-                {r.currency !== "EUR" ? <span className="block text-[11px] text-text-3">{t("not in EUR, not converted")}</span> : null}
+                {r.currency === "USD" ? <UsdAmount usd={Math.abs(r.gross_minor)} eur={r.eur_gross === null ? null : Math.abs(r.eur_gross)} rate={r.fx} className="block text-[13px]" /> : formatMoney(r.gross_minor, r.currency)}
+                {r.currency !== "EUR" && r.currency !== "USD" ? <span className="block text-[11px] text-text-3">{t("not in EUR, not converted")}</span> : null}
               </span>
               {r.kind !== "adjustment" && !r.reversed ? <Button size="sm" variant="ghost" disabled={rev.isPending} onClick={() => rev.mutate(r.id)}>{t("Reverse")}</Button> : <span />}
             </li>
@@ -239,20 +240,27 @@ function EntryForm({ fin, onClose }: { fin: Fin; onClose: () => void }) {
   const inv = useInvalidate();
   const [id] = React.useState(newId); // generated when the form opens, reused on every retry (spec 4.2)
   const [err, setErr] = React.useState<string | null>(null);
-  const [f, setF] = React.useState({ date: fin.today, kind: "expense" as "income" | "expense", category: "software" as BankCategory, cost_center: "shared" as CostCenter, amount: "", vat: "", counterparty: "", reference: "", receipt_url: "", service_from: "", service_to: "", contract_id: "", note: "" });
+  const [f, setF] = React.useState({ date: fin.today, kind: "expense" as "income" | "expense", category: "software" as BankCategory, cost_center: "shared" as CostCenter, currency: "EUR" as "EUR" | "USD", wise_tx_id: "", amount: "", vat: "", counterparty: "", reference: "", receipt_url: "", service_from: "", service_to: "", contract_id: "", note: "" });
+  const rateLabel = useRateLabel();
+  const usd = f.currency === "USD";
   const save = useMutation({
     mutationFn: () => {
       const amount = parseAmount(f.amount), vat = f.vat.trim() ? parseAmount(f.vat) : 0;
       if (!amount || vat === null) throw new Error(t("Invalid amount"));
-      return api("/api/finance/entries", { body: { id, date: f.date, kind: f.kind, category: f.category, cost_center: f.cost_center, cost_class: "", currency: "EUR", amount_minor: amount, vat_minor: vat, counterparty: f.counterparty, reference: f.reference, receipt_url: f.receipt_url.trim(), project_id: "", contract_id: f.contract_id, service_from: f.service_from || null, service_to: f.service_to || null, note: f.note } });
+      return api("/api/finance/entries", { body: { id, date: f.date, kind: f.kind, category: f.category, cost_center: f.cost_center, cost_class: "", currency: f.currency, wise_tx_id: usd ? f.wise_tx_id : "", amount_minor: amount, vat_minor: vat, counterparty: f.counterparty, reference: f.reference, receipt_url: f.receipt_url.trim(), project_id: "", contract_id: f.contract_id, service_from: f.service_from || null, service_to: f.service_to || null, note: f.note } });
     },
     onSuccess: () => { toast(t("Saved")); inv(); onClose(); },
     onError: (e) => setErr((e as Error).message),
   });
   return (
-    <Modal open onOpenChange={(o) => !o && onClose()} title={t("Add an entry")} description={t("Amounts in euros, ex VAT.")}>
+    <Modal open onOpenChange={(o) => !o && onClose()} title={t("Add an entry")} description={usd ? t("Amounts in US dollars, ex VAT: converted to euros at the rate shown, locked at entry.") : t("Amounts in euros, ex VAT.")}>
       <form className="grid grid-cols-2 gap-3" onSubmit={(e) => { e.preventDefault(); setErr(null); save.mutate(); }}>
-        <Field label={t("Type")} htmlFor="en-kind"><Select id="en-kind" value={f.kind} onChange={(e) => { const kind = e.target.value as "income" | "expense"; setF({ ...f, kind, category: kind === "income" ? "revenue" : "software", cost_center: kind === "income" ? "consulting" : "shared" }); }}><option value="expense">{t("Expense")}</option><option value="income">{t("Income")}</option></Select></Field>
+        <Field label={t("Type")} htmlFor="en-kind"><Select id="en-kind" value={f.kind} onChange={(e) => { const kind = e.target.value as "income" | "expense"; setF({ ...f, kind, category: kind === "income" ? "revenue" : "software", cost_center: kind === "income" ? "consulting" : "shared", currency: kind === "income" ? "EUR" : f.currency }); }}><option value="expense">{t("Expense")}</option><option value="income">{t("Income")}</option></Select></Field>
+        {f.kind === "expense" ? <Field label={t("Currency")} htmlFor="en-cur"><Select id="en-cur" value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value as "EUR" | "USD", category: e.target.value === "USD" ? "contractors" : f.category })}><option value="EUR">{t("Euro (€)")}</option><option value="USD">{t("US dollar ($) — supplier paid in USD")}</option></Select></Field> : null}
+        {usd ? (
+          <Field label={t("Wise payment (real rate)")} htmlFor="en-wtx"><Select id="en-wtx" value={f.wise_tx_id} onChange={(e) => setF({ ...f, wise_tx_id: e.target.value })}><option value="">{t("None: rate of the day")}</option>{fin.usd.payments.map((p) => <option key={p.id} value={p.id}>{`${p.date} · ${p.label} · ${formatMoney(p.usd_minor, "USD")} → ${formatMoney(p.eur_minor)}`}</option>)}</Select></Field>
+        ) : null}
+        {usd ? <p className="col-span-2 text-[13px] text-text-2">{f.wise_tx_id ? (() => { const p = fin.usd.payments.find((x) => x.id === f.wise_tx_id); return p ? rateLabel(p.rate) : ""; })() : fin.usd.current ? <RateInUse rate={fin.usd.current} /> : t("No USD rate: the entry is kept in USD, marked \"rate missing\" and left out of EUR totals. Enter a manual rate first to convert it.")}</p> : null}
         <Field label={t("Date")} htmlFor="en-date"><Input id="en-date" type="date" required value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></Field>
         <Field label={t("Category")} htmlFor="en-cat"><Select id="en-cat" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value as BankCategory })}>{BANK_CATEGORIES.map((c) => <option key={c} value={c}>{t(CATEGORY_LABELS[c])}</option>)}</Select></Field>
         <Field label={t("Activity")} htmlFor="en-cc"><Select id="en-cc" value={f.cost_center} onChange={(e) => setF({ ...f, cost_center: e.target.value as CostCenter })}>{COST_CENTERS.map((c) => <option key={c} value={c}>{t(COST_CENTER_LABELS[c])}</option>)}</Select></Field>
@@ -269,6 +277,24 @@ function EntryForm({ fin, onClose }: { fin: Fin; onClose: () => void }) {
         <div className="col-span-2 flex justify-end gap-2"><Button type="button" variant="ghost" onClick={onClose}>{t("Cancel")}</Button><Button type="submit" variant="dark" disabled={save.isPending}>{t("Save")}</Button></div>
       </form>
     </Modal>
+  );
+}
+
+/* ---------------- USD for contractors (D085) ---------------- */
+/** Which USD→EUR rate converts contractor payments: Wise today (LIVE), else the manual rate below; no ECB, no display switch. */
+export function UsdRatePanel({ fin }: { fin: Fin }) {
+  const t = useT();
+  const u = fin.usd;
+  return (
+    <Panel>
+      <PanelTitle>{t("Contractors paid in USD")}</PanelTitle>
+      <p className="mb-2 text-[13px] text-text-2">{t("Only to pay contractors in dollars: a Wise payment uses its real rate; before paying, the Wise rate of the day, else your manual rate. Everything else stays in euros.")}</p>
+      <RateInUse rate={u.current} className="mb-1 text-sm font-medium" />
+      {u.mode === "live" && u.wise_status === "failed" ? <p className="mb-2 text-[13px] text-bad">{t("Wise did not give a rate today: the manual rate is used.")}</p> : null}
+      {u.mode === "live" && u.wise_status === "not_configured" ? <p className="mb-2 text-[13px] text-text-2">{t("Wise is not connected: the manual rate is used.")}</p> : null}
+      {fin.usd_missing.count ? <p className="mb-2 text-[13px] text-bad">{t("{n} USD payments have no rate ({x}): left out of EUR totals.", { n: fin.usd_missing.count, x: formatMoney(fin.usd_missing.usd_minor, "USD") })}</p> : null}
+      <ManualRateForm key={`${u.manual_version}`} manual={u.manual} version={u.manual_version} today={u.today} />
+    </Panel>
   );
 }
 

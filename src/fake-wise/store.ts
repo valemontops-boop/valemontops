@@ -36,6 +36,7 @@ export function demoWiseStore(now = new Date()) {
     [28, -6400, "CARD", "Renfe Madrid", "Renfe", "Railroads"],
     [25, 150000, "DEPOSIT", "Facture VC-0002", "Garage du Parc (demo)", ""],
     [21, -2390, "CARD", "Google Workspace", "Google", "Computer Software"],
+    // D085: a contractor paid in USD out of the EUR balance (326 $ sent for 300 € debited → real rate 0.920245).
     [12, -30000, "TRANSFER", "Designer freelance (demo)", "Studio Exemple (demo)", ""],
     [9, 10000, "DEPOSIT", "Abonnement VL-0001 mois 2", "Boulangerie Test (demo)", ""],
     [6, -2000, "CARD", "Notion Labs", "Notion", "Computer Software"],
@@ -44,7 +45,7 @@ export function demoWiseStore(now = new Date()) {
   ];
   rows.forEach(([d, amount, type, description, counterparty, mc], i) => s.addTx("demo-eur", {
     referenceNumber: `DEMO-${1000 + i}`, direction: amount >= 0 ? "credit" : "debit", occurred_at: day(d), amount_minor: amount, currency: "EUR", fee_minor: null,
-    description, counterparty, detailsType: type, merchantCategory: mc,
+    description, counterparty, detailsType: type, merchantCategory: mc, ...(type === "TRANSFER" ? { fx_currency: "USD", fx_amount_minor: 32600 } : {}),
   }));
   return s;
 }

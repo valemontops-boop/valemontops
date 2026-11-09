@@ -224,7 +224,7 @@ export const entrySchema = z.object({
   /** EUR; USD only for an expense paying a supplier (D085). */
   currency: z.enum(PAY_CURRENCIES).default("EUR"),
   /** USD only: the Wise payment whose real rate to use (else Wise today > manual rate). */
-  wise_tx_id: z.union([z.literal(""), z.string().uuid()]).default(""),
+  wise_tx_id: z.union([z.literal(""), z.string().uuid()]).optional(),
   /** Ex VAT, positive; the sign comes from `kind`. */
   amount_minor: z.number().int().min(1).max(10_000_000_000),
   vat_minor: z.number().int().min(0).max(10_000_000_000).default(0),
@@ -250,7 +250,7 @@ export async function addEntry(ctx: AppContext, founder: FounderKey, input: z.in
   if (existing) return existing;
   if (input.vat_minor > input.amount_minor * 2) throw new RuleError("VAT looks wrong: check the amount ex VAT and the VAT");
   const sign = input.kind === "income" ? 1 : -1;
-  const { amount_minor, vat_minor, wise_tx_id, ...rest } = input;
+  const { amount_minor, vat_minor, wise_tx_id = "", ...rest } = input;
   let fx = { fx_rate: "", fx_date: null as string | null, fx_source: "", eur_minor: sign * amount_minor, eur_vat_minor: sign * vat_minor };
   if (input.currency === "USD") {
     let rate: UsdRate | null = null;

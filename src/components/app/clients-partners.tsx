@@ -12,16 +12,20 @@ import { useT } from "@/i18n/react";
 import { api } from "@/lib/api";
 import { cn, formatMoney } from "@/lib/utils";
 import { useSave } from "./clients-view";
+import { RateInUse, UsdAmount } from "./usd-line";
+import type { UsdRate } from "@/domain/usd";
 
 type Vendor = {
   id: string; version: number; name: string; company: string; skills: string[]; services: string; timezone: string; country: string; currency: string;
   hourly_rate_minor: number | null; daily_rate_minor: number | null; fixed_rate_minor: number | null; capacity_hours_week: number; availability: "available" | "limited" | "unavailable";
   response_sla_hours: number | null; nda_status: "none" | "sent" | "signed"; contract_status: "none" | "draft" | "signed"; rate_valid_until: string | null; contact_email: string; contact_phone: string;
   notes: string; quality_feedback: string; load: { plannedPerWeek: number; capacity: number; over: boolean; loadPct: number | null }; freeHoursWeek: number; rateExpired: boolean; projects: string[];
+  /** USD contractor (D085): rates in EUR at today's rate (null = rate missing). */
+  eur: { hourly: number | null; daily: number | null; fixed: number | null } | null;
 };
 type Tool = { id: string; version: number; name: string; provider: string; use_case: string; apis: string; integration_status: string; monthly_cost_minor: number; currency: string; usage_limits: string; pricing_version: string; pricing_date: string | null; owner_founder: string | null; environment: string; linked_project_ids: string[]; risk_notes: string; expense_category: string; projects: string[] };
 type Agent = { id: string; version: number; name: string; kind: string; purpose: string; stack: string; inputs: string; outputs: string; linked_tool_ids: string[]; linked_project_ids: string[]; owner_founder: string | null; status: string; notes: string; projects: string[]; tools: string[] };
-type Data = { today: string; vendors: Vendor[]; tools: Tool[]; agents: Agent[]; projects: { id: string; name: string }[]; toolsMonthlyMinor: number };
+type Data = { today: string; vendors: Vendor[]; tools: Tool[]; agents: Agent[]; projects: { id: string; name: string }[]; toolsMonthlyMinor: number; usd: { rate: UsdRate | null; wise_status: string } };
 
 const AVAIL: Record<string, string> = { available: "Available", limited: "Limited", unavailable: "Unavailable" };
 const DOC: Record<string, string> = { none: "None", sent: "Sent", draft: "Draft", signed: "Signed" };
@@ -50,7 +54,11 @@ function People({ d }: { d: Data }) {
   const t = useT();
   const [f, setF] = React.useState({ skill: "", hours: "", country: "", maxRate: "" });
   const [edit, setEdit] = React.useState<Vendor | "new" | null>(null);
-  const list = shortlist(d.vendors, new Map(d.vendors.map((v) => [v.id, v.freeHoursWeek])), { skill: f.skill, minHours: Number(f.hours) || 0, country: f.country, maxRateMinor: f.maxRate ? Math.round(Number(f.maxRate) * 100) : null });
+  // The max € / hour filter compares in euros: a USD contractor counts at its EUR equivalent (unknown without a rate).
+  const inEur = d.vendors.map((v) => (v.currency.toUpperCase() === "USD" ? { ...v, hourly_rate_minor: v.eur?.hourly ?? null } : v));
+  const ids = new Set(shortlist(inEur, new Map(d.vendors.map((v) => [v.id, v.freeHoursWeek])), { skill: f.skill, minHours: Number(f.hours) || 0, country: f.country, maxRateMinor: f.maxRate ? Math.round(Number(f.maxRate.replace(",", ".")) * 100) : null }).map((v) => v.id));
+  const order = shortlist(inEur, new Map(d.vendors.map((v) => [v.id, v.freeHoursWeek])), {}).map((v) => v.id);
+  const list = d.vendors.filter((v) => ids.has(v.id)).sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
   const hidden = d.vendors.filter((v) => !list.includes(v));
   const filtering = Boolean(f.skill || f.hours || f.country || f.maxRate);
   return (
@@ -71,13 +79,14 @@ function People({ d }: { d: Data }) {
               <tr key={v.id} className="cursor-pointer border-t border-hairline align-top hover:bg-subtle/60" onClick={() => setEdit(v)}>
                 <td className="py-2 pr-3"><span className="font-medium">{v.name}</span><span className="block text-[12px] text-text-3">{[v.company, v.country, t(AVAIL[v.availability])].filter(Boolean).join(" · ")}</span></td>
                 <td className="py-2 pr-3 text-[13px]">{v.skills.join(", ") || "—"}</td>
-                <td className="num py-2 text-right">{v.hourly_rate_minor !== null ? `${eur(v.hourly_rate_minor, v.currency)} ${t("/ h")}` : v.daily_rate_minor !== null ? `${eur(v.daily_rate_minor, v.currency)} ${t("/ day")}` : eur(v.fixed_rate_minor, v.currency)}{v.rateExpired ? <span className="block text-[12px] font-medium text-bad">{t("rate to confirm")}</span> : v.rate_valid_until ? <span className="block text-[12px] text-text-3">{t("valid until {d}", { d: v.rate_valid_until })}</span> : null}</td>
+                <td className="num py-2 text-right">{v.currency.toUpperCase() === "USD" && v.eur ? <VendorUsdRate v={v} rate={d.usd.rate} /> : v.hourly_rate_minor !== null ? `${eur(v.hourly_rate_minor, v.currency)} ${t("/ h")}` : v.daily_rate_minor !== null ? `${eur(v.daily_rate_minor, v.currency)} ${t("/ day")}` : eur(v.fixed_rate_minor, v.currency)}{v.rateExpired ? <span className="block text-[12px] font-medium text-bad">{t("rate to confirm")}</span> : v.rate_valid_until ? <span className="block text-[12px] text-text-3">{t("valid until {d}", { d: v.rate_valid_until })}</span> : null}</td>
                 <td className={cn("num py-2 pr-4 text-right", v.load.over && "font-semibold text-bad")}>{v.load.over ? <AlertTriangle className="mr-1 inline size-3.5" aria-label={t("Over capacity")} /> : null}{v.load.plannedPerWeek} / {v.capacity_hours_week} h</td>
                 <td className="py-2 pr-3 text-[13px]">{t(DOC[v.nda_status])} · {t(DOC[v.contract_status])}</td>
                 <td className="py-2 text-[13px]">{v.projects.join(", ") || "—"}</td>
               </tr>
             ))}</tbody>
           </table>
+          {d.vendors.some((v) => v.currency.toUpperCase() === "USD") ? <RateInUse rate={d.usd.rate} className="mt-2 text-[12px] text-text-3" /> : null}
           {filtering ? <p className="mt-2 text-[12px] text-text-3">{t("{n} shown, {h} hidden by the filters (unavailable people are never shortlisted).", { n: list.length, h: hidden.length })}</p> : null}
         </div>
       )}
@@ -86,12 +95,20 @@ function People({ d }: { d: Data }) {
   );
 }
 
+/** A USD contractor's rate with its EUR equivalent at today's rate, or "rate missing". */
+function VendorUsdRate({ v, rate }: { v: Vendor; rate: UsdRate | null }) {
+  const t = useT();
+  const [usd, eurV, unit] = v.hourly_rate_minor !== null ? [v.hourly_rate_minor, v.eur!.hourly, t("/ h")] : v.daily_rate_minor !== null ? [v.daily_rate_minor, v.eur!.daily, t("/ day")] : [v.fixed_rate_minor, v.eur!.fixed, ""];
+  if (usd === null) return <>—</>;
+  return <><UsdAmount usd={usd} eur={eurV} rate={rate} className="block text-[13px]" />{unit ? <span className="text-[12px] text-text-3">{unit}</span> : null}</>;
+}
+
 function VendorForm({ v, onClose }: { v: Vendor | null; onClose: () => void }) {
   const t = useT();
   const [id] = React.useState(() => v?.id ?? crypto.randomUUID());
   const s = (x: number | null | undefined) => (x === null || x === undefined ? "" : String(x / 100));
   const [f, setF] = React.useState({
-    name: v?.name ?? "", company: v?.company ?? "", skills: v?.skills.join(", ") ?? "", services: v?.services ?? "", timezone: v?.timezone ?? "", country: v?.country ?? "", currency: v?.currency ?? "EUR",
+    name: v?.name ?? "", company: v?.company ?? "", skills: v?.skills.join(", ") ?? "", services: v?.services ?? "", timezone: v?.timezone ?? "", country: v?.country ?? "", currency: v?.currency.toUpperCase() === "USD" ? "USD" : "EUR",
     hourly: s(v?.hourly_rate_minor), daily: s(v?.daily_rate_minor), fixed: s(v?.fixed_rate_minor), capacity: String(v?.capacity_hours_week ?? ""), availability: v?.availability ?? "available",
     sla: v?.response_sla_hours === null || v?.response_sla_hours === undefined ? "" : String(v.response_sla_hours), nda: v?.nda_status ?? "none", contract: v?.contract_status ?? "none",
     valid: v?.rate_valid_until ?? "", email: v?.contact_email ?? "", phone: v?.contact_phone ?? "", notes: v?.notes ?? "", feedback: v?.quality_feedback ?? "",
@@ -106,7 +123,7 @@ function VendorForm({ v, onClose }: { v: Vendor | null; onClose: () => void }) {
       <form className="grid grid-cols-2 gap-3 sm:grid-cols-3" onSubmit={(e) => { e.preventDefault(); m.mutate(v ? { id, expected_version: v.version, patch: body } : { id, vendor: body }); }}>
         {inp("name", "Name", { required: true, maxLength: 200 })}{inp("company", "Company")}{inp("skills", "Skills (comma separated)")}
         {inp("services", "Services")}{inp("country", "Country (FR, ES…)", { maxLength: 2 })}{inp("timezone", "Time zone")}
-        {inp("currency", "Currency", { maxLength: 3 })}{inp("hourly", "Hourly rate", { inputMode: "decimal" })}{inp("daily", "Daily rate", { inputMode: "decimal" })}
+        {sel("currency", "Currency", { EUR: "Euro (€)", USD: "US dollar ($)" })}{inp("hourly", "Hourly rate", { inputMode: "decimal" })}{inp("daily", "Daily rate", { inputMode: "decimal" })}
         {inp("fixed", "Fixed fee", { inputMode: "decimal" })}{inp("valid", "Rate valid until", { type: "date" })}{inp("capacity", "Capacity (hours / week)", { inputMode: "numeric" })}
         {sel("availability", "Availability", AVAIL)}{inp("sla", "Response time (hours)", { inputMode: "numeric" })}{sel("nda", "NDA", { none: "None", sent: "Sent", signed: "Signed" })}
         {sel("contract", "Contract", { none: "None", draft: "Draft", signed: "Signed" })}{inp("email", "Email", { type: "email" })}{inp("phone", "Phone")}

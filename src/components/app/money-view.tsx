@@ -14,7 +14,8 @@ import { cn, formatMoney } from "@/lib/utils";
 import { VerdictPanel } from "./verdicts";
 import { moneyVerdicts } from "@/domain/verdicts";
 import { ExportButton } from "./export-dialog";
-import { AllocationPanel, ContractsTab, EntriesPanel, FmtContext, PnlTab, useFmt, type Fmt } from "./money-finance";
+import { AllocationPanel, ContractsTab, EntriesPanel, FmtContext, PnlTab, UsdRatePanel, useFmt, type Fmt } from "./money-finance";
+import { UsdAmount } from "./usd-line";
 import { CsvExportButton } from "./csv-tools";
 
 type Tx = { bank: "wise" | "stripe"; id: string; version: number; occurred_at: string; date: string; amount_minor: number; currency: string; description: string; counterparty: string; category: BankCategory; category_source: "auto" | "manual"; direction: "credit" | "debit"; origin: string };
@@ -77,6 +78,7 @@ export function MoneyView() {
         {d.status === "sca_required" ? <p className="rounded-[12px] bg-subtle px-4 py-3 text-sm">{t("Wise asks for strong authentication to read the statement history. Live movements and balances still work. For the history: add the signing key (setup guide) or import a CSV statement.")}</p> : null}
         {d.syncError ? <p className="text-sm text-bad">{d.syncError}</p> : null}
         {f.isError ? <ErrorState error={f.error} onRetry={() => f.refetch()} /> : null}
+        {f.data?.usd_missing.count ? <p className="rounded-[12px] bg-subtle px-4 py-3 text-sm">{t("{n} USD payments have no rate ({x}): left out of EUR totals.", { n: f.data.usd_missing.count, x: formatMoney(f.data.usd_missing.usd_minor, "USD") })}</p> : null}
         {f.data?.non_eur ? <p className="rounded-[12px] bg-subtle px-4 py-3 text-sm">{t("{n} movements are not in EUR: shown in their own currency, not converted and left out of the EUR totals.", { n: f.data.non_eur })}</p> : null}
         {tab === "overview" ? <Overview money={d} fin={f.data} onTab={setTab} /> : null}
         {tab === "pnl" ? (f.data ? <PnlTab fin={f.data} /> : <Skeleton className="h-96" />) : null}
@@ -84,6 +86,7 @@ export function MoneyView() {
           <>
             <Transactions rows={d.transactions} toReview={d.summary.toReview} fin={f.data} />
             {f.data ? <EntriesPanel fin={f.data} /> : null}
+            {f.data ? <UsdRatePanel fin={f.data} /> : null}
           </>
         ) : null}
         {tab === "contracts" ? (f.data ? <ContractsTab fin={f.data} /> : <Skeleton className="h-96" />) : null}
@@ -202,6 +205,7 @@ function Transactions({ rows, toReview, fin }: { rows: Tx[]; toReview: number; f
                   <span className={cn("num text-right text-sm font-medium", r.direction === "credit" ? (NEUTRAL.includes(r.category) ? "text-text-2" : "text-win") : "")}>
                     {r.direction === "credit" ? "+" : "−"}{formatMoney(Math.abs(r.amount_minor), r.currency)}
                     {r.currency !== "EUR" && it ? <span className="block text-[11px] font-normal text-text-3">{t("not in EUR, not converted")}</span> : null}
+                    {it?.fx && it.fx_minor ? <UsdAmount usd={it.fx_minor} eur={Math.abs(r.amount_minor)} rate={it.fx} className="block text-[11px] font-normal text-text-3" /> : null}
                   </span>
                 </li>
               );

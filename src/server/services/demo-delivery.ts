@@ -43,17 +43,27 @@ export async function seedDemoDelivery(repo: DataRepository) {
     id: childId("demo-vendor", "1"), name: "Lucía Ejemplo (demo)", company: "", skills: ["traducción", "contenidos"], services: "Traducción FR/ES",
     timezone: "Europe/Madrid", country: "ES", currency: "EUR", hourly_rate_minor: 3000, daily_rate_minor: null, fixed_rate_minor: null, capacity_hours_week: 15, availability: "limited",
     response_sla_hours: 48, nda_status: "none", contract_status: "none", rate_valid_until: null, contact_email: "lucia@ejemplo.example.com", contact_phone: "", notes: "Ficha de demostración.", quality_feedback: "",
+  }, {
+    // D085: a contractor paid in USD (rates in USD, converted to EUR at the demo rate).
+    id: childId("demo-vendor", "2"), name: "Sam Example (demo)", company: "Example Dev LLC (demo)", skills: ["développement", "API"], services: "Intégrations API",
+    timezone: "America/New_York", country: "US", currency: "USD", hourly_rate_minor: 4000, daily_rate_minor: null, fixed_rate_minor: null, capacity_hours_week: 12, availability: "available",
+    response_sla_hours: 24, nda_status: "signed", contract_status: "signed", rate_valid_until: addDays(today, 120), contact_email: "sam@dev.example.com", contact_phone: "", notes: "Fiche de démonstration, payé en USD.", quality_feedback: "",
   }], sys);
 
   const runFr = childId("workflow", "won_to_project", childId("demo-won-opp", "3"));
   const projectFr = childId(runFr, "project");
-  await repo.insert("ProjectAssignments", [{ id: childId("demo-assign", "0"), project_id: projectFr, vendor_id: childId("demo-vendor", "0"), role: "Automatisations", rate_minor: 4500, rate_unit: "hour", currency: "EUR", planned_hours: 16, start_date: addDays(today, -14), end_date: addDays(today, 13), status: "active", note: "" }], sys);
+  await repo.insert("ProjectAssignments", [{ id: childId("demo-assign", "0"), project_id: projectFr, vendor_id: childId("demo-vendor", "0"), role: "Automatisations", rate_minor: 4500, rate_unit: "hour", currency: "EUR", planned_hours: 16, start_date: addDays(today, -14), end_date: addDays(today, 13), status: "active", note: "" },
+    { id: childId("demo-assign", "1"), project_id: projectFr, vendor_id: childId("demo-vendor", "2"), role: "Connexion API du standard", rate_minor: 4000, rate_unit: "hour", currency: "USD", planned_hours: 10, start_date: addDays(today, -7), end_date: addDays(today, 20), status: "active", note: "" }], sys);
   await repo.insert("TimeEntries", [
     { id: childId("demo-time", "0"), project_id: projectFr, person_kind: "founder", founder_key: "theo", vendor_id: "", date: addDays(today, -18), minutes: 240, note: "Kick-off" },
     { id: childId("demo-time", "1"), project_id: projectFr, person_kind: "founder", founder_key: "theo", vendor_id: "", date: addDays(today, -9), minutes: 180, note: "" },
     { id: childId("demo-time", "2"), project_id: projectFr, person_kind: "contractor", founder_key: null, vendor_id: childId("demo-vendor", "0"), date: addDays(today, -5), minutes: 300, note: "" },
   ], sys);
-  await repo.insert("ProjectCosts", [{ id: childId("demo-cost", "0"), project_id: projectFr, date: addDays(today, -6), kind: "api", label: "Appels API (démo)", amount_minor: 1800, currency: "EUR", tool_id: childId("demo-tool", "0") }], sys);
+  await repo.insert("ProjectCosts", [
+    { id: childId("demo-cost", "0"), project_id: projectFr, date: addDays(today, -6), kind: "api", label: "Appels API (démo)", amount_minor: 1800, currency: "EUR", tool_id: childId("demo-tool", "0"), wise_tx_id: "" },
+    // D085: a USD invoice paid through Wise (demo movement DEMO-1010): its real rate converts it once the bank is synced.
+    { id: childId("demo-cost", "1"), project_id: projectFr, date: addDays(today, -12), kind: "contractor", label: "Maquettes (démo)", amount_minor: 32600, currency: "USD", tool_id: "", wise_tx_id: childId("wise-tx", "DEMO-1010") },
+  ], sys);
   const kickFr = (await repo.list("Milestones")).rows.find((m) => m.project_id === projectFr && m.sort === 0);
   if (kickFr) await repo.update("Milestones", kickFr.id, kickFr.version, { done_at: new Date(Date.parse(`${addDays(today, -17)}T10:00:00Z`)).toISOString() }, sys);
   const pFr = await repo.get("Projects", projectFr);

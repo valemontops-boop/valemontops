@@ -3,11 +3,12 @@ import {
   actualCost, assignmentCost, capacityCheck, forecastCost, LOCAL_PLAN_LIMITS_SEED, LOCAL_PROVISIONS_SEED, limitLevel, localMargin, marginOf, parseLocalUsageCsv,
   projectAlerts, projectCost, projectRevenue, provisionsTotal, shortlist,
 } from "./delivery";
+import { eurConverter } from "./usd";
 
 describe("project cost calculator and margin", () => {
   it("adds founder labour, contractors, API usage and infrastructure", () => {
     const c = projectCost({ founderHours: 20, hourCostMinor: 3000, assignments: [{ planned_hours: 10, rate_minor: 4500, rate_unit: "hour" }, { planned_hours: 16, rate_minor: 40000, rate_unit: "day" }, { planned_hours: 0, rate_minor: 25000, rate_unit: "fixed", status: "cancelled" }], apiMinor: 1500, infraMinor: 2500 });
-    expect(c).toEqual({ founder: 60000, contractors: 45000 + 80000, api: 1500, infra: 2500, other: 0, total: 189000 });
+    expect(c).toEqual({ founder: 60000, contractors: 45000 + 80000, api: 1500, infra: 2500, other: 0, total: 189000, missing: 0, missing_usd_minor: 0 });
     expect(assignmentCost({ planned_hours: 3, rate_minor: 99999, rate_unit: "fixed" })).toBe(99999);
   });
   it("classifies healthy / at risk / negative with the guardrail", () => {
@@ -28,7 +29,25 @@ describe("project cost calculator and margin", () => {
       costs: [{ amount_minor: 1800, kind: "api" }], hourCostMinor: 3000,
       assignments: [{ vendor_id: "v1", planned_hours: 20, rate_minor: 4500, rate_unit: "hour" }, { vendor_id: "v2", planned_hours: 0, rate_minor: 50000, rate_unit: "fixed" }],
     });
-    expect(a).toEqual({ founder: 12000, contractors: 22500 + 50000, direct: 1800, total: 86300, founderHours: 4, contractorHours: 6 });
+    expect(a).toEqual({ founder: 12000, contractors: 22500 + 50000, direct: 1800, total: 86300, founderHours: 4, contractorHours: 6, missing: 0, missing_usd_minor: 0 });
+  });
+});
+
+describe("USD contractors (D085)", () => {
+  const rate = { micro: 920_000, date: "2026-11-12", source: "wise" as const };
+  it("converts a USD assignment to EUR in the estimate and the actual cost", () => {
+    const as = [{ vendor_id: "v1", planned_hours: 10, rate_minor: 4000, rate_unit: "hour" as const, currency: "USD" }];
+    const e = projectCost({ founderHours: 0, hourCostMinor: 3000, assignments: as, apiMinor: 0, infraMinor: 0, toEur: eurConverter(rate) });
+    expect(e).toMatchObject({ contractors: 36800, total: 36800, missing: 0 }); // 400 $ × 0.92
+    const a = actualCost({ entries: [{ minutes: 120, person_kind: "contractor", vendor_id: "v1" }], costs: [{ amount_minor: 10000, kind: "other", currency: "USD" }, { amount_minor: 32600, kind: "contractor", currency: "USD", eur_minor: 30000 }], hourCostMinor: 3000, assignments: as, toEur: eurConverter(rate) });
+    expect(a).toMatchObject({ contractors: 7360, direct: 9200 + 30000, missing: 0 });
+  });
+  it("leaves USD out of the EUR totals when no rate exists, and says how much", () => {
+    const as = [{ planned_hours: 10, rate_minor: 4000, rate_unit: "hour" as const, currency: "USD" }, { planned_hours: 2, rate_minor: 5000, rate_unit: "hour" as const, currency: "EUR" }];
+    const e = projectCost({ founderHours: 0, hourCostMinor: 0, assignments: as, apiMinor: 0, infraMinor: 0, toEur: eurConverter(null) });
+    expect(e).toMatchObject({ contractors: 10000, total: 10000, missing: 1, missing_usd_minor: 40000 });
+    // without any converter, a USD assignment is never treated as EUR
+    expect(projectCost({ founderHours: 0, hourCostMinor: 0, assignments: as, apiMinor: 0, infraMinor: 0 })).toMatchObject({ contractors: 10000, missing: 1 });
   });
 });
 

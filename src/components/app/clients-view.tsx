@@ -11,7 +11,7 @@ import { BRAND_LABELS, FOUNDERS, FOUNDER_NAMES, type Brand } from "@/domain/cons
 import { MARGIN_STATUS_LABELS, PROJECT_STATUS_LABELS, type MarginStatus, type ProjectAlert, type ProjectStatus } from "@/domain/delivery";
 import { useDateTag, useT } from "@/i18n/react";
 import { ApiError, api } from "@/lib/api";
-import { cn, formatEur } from "@/lib/utils";
+import { cn, formatEur, formatMoney } from "@/lib/utils";
 import { BigNumber, Pill, fmtDay } from "./bits";
 import { ConflictNotice } from "./conflict";
 import { LocalSubscriptions } from "./clients-local";
@@ -19,17 +19,19 @@ import { PartnersRegistry } from "./clients-partners";
 import { WonDialog } from "./won-project";
 import { useMe } from "./providers";
 import { CsvExportButton } from "./csv-tools";
+import { UsdAmount } from "./usd-line";
+import type { UsdRate } from "@/domain/usd";
 
-type Cost = { founder: number; contractors: number; api: number; infra: number; other: number; total: number };
+type Cost = { founder: number; contractors: number; api: number; infra: number; other: number; total: number; missing: number; missing_usd_minor: number };
 type Milestone = { id: string; version: number; title: string; due_date: string | null; done_at: string | null };
-type Assignment = { id: string; version: number; vendor_id: string; vendorName: string; role: string; rate_minor: number; rate_unit: "hour" | "day" | "fixed"; planned_hours: number; start_date: string | null; end_date: string | null; status: string; overCapacity: boolean };
+type Assignment = { id: string; version: number; vendor_id: string; vendorName: string; role: string; rate_minor: number; rate_unit: "hour" | "day" | "fixed"; currency: string; rate_eur_minor: number | null; fx_rate: UsdRate | null; planned_hours: number; start_date: string | null; end_date: string | null; status: string; overCapacity: boolean };
 export type Project = {
   id: string; version: number; name: string; clientName: string; client_id: string; brand: Brand; market: "FR" | "ES" | null; owner_founder: "theo" | "pablo" | null; status: ProjectStatus;
   start_date: string; due_date: string | null; scope: string; services: { label: string; qty: number; unit_minor: number; kind: "one_off" | "monthly" }[]; checklist: { id: string; label: string; done: boolean }[];
   revenue_one_off_minor: number; mrr_minor: number; term_months: number | null; est_founder_hours: number; est_api_minor: number; est_infra_minor: number; est_other_minor: number;
   handoff_promised: string; handoff_stakeholders: string; handoff_success: string; source: "quote" | "offer";
   milestones: Milestone[]; assignments: Assignment[]; entries: { id: string; date: string; minutes: number; who: string; person_kind: string; note: string }[];
-  costs: { id: string; date: string; kind: string; label: string; amount_minor: number }[]; tasks: { id: string; version: number; title: string; owner: string | null; status: string; due_at: string | null }[];
+  costs: { id: string; version: number; date: string; kind: string; label: string; amount_minor: number; currency: string; eur_minor: number | null; fx_rate: UsdRate | null; wise_tx_id: string }[]; tasks: { id: string; version: number; title: string; owner: string | null; status: string; due_at: string | null }[];
   estimate: Cost; actual: Cost & { direct: number; founderHours: number; contractorHours: number }; revenue: number; forecast: number; margin: { margin: number; pct: number | null; status: MarginStatus }; alerts: ProjectAlert[];
   hours: { estimated: number; actual: number };
 };
@@ -38,6 +40,7 @@ type Overview = {
   runs: { id: string; status: string; subject_id: string; name: string; steps: Record<string, { status: string; error: string }>; last_error: string; updated_at: string }[];
   wonWaiting: { id: string; name: string; brand: Brand; account_id: string }[];
   vendors: { id: string; name: string; hourly_rate_minor: number | null; daily_rate_minor: number | null; fixed_rate_minor: number | null; currency: string; capacity_hours_week: number }[];
+  usd: { rate: UsdRate | null; wise_status: string; payments: { id: string; date: string; label: string; eur_minor: number; usd_minor: number; rate: UsdRate }[] };
 };
 
 export const BRAND_DOT: Record<Brand, string> = { consulting: "bg-brand-consulting", local: "bg-brand-local", thirty: "bg-brand-thirty" };
@@ -254,7 +257,7 @@ function ProjectPanel({ p, data, onClose }: { p: Project; data: Overview; onClos
         <ProjectTasks p={p} />
         <Hours p={p} today={data.today} />
         <Contractors p={p} vendors={data.vendors} />
-        <DirectCosts p={p} today={data.today} />
+        <DirectCosts p={p} today={data.today} payments={data.usd.payments} />
         <Handoff key={p.version} p={p} />
         {p.services.length ? (
           <section>
@@ -290,6 +293,7 @@ function MarginBlock({ p, hourCost, guardrail }: { p: Project; hourCost: number;
           <tr className="border-t border-hairline text-text-2"><td className="py-1">{t("Hours")}</td><td className="num text-right">{p.hours.estimated} h</td><td className="num text-right">{p.hours.actual} h</td></tr>
         </tbody>
       </table>
+      {p.estimate.missing_usd_minor || p.actual.missing_usd_minor ? <p className="mt-2 text-[12px] font-medium text-bad">{t("USD costs without a rate ({x}) are left out of these EUR totals: enter a manual rate in Money › Movements.", { x: formatMoney(Math.max(p.estimate.missing_usd_minor, p.actual.missing_usd_minor), "USD") })}</p> : null}
       <p className="mt-2 text-[12px] text-text-3">{t("Revenue: one-off {a} + MRR {m} × {k} months. Founder hour {h}. Status: negative below 0, at risk under {g} %.", { a: formatEur(p.revenue_one_off_minor), m: formatEur(p.mrr_minor), k: Math.max(1, p.term_months ?? 1), h: formatEur(hourCost), g: guardrail })}</p>
       <Button size="sm" variant="ghost" className="mt-1" onClick={() => setEdit((v) => !v)}>{edit ? t("Close") : t("Edit estimates")}</Button>
       {edit ? <EstimatesForm p={p} onDone={() => setEdit(false)} /> : null}
@@ -424,7 +428,7 @@ function Contractors({ p, vendors }: { p: Project; vendors: Overview["vendors"] 
       {p.assignments.length === 0 && !open ? <p className="text-sm text-text-2">{t("No contractor on this project.")}</p> : null}
       <ul className="flex flex-col">{p.assignments.map((a) => (
         <li key={a.id} className="flex flex-wrap items-center gap-2 border-t border-hairline py-1.5 text-sm first:border-t-0">
-          <span className="min-w-0 flex-1"><span className="font-medium">{a.vendorName}</span>{a.role ? ` · ${a.role}` : ""}<span className="block text-[12px] text-text-3">{formatEur(a.rate_minor)} {unit(a.rate_unit)} · {t("{n} h planned", { n: a.planned_hours })}</span>{a.overCapacity ? <span className="block text-[12px] font-medium text-bad">{t("Over weekly capacity")}</span> : null}</span>
+          <span className="min-w-0 flex-1"><span className="font-medium">{a.vendorName}</span>{a.role ? ` · ${a.role}` : ""}<span className="block text-[12px] text-text-3">{a.currency === "USD" ? <UsdAmount usd={a.rate_minor} eur={a.rate_eur_minor} rate={a.fx_rate} /> : formatEur(a.rate_minor)} {unit(a.rate_unit)} · {t("{n} h planned", { n: a.planned_hours })}</span>{a.overCapacity ? <span className="block text-[12px] font-medium text-bad">{t("Over weekly capacity")}</span> : null}</span>
           <Select aria-label={t("Status")} className="h-8 w-28 text-[13px]" value={a.status} onChange={(e) => upd.mutate({ id: a.id, expected_version: a.version, patch: { status: e.target.value } })}>
             {["planned", "active", "done", "cancelled"].map((s) => <option key={s} value={s}>{t(s === "planned" ? "Planned" : s === "active" ? "Active" : s === "done" ? "Done" : "Cancelled")}</option>)}
           </Select>
@@ -438,7 +442,7 @@ function Contractors({ p, vendors }: { p: Project; vendors: Overview["vendors"] 
 function AssignForm({ p, vendors, onDone }: { p: Project; vendors: Overview["vendors"]; onDone: () => void }) {
   const t = useT();
   const [id] = React.useState(() => crypto.randomUUID());
-  const [v, setV] = React.useState({ vendor_id: "", role: "", rate: "", unit: "hour" as "hour" | "day" | "fixed", hours: "", start: p.start_date, end: p.due_date ?? "" });
+  const [v, setV] = React.useState({ vendor_id: "", role: "", rate: "", currency: "EUR" as "EUR" | "USD", unit: "hour" as "hour" | "day" | "fixed", hours: "", start: p.start_date, end: p.due_date ?? "" });
   const m = useSave("/api/clients/assignments", "POST", (r) => {
     const x = r as { capacity: { plannedPerWeek: number; capacity: number; over: boolean }; rateExpired: boolean; ndaSigned: boolean };
     if (x.capacity.over) toast(t("Warning: {p} h/week planned for a capacity of {c} h/week.", { p: x.capacity.plannedPerWeek, c: x.capacity.capacity }));
@@ -451,15 +455,16 @@ function AssignForm({ p, vendors, onDone }: { p: Project; vendors: Overview["ven
     const x = vendors.find((y) => y.id === vid);
     const unit = x?.hourly_rate_minor ? "hour" : x?.daily_rate_minor ? "day" : x?.fixed_rate_minor ? "fixed" : "hour";
     const rate = unit === "hour" ? x?.hourly_rate_minor : unit === "day" ? x?.daily_rate_minor : x?.fixed_rate_minor;
-    setV({ ...v, vendor_id: vid, unit, rate: rate ? String(rate / 100) : "" });
+    setV({ ...v, vendor_id: vid, unit, rate: rate ? String(rate / 100) : "", currency: x?.currency.toUpperCase() === "USD" ? "USD" : "EUR" });
   };
   if (!vendors.length) return <p className="text-sm text-text-2">{t("Add a contractor first in Partners & tools.")}</p>;
   const n = (s: string) => Number(s.replace(",", "."));
   return (
-    <form className="mt-2 grid grid-cols-2 gap-2 rounded-[12px] bg-subtle p-3" onSubmit={(e) => { e.preventDefault(); m.mutate({ id, project_id: p.id, vendor_id: v.vendor_id, role: v.role, rate_eur: n(v.rate) || 0, rate_unit: v.unit, planned_hours: Math.round(n(v.hours) || 0), start_date: v.start, end_date: v.end, note: "" }); }}>
+    <form className="mt-2 grid grid-cols-2 gap-2 rounded-[12px] bg-subtle p-3" onSubmit={(e) => { e.preventDefault(); m.mutate({ id, project_id: p.id, vendor_id: v.vendor_id, role: v.role, rate_eur: n(v.rate) || 0, currency: v.currency, rate_unit: v.unit, planned_hours: Math.round(n(v.hours) || 0), start_date: v.start, end_date: v.end, note: "" }); }}>
       <Field label={t("Contractor")} htmlFor="as-v" className="col-span-2"><Select id="as-v" value={v.vendor_id} onChange={(e) => pick(e.target.value)} required><option value="">—</option>{vendors.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</Select></Field>
       <Field label={t("Role")} htmlFor="as-r" className="col-span-2"><Input id="as-r" value={v.role} onChange={(e) => setV({ ...v, role: e.target.value })} maxLength={200} /></Field>
-      <Field label={t("Rate (€)")} htmlFor="as-rate"><Input id="as-rate" inputMode="decimal" value={v.rate} onChange={(e) => setV({ ...v, rate: e.target.value })} required /></Field>
+      <Field label={v.currency === "USD" ? t("Rate ($)") : t("Rate (€)")} htmlFor="as-rate"><Input id="as-rate" inputMode="decimal" value={v.rate} onChange={(e) => setV({ ...v, rate: e.target.value })} required /></Field>
+      <Field label={t("Currency")} htmlFor="as-cur"><Select id="as-cur" value={v.currency} onChange={(e) => setV({ ...v, currency: e.target.value as "EUR" | "USD" })}><option value="EUR">{t("Euro (€)")}</option><option value="USD">{t("US dollar ($)")}</option></Select></Field>
       <Field label={t("Unit")} htmlFor="as-u"><Select id="as-u" value={v.unit} onChange={(e) => setV({ ...v, unit: e.target.value as "hour" })}><option value="hour">{t("per hour")}</option><option value="day">{t("per day")}</option><option value="fixed">{t("fixed fee")}</option></Select></Field>
       <Field label={t("Planned hours")} htmlFor="as-h"><Input id="as-h" inputMode="numeric" value={v.hours} onChange={(e) => setV({ ...v, hours: e.target.value })} required /></Field>
       <span />
@@ -470,10 +475,11 @@ function AssignForm({ p, vendors, onDone }: { p: Project; vendors: Overview["ven
   );
 }
 
-function DirectCosts({ p, today }: { p: Project; today: string }) {
+function DirectCosts({ p, today, payments }: { p: Project; today: string; payments: Overview["usd"]["payments"] }) {
   const t = useT();
   const tag = useDateTag();
-  const [v, setV] = React.useState({ kind: "api", label: "", amount: "", date: today });
+  const [v, setV] = React.useState({ kind: "api", label: "", amount: "", currency: "EUR" as "EUR" | "USD", wise_tx_id: "", date: today });
+  const link = useSave<{ id: string; expected_version: number; wise_tx_id: string }>("/api/clients/costs", "PATCH");
   const [id, setId] = React.useState(() => crypto.randomUUID());
   const add = useSave("/api/clients/costs", "POST", () => { setV({ ...v, label: "", amount: "" }); setId(crypto.randomUUID()); });
   const KIND: Record<string, string> = { api: "API and usage", infra: "Infrastructure", contractor: "Contractor invoice", other: "Other" };
@@ -481,11 +487,24 @@ function DirectCosts({ p, today }: { p: Project; today: string }) {
   return (
     <section>
       <h3 className="mb-2 text-sm font-semibold">{t("Direct costs")} <span className="num font-normal text-text-3">{formatEur(p.actual.direct)}</span></h3>
-      <ul className="flex flex-col">{p.costs.slice(0, 6).map((c) => <li key={c.id} className="flex justify-between gap-2 border-t border-hairline py-1 text-[13px] first:border-t-0"><span>{c.label} · {t(KIND[c.kind] ?? c.kind)}</span><span className="num text-text-3">{fmtDay(c.date, tag)} · {formatEur(c.amount_minor)}</span></li>)}</ul>
-      <form className="mt-2 flex flex-wrap gap-2" onSubmit={(e) => { e.preventDefault(); if (v.label.trim() && amount >= 0) add.mutate({ id, project_id: p.id, date: v.date, kind: v.kind, label: v.label, amount_eur: amount, tool_id: "" }); }}>
+      <ul className="flex flex-col">{p.costs.slice(0, 6).map((c) => (
+        <li key={c.id} className="flex flex-wrap justify-between gap-2 border-t border-hairline py-1 text-[13px] first:border-t-0">
+          <span>{c.label} · {t(KIND[c.kind] ?? c.kind)}</span>
+          <span className="num text-text-3">{fmtDay(c.date, tag)} · {c.currency === "USD" ? <UsdAmount usd={c.amount_minor} eur={c.eur_minor} rate={c.fx_rate} /> : formatEur(c.amount_minor)}</span>
+          {c.currency === "USD" && payments.length ? (
+            <Select aria-label={t("Wise payment (real rate)")} className="h-8 w-full text-[12px]" value={c.wise_tx_id} onChange={(e) => link.mutate({ id: c.id, expected_version: c.version, wise_tx_id: e.target.value })}>
+              <option value="">{t("Not linked to a Wise payment")}</option>
+              {payments.map((x) => <option key={x.id} value={x.id}>{`${x.date} · ${x.label} · ${formatMoney(x.usd_minor, "USD")} → ${formatEur(x.eur_minor)}`}</option>)}
+            </Select>
+          ) : null}
+        </li>
+      ))}</ul>
+      <form className="mt-2 flex flex-wrap gap-2" onSubmit={(e) => { e.preventDefault(); if (v.label.trim() && amount >= 0) add.mutate({ id, project_id: p.id, date: v.date, kind: v.kind, label: v.label, amount_eur: amount, currency: v.currency, wise_tx_id: v.currency === "USD" ? v.wise_tx_id : "", tool_id: "" }); }}>
         <Select aria-label={t("Kind")} className="w-36" value={v.kind} onChange={(e) => setV({ ...v, kind: e.target.value })}>{Object.entries(KIND).map(([k, l]) => <option key={k} value={k}>{t(l)}</option>)}</Select>
         <Input aria-label={t("Label")} placeholder={t("Label")} className="min-w-28 flex-1" value={v.label} onChange={(e) => setV({ ...v, label: e.target.value })} maxLength={200} />
-        <Input aria-label={t("Amount (€)")} placeholder="€" inputMode="decimal" className="w-24" value={v.amount} onChange={(e) => setV({ ...v, amount: e.target.value })} />
+        <Input aria-label={v.currency === "USD" ? t("Amount ($)") : t("Amount (€)")} placeholder={v.currency === "USD" ? "$" : "€"} inputMode="decimal" className="w-24" value={v.amount} onChange={(e) => setV({ ...v, amount: e.target.value })} />
+        <Select aria-label={t("Currency")} className="w-20" value={v.currency} onChange={(e) => setV({ ...v, currency: e.target.value as "EUR" | "USD" })}><option value="EUR">€</option><option value="USD">$</option></Select>
+        {v.currency === "USD" && payments.length ? <Select aria-label={t("Wise payment (real rate)")} className="w-full" value={v.wise_tx_id} onChange={(e) => setV({ ...v, wise_tx_id: e.target.value })}><option value="">{t("Not linked to a Wise payment")}</option>{payments.map((x) => <option key={x.id} value={x.id}>{`${x.date} · ${x.label} · ${formatMoney(x.usd_minor, "USD")} → ${formatEur(x.eur_minor)}`}</option>)}</Select> : null}
         <Button type="submit" size="sm" variant="outline" disabled={!v.label.trim() || !v.amount || add.isPending}>{t("Add cost")}</Button>
       </form>
     </section>

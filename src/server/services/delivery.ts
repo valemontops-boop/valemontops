@@ -340,15 +340,16 @@ export const costSchema = z.object({
   id: z.string().uuid(), project_id: z.string().uuid(), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), kind: z.enum(["api", "infra", "contractor", "other"]),
   /** Amount in `currency` (named before D085, when everything was EUR). */
   label: z.string().trim().min(1).max(200), amount_eur: z.number().min(0).max(1_000_000), tool_id: z.union([z.literal(""), z.string().uuid()]).default(""),
-  currency: z.enum(PAY_CURRENCIES).default("EUR"),
+  currency: z.enum(PAY_CURRENCIES).optional(),
   /** The Wise payment that paid it (its real rate converts USD to EUR). */
-  wise_tx_id: z.union([z.literal(""), z.string().uuid()]).default(""),
+  wise_tx_id: z.union([z.literal(""), z.string().uuid()]).optional(),
 });
 export async function addCost(ctx: AppContext, founder: FounderKey, i: z.infer<typeof costSchema>) {
   await mustProject(ctx.repo, i.project_id);
   if (await ctx.repo.get("ProjectCosts", i.id, { fresh: true })) return { duplicate: true };
-  if (i.wise_tx_id) await mustUsdPayment(ctx.repo, i.wise_tx_id, i.currency);
-  await ctx.repo.insert("ProjectCosts", [{ id: i.id, project_id: i.project_id, date: i.date, kind: i.kind, label: i.label, amount_minor: Math.round(i.amount_eur * 100), currency: i.currency, tool_id: i.tool_id, wise_tx_id: i.wise_tx_id }], { founder });
+  const currency = i.currency ?? "EUR", wiseTx = i.wise_tx_id ?? "";
+  if (wiseTx) await mustUsdPayment(ctx.repo, wiseTx, currency);
+  await ctx.repo.insert("ProjectCosts", [{ id: i.id, project_id: i.project_id, date: i.date, kind: i.kind, label: i.label, amount_minor: Math.round(i.amount_eur * 100), currency, tool_id: i.tool_id, wise_tx_id: wiseTx }], { founder });
   return { duplicate: false };
 }
 
