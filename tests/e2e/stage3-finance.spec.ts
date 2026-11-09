@@ -25,7 +25,9 @@ test("Stage 3 finance: Théo reads the dashboard, the P&L with drill-down (all i
 
   await page.getByRole("radio", { name: fr("Movements") }).click();
   await page.getByRole("button", { name: fr("Add an entry") }).click();
-  await expect(page.getByLabel(fr("Currency"))).toHaveCount(0);
+  // D085: USD only to pay a supplier (no display switch); EUR stays the default.
+  await expect(page.getByLabel(fr("Currency"))).toHaveValue("EUR");
+  await expect(page.getByLabel(fr("Currency")).locator("option")).toHaveCount(2);
   await page.getByLabel(fr("Amount ex VAT")).fill("12,00");
   await page.getByLabel(fr("Client or supplier")).fill("Papeterie (e2e)");
   await page.getByRole("button", { name: fr("Save") }).click();
@@ -33,6 +35,8 @@ test("Stage 3 finance: Théo reads the dashboard, the P&L with drill-down (all i
   await page.reload();
   await page.getByRole("radio", { name: fr("Movements") }).click();
   await expect(page.getByText("Papeterie (e2e)")).toBeVisible();
+  await expect(page.getByText(fr("Contractors paid in USD"))).toBeVisible();
+  await expect(page.getByText(fr("demo rate")).first()).toBeVisible(); // the demo USD entry: "120 $US ≈ 110,40 € (taux démo)"
 
   await page.getByRole("radio", { name: fr("Contracts") }).click();
   await expect(page.getByText(fr("Client contracts"))).toBeVisible();
